@@ -1,0 +1,16 @@
+---
+# Handlers du rôle webapp. Ordre d'exécution = ordre de déclaration :
+# le daemon-reload passe toujours avant les redémarrages.
+- name: Recharger systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Redémarrer insacloud-web
+  ansible.builtin.systemd:
+    name: insacloud-web
+    state: restarted
+
+- name: Redémarrer insacloud-faucheur
+  ansible.builtin.systemd:
+    name: insacloud-faucheur
+    state: restarted

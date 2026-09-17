@@ -1,0 +1,6 @@
+---
+# Handlers du rôle docker : déclenchés seulement si une tâche a modifié quelque chose
+- name: Redémarrer docker
+  ansible.builtin.systemd:
+    name: docker
+    state: restarted

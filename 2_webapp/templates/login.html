@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>InsaCloud — Connexion</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- Inter : repli quand la police système Apple (SF Pro) n'est pas disponible -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    /* =====================================================================
+       InsaCloud — thème "Liquid Glass" (inspiré du design Apple 2025)
+       Surfaces translucides floutées, reflets, pilules, dégradés doux.
+       Les couleurs sont des variables : le mode sombre ne change que les jetons.
+       ===================================================================== */
+    :root {
+      --ink: #0b1220;            /* texte principal            */
+      --ink-2: #4a5268;          /* texte secondaire           */
+      --muted: #7b8194;          /* texte discret              */
+      --accent: #0a84ff;         /* bleu Apple                 */
+      --accent-2: #5e5ce6;       /* indigo                     */
+      --ok: #34c759; --warn: #ff9f0a; --bad: #ff3b30;
+      --glass: rgba(255,255,255,.52);
+      --glass-strong: rgba(255,255,255,.72);
+      --glass-border: rgba(255,255,255,.85);
+      --glass-shadow: 0 20px 60px -20px rgba(30,40,80,.25), 0 1px 0 rgba(255,255,255,.9) inset;
+      --field: rgba(255,255,255,.6);
+      --bg: #eef1fa;
+      --blob-1: #9fc3ff; --blob-2: #d9b8ff; --blob-3: #ffd3b6; --blob-4: #b8f0e6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #f3f4f8; --ink-2: #c3c7d3; --muted: #8b90a0;
+        --glass: rgba(30,34,48,.48);
+        --glass-strong: rgba(36,40,56,.66);
+        --glass-border: rgba(255,255,255,.14);
+        --glass-shadow: 0 30px 80px -30px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.12) inset;
+        --field: rgba(255,255,255,.07);
+        --bg: #0d1020;
+        --blob-1: #1f4fa8; --blob-2: #5b34b3; --blob-3: #a34a5a; --blob-4: #1b7f6e;
+      }
+    }
+    html { color-scheme: light dark; }
+    body {
+      background: var(--bg); color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .mono { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace; }
+    .ink-2 { color: var(--ink-2); } .muted { color: var(--muted); }
+
+    /* Halos colorés flous en arrière-plan, animés lentement */
+    .blob { position: fixed; border-radius: 9999px; filter: blur(90px); opacity: .85; pointer-events: none; z-index: 0; will-change: transform; }
+    .b1 { width: 560px; height: 560px; left: -140px; top: -160px; background: var(--blob-1); animation: drift 26s ease-in-out infinite alternate; }
+    .b2 { width: 520px; height: 520px; right: -160px; top: 10%; background: var(--blob-2); animation: drift 32s ease-in-out infinite alternate-reverse; }
+    .b3 { width: 460px; height: 460px; left: 30%; bottom: -220px; background: var(--blob-3); animation: drift 28s ease-in-out infinite alternate; }
+    .b4 { width: 380px; height: 380px; right: 22%; bottom: -120px; background: var(--blob-4); animation: drift 36s ease-in-out infinite alternate-reverse; }
+    @keyframes drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(60px,40px,0) scale(1.12); } }
+    @media (prefers-reduced-motion: reduce) { .blob { animation: none; } }
+
+    /* Verre */
+    .glass {
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+      border: 1px solid var(--glass-border);
+      box-shadow: var(--glass-shadow);
+    }
+    .glass-strong { background: var(--glass-strong); }
+    .glass-highlight { position: relative; overflow: hidden; }
+    .glass-highlight::before {   /* reflet spéculaire en haut à gauche */
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(135deg, rgba(255,255,255,.45), rgba(255,255,255,0) 40%);
+    }
+
+    /* Boutons */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: 9999px;
+           font-weight: 600; transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
+    .btn:active { transform: scale(.98); }
+    .btn-primary { color: #fff; background: linear-gradient(180deg, #4aa3ff, var(--accent));
+                   box-shadow: 0 8px 24px -8px rgba(10,132,255,.6), 0 1px 0 rgba(255,255,255,.5) inset; }
+    .btn-primary:hover { box-shadow: 0 12px 28px -8px rgba(10,132,255,.7), 0 1px 0 rgba(255,255,255,.5) inset; filter: brightness(1.04); }
+    .btn-glass { background: var(--glass-strong); border: 1px solid var(--glass-border); color: var(--ink);
+                 -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+    .btn-glass:hover { background: var(--glass-border); }
+
+    /* Champs */
+    .field { width: 100%; border-radius: 16px; padding: .8rem 1rem; background: var(--field);
+             border: 1px solid var(--glass-border); color: var(--ink); outline: none; transition: box-shadow .15s, border-color .15s; }
+    .field:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(10,132,255,.18); }
+    .field::placeholder { color: var(--muted); }
+    input:-webkit-autofill { -webkit-text-fill-color: var(--ink); transition: background-color 9999s; }
+
+    /* Contrôle segmenté (façon iOS) */
+    .seg { display: inline-flex; padding: 4px; border-radius: 9999px; background: rgba(120,130,160,.16); gap: 2px; }
+    .seg label { cursor: pointer; }
+    .seg input { position: absolute; opacity: 0; pointer-events: none; }
+    .seg span { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem 1.1rem; border-radius: 9999px;
+                font-size: .9rem; font-weight: 600; color: var(--ink-2); transition: all .18s ease; }
+    .seg input:checked + span { background: var(--glass-strong); color: var(--ink);
+                                box-shadow: 0 2px 8px rgba(20,30,60,.15), 0 1px 0 rgba(255,255,255,.7) inset; }
+
+    /* Messages */
+    .toast { border-radius: 16px; padding: .8rem 1rem; font-size: .9rem; display: flex; gap: .6rem; align-items: flex-start; }
+    .toast-success { background: rgba(52,199,89,.14); color: #1f7a3a; border: 1px solid rgba(52,199,89,.35); }
+    .toast-error   { background: rgba(255,59,48,.12); color: #b3261e; border: 1px solid rgba(255,59,48,.35); }
+    .toast-info    { background: rgba(10,132,255,.12); color: #0a5bb5; border: 1px solid rgba(10,132,255,.3); }
+    @media (prefers-color-scheme: dark) {
+      .toast-success { color: #7ee2a0; } .toast-error { color: #ff9b94; } .toast-info { color: #8cc4ff; }
+    }
+    .chip { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 14px;
+            background: var(--glass-strong); border: 1px solid var(--glass-border); color: var(--accent); flex: none; }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+
+  <!-- Halos d'arrière-plan -->
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+
+  <div class="relative z-10 min-h-screen flex flex-col">
+
+    <!-- Barre flottante -->
+    <header class="px-4 sm:px-8 pt-5">
+      <div class="glass rounded-full max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
+        <span class="text-lg font-bold tracking-tight">InsaCloud</span>
+        <span class="text-xs muted hidden sm:inline">Mini-fournisseur de cloud · INSA</span>
+      </div>
+    </header>
+
+    <!-- Carte principale -->
+    <main class="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
+      <div class="glass glass-highlight rounded-[32px] w-full max-w-5xl grid lg:grid-cols-[1.1fr_1fr]">
+
+        <!-- Présentation -->
+        <section class="relative p-8 sm:p-12 flex flex-col justify-between gap-10">
+          <div>
+            <p class="text-sm font-semibold" style="color: var(--accent)">Bienvenue</p>
+            <h1 class="mt-3 text-4xl sm:text-5xl font-bold tracking-tight leading-[1.05]">
+              Une machine Linux,<br>le temps qu'il vous faut.
+            </h1>
+            <p class="mt-5 ink-2 text-lg leading-relaxed max-w-md">
+              Choisissez une distribution, un mode terminal ou bureau graphique, une durée —
+              votre machine est prête en quelques secondes et disparaît toute seule à la fin.
+            </p>
+          </div>
+
+          <ul class="space-y-4">
+            <li class="flex gap-4 items-start">
+              <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
+              <div><p class="font-semibold">Terminal ou bureau, au choix</p><p class="text-sm ink-2">SSH, terminal web, ou un vrai bureau XFCE avec Firefox dans votre navigateur.</p></div>
+            </li>
+            <li class="flex gap-4 items-start">
+              <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+              <div><p class="font-semibold">Durée maîtrisée</p><p class="text-sm ink-2">De 1 à 120 minutes, prolongeable. Le Faucheur nettoie tout à l'expiration.</p></div>
+            </li>
+            <li class="flex gap-4 items-start">
+              <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+              <div><p class="font-semibold">Toujours disponible</p><p class="text-sm ink-2">Chaque service est surveillé et relancé automatiquement en cas d'incident.</p></div>
+            </li>
+          </ul>
+        </section>
+
+        <!-- Formulaires -->
+        <section class="relative p-8 sm:p-12 lg:border-l" style="border-color: var(--glass-border)">
+          <div class="seg" role="tablist">
+            <label><input type="radio" name="tab" value="login" checked><span>Connexion</span></label>
+            <label><input type="radio" name="tab" value="register"><span>Créer un compte</span></label>
+          </div>
+
+          <h2 id="form-title" class="mt-7 text-2xl font-bold tracking-tight">Bon retour parmi nous</h2>
+          <p id="form-subtitle" class="mt-1 muted text-sm">Connectez-vous pour retrouver vos machines.</p>
+
+          {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+              <div class="mt-5 space-y-2">
+                {% for category, message in messages %}
+                  <div class="toast toast-{{ category if category in ['success','error','info'] else 'info' }}">{{ message }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endwith %}
+
+          <form id="panel-login" method="POST" action="{{ url_for('login') }}" class="tab-panel mt-6 space-y-4">
+            <div>
+              <label for="login-username" class="block text-sm font-medium mb-1.5">Identifiant</label>
+              <input id="login-username" name="username" type="text" required autocomplete="username" autofocus class="field">
+            </div>
+            <div>
+              <label for="login-password" class="block text-sm font-medium mb-1.5">Mot de passe</label>
+              <input id="login-password" name="password" type="password" required autocomplete="current-password" class="field">
+            </div>
+            <button type="submit" class="btn btn-primary w-full py-3 mt-2">Se connecter</button>
+          </form>
+
+          <form id="panel-register" method="POST" action="{{ url_for('register') }}" class="tab-panel mt-6 space-y-4 hidden">
+            <div>
+              <label for="reg-username" class="block text-sm font-medium mb-1.5">Identifiant</label>
+              <input id="reg-username" name="username" type="text" required autocomplete="username" minlength="3" maxlength="32"
+                     pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}" title="3 à 32 caractères : lettres, chiffres, . _ -" class="field">
+              <p class="mt-1.5 text-xs muted">3 à 32 caractères — lettres, chiffres, point, tiret ou underscore.</p>
+            </div>
+            <div>
+              <label for="reg-password" class="block text-sm font-medium mb-1.5">Mot de passe</label>
+              <input id="reg-password" name="password" type="password" required minlength="6" autocomplete="new-password" class="field">
+            </div>
+            <div>
+              <label for="reg-confirm" class="block text-sm font-medium mb-1.5">Confirmer le mot de passe</label>
+              <input id="reg-confirm" name="confirm" type="password" required minlength="6" autocomplete="new-password" class="field">
+            </div>
+            <button type="submit" class="btn btn-primary w-full py-3 mt-2">Créer mon compte</button>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <footer class="px-4 sm:px-8 pb-6 text-center text-xs muted">
+      INSA · Outils de déploiement de plateformes · Projet 3
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      var active   = "{{ active_tab|default('login') }}";
+      var radios   = document.querySelectorAll('input[name="tab"]');
+      var panels   = document.querySelectorAll(".tab-panel");
+      var title    = document.getElementById("form-title");
+      var subtitle = document.getElementById("form-subtitle");
+      var copy = {
+        login:    ["Bon retour parmi nous", "Connectez-vous pour retrouver vos machines."],
+        register: ["Créer un compte",       "Quelques secondes suffisent, aucune carte bancaire demandée."]
+      };
+      function show(tab) {
+        panels.forEach(function (p) { p.classList.toggle("hidden", p.id !== "panel-" + tab); });
+        radios.forEach(function (r) { r.checked = (r.value === tab); });
+        title.textContent = copy[tab][0]; subtitle.textContent = copy[tab][1];
+        var first = document.querySelector("#panel-" + tab + " input");
+        if (first && document.activeElement !== first) first.focus();
+      }
+      radios.forEach(function (r) { r.addEventListener("change", function () { show(r.value); }); });
+      show(active);
+    })();
+  </script>
+</body>
+</html>

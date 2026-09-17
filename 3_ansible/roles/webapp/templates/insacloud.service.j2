@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+[Unit]
+Description={{ item.description }}
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ insacloud_user }}
+Group={{ insacloud_user }}
+WorkingDirectory={{ insacloud_app_dir }}
+# Variables d'environnement (dont la SECRET_KEY issue du Vault)
+EnvironmentFile={{ insacloud_env_file }}
+ExecStart={{ insacloud_venv }}/bin/python {{ insacloud_app_dir }}/{{ item.script }}
+# Résilience : relance automatique en cas de crash
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

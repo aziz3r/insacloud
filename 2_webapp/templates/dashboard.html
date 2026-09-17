@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>InsaCloud — Mes machines</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    /* =====================================================================
+       InsaCloud — thème "Liquid Glass" (voir login.html pour la description)
+       ===================================================================== */
+    :root {
+      --ink: #0b1220; --ink-2: #4a5268; --muted: #7b8194;
+      --accent: #0a84ff; --accent-2: #5e5ce6;
+      --ok: #34c759; --warn: #ff9f0a; --bad: #ff3b30;
+      --glass: rgba(255,255,255,.52); --glass-strong: rgba(255,255,255,.72); --glass-border: rgba(255,255,255,.85);
+      --glass-shadow: 0 20px 60px -20px rgba(30,40,80,.25), 0 1px 0 rgba(255,255,255,.9) inset;
+      --field: rgba(255,255,255,.6); --track: rgba(120,130,160,.18);
+      --bg: #eef1fa;
+      --blob-1: #9fc3ff; --blob-2: #d9b8ff; --blob-3: #ffd3b6; --blob-4: #b8f0e6;
+      --dark-glass: rgba(16,20,34,.86);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #f3f4f8; --ink-2: #c3c7d3; --muted: #8b90a0;
+        --glass: rgba(30,34,48,.48); --glass-strong: rgba(36,40,56,.66); --glass-border: rgba(255,255,255,.14);
+        --glass-shadow: 0 30px 80px -30px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.12) inset;
+        --field: rgba(255,255,255,.07); --track: rgba(255,255,255,.12);
+        --bg: #0d1020;
+        --blob-1: #1f4fa8; --blob-2: #5b34b3; --blob-3: #a34a5a; --blob-4: #1b7f6e;
+        --dark-glass: rgba(8,10,20,.8);
+      }
+    }
+    html { color-scheme: light dark; scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--ink);
+           font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Segoe UI", sans-serif;
+           -webkit-font-smoothing: antialiased; }
+    .mono { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace; }
+    .ink-2 { color: var(--ink-2); } .muted { color: var(--muted); } .accent { color: var(--accent); }
+
+    .blob { position: fixed; border-radius: 9999px; filter: blur(90px); opacity: .85; pointer-events: none; z-index: 0; will-change: transform; }
+    .b1 { width: 560px; height: 560px; left: -140px; top: -160px; background: var(--blob-1); animation: drift 26s ease-in-out infinite alternate; }
+    .b2 { width: 520px; height: 520px; right: -160px; top: 10%; background: var(--blob-2); animation: drift 32s ease-in-out infinite alternate-reverse; }
+    .b3 { width: 460px; height: 460px; left: 30%; bottom: -220px; background: var(--blob-3); animation: drift 28s ease-in-out infinite alternate; }
+    .b4 { width: 380px; height: 380px; right: 22%; bottom: -120px; background: var(--blob-4); animation: drift 36s ease-in-out infinite alternate-reverse; }
+    @keyframes drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(60px,40px,0) scale(1.12); } }
+    @media (prefers-reduced-motion: reduce) { .blob { animation: none; } }
+
+    .glass { background: var(--glass); -webkit-backdrop-filter: blur(30px) saturate(180%); backdrop-filter: blur(30px) saturate(180%);
+             border: 1px solid var(--glass-border); box-shadow: var(--glass-shadow); }
+    .glass-strong { background: var(--glass-strong); }
+    .glass-highlight { position: relative; overflow: hidden; }
+    .glass-highlight::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(135deg, rgba(255,255,255,.45), rgba(255,255,255,0) 40%); }
+    .card { transition: transform .2s ease, box-shadow .2s ease; }
+    .card:hover { transform: translateY(-2px); }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; border-radius: 9999px; font-weight: 600;
+           transition: transform .15s ease, box-shadow .15s ease, background .15s ease, filter .15s ease; white-space: nowrap; }
+    .btn:active { transform: scale(.97); }
+    .btn-primary { color: #fff; background: linear-gradient(180deg, #4aa3ff, var(--accent));
+                   box-shadow: 0 8px 24px -8px rgba(10,132,255,.6), 0 1px 0 rgba(255,255,255,.5) inset; }
+    .btn-primary:hover { filter: brightness(1.04); }
+    .btn-primary:disabled { filter: grayscale(1) opacity(.55); cursor: not-allowed; box-shadow: none; }
+    .btn-glass { background: var(--glass-strong); border: 1px solid var(--glass-border); color: var(--ink);
+                 -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+    .btn-glass:hover { background: var(--glass-border); }
+    .btn-danger { color: var(--bad); }
+    .btn-danger:hover { background: rgba(255,59,48,.12); }
+    .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 9999px;
+                color: var(--ink-2); transition: background .15s; }
+    .icon-btn:hover { background: var(--track); color: var(--ink); }
+
+    .field { border-radius: 14px; padding: .55rem .8rem; background: var(--field); border: 1px solid var(--glass-border); color: var(--ink); outline: none; }
+    .field:focus { border-color: var(--accent); box-shadow: 0 0 0 4px rgba(10,132,255,.18); }
+
+    /* Contrôle segmenté */
+    .seg { display: inline-flex; flex-wrap: wrap; padding: 4px; border-radius: 9999px; background: var(--track); gap: 2px; }
+    .seg label { cursor: pointer; }
+    .seg input { position: absolute; opacity: 0; pointer-events: none; }
+    .seg span.opt { display: inline-flex; align-items: center; gap: .4rem; padding: .5rem 1rem; border-radius: 9999px;
+                    font-size: .9rem; font-weight: 600; color: var(--ink-2); transition: all .18s ease; }
+    .seg input:checked + span.opt { background: var(--glass-strong); color: var(--ink);
+                                    box-shadow: 0 2px 8px rgba(20,30,60,.15), 0 1px 0 rgba(255,255,255,.7) inset; }
+
+    /* Cartes de choix (distribution) */
+    .opt-card { display: flex; gap: .8rem; align-items: center; padding: .85rem 1rem; border-radius: 18px; cursor: pointer;
+                background: var(--field); border: 1px solid var(--glass-border); transition: all .18s ease; }
+    .opt-card:hover { background: var(--glass-strong); }
+    input:checked + .opt-card { background: var(--glass-strong); border-color: var(--accent); box-shadow: 0 0 0 4px rgba(10,132,255,.16); }
+    .mono-badge { width: 38px; height: 38px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
+                  font-weight: 700; color: #fff; flex: none; box-shadow: 0 1px 0 rgba(255,255,255,.4) inset; }
+
+    /* Divers */
+    .pill { display: inline-flex; align-items: center; gap: .4rem; padding: .25rem .7rem; border-radius: 9999px; font-size: .75rem; font-weight: 600;
+            background: var(--glass-strong); border: 1px solid var(--glass-border); color: var(--ink-2); }
+    .dot { width: 8px; height: 8px; border-radius: 9999px; display: inline-block; }
+    @keyframes breathe { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+    .dot-live { animation: breathe 2.4s ease-in-out infinite; }
+    .code-dark { background: var(--dark-glass); color: #e8ecf5; -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+                 border: 1px solid rgba(255,255,255,.08); border-radius: 16px; }
+    .bar-track { height: 6px; border-radius: 9999px; background: var(--track); overflow: hidden; }
+    .bar { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, var(--accent-2), var(--accent)); transition: width 1s linear; }
+    .bar.urgent { background: linear-gradient(90deg, #ff6b3d, var(--bad)); }
+    .toast { border-radius: 16px; padding: .8rem 1rem; font-size: .9rem; display: flex; gap: .6rem; align-items: flex-start; }
+    .toast-success { background: rgba(52,199,89,.14); color: #1f7a3a; border: 1px solid rgba(52,199,89,.35); }
+    .toast-error   { background: rgba(255,59,48,.12); color: #b3261e; border: 1px solid rgba(255,59,48,.35); }
+    .toast-info    { background: rgba(10,132,255,.12); color: #0a5bb5; border: 1px solid rgba(10,132,255,.3); }
+    @media (prefers-color-scheme: dark) { .toast-success { color: #7ee2a0; } .toast-error { color: #ff9b94; } .toast-info { color: #8cc4ff; } }
+    details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
+    details[open] .chev { transform: rotate(90deg); }
+    table.glass-table th { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    table.glass-table td, table.glass-table th { padding: .7rem 1rem; }
+    table.glass-table tbody tr { border-top: 1px solid var(--glass-border); }
+  </style>
+</head>
+<body class="min-h-screen antialiased">
+
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+
+  <div class="relative z-10">
+
+    <!-- ===================== Barre flottante ===================== -->
+    <header class="px-4 sm:px-8 pt-5 sticky top-0 z-20">
+      <div class="glass rounded-full max-w-6xl mx-auto pl-5 pr-2 h-14 flex items-center justify-between">
+        <a href="{{ url_for('dashboard') }}" class="text-lg font-bold tracking-tight">InsaCloud</a>
+        <div class="flex items-center gap-2">
+          <span class="pill hidden sm:inline-flex">
+            <span class="w-5 h-5 rounded-full text-[11px] text-white flex items-center justify-center" style="background: linear-gradient(135deg, var(--accent-2), var(--accent))">{{ g.user.username[0]|upper }}</span>
+            {{ g.user.username }}
+          </span>
+          <a href="{{ url_for('logout') }}" class="btn btn-glass text-sm px-3.5 py-1.5" title="Se déconnecter">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            <span class="hidden sm:inline">Déconnexion</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===================== Messages flash (toasts) ===================== -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div id="toasts" class="fixed top-24 right-4 sm:right-8 z-30 w-[min(92vw,26rem)] space-y-2">
+          {% for category, message in messages %}
+            <div class="toast glass toast-{{ category if category in ['success','error','info'] else 'info' }}" role="status">
+              <span class="flex-1">{{ message }}</span>
+              <button type="button" class="flash-close opacity-60 hover:opacity-100" aria-label="Fermer">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <main class="max-w-6xl mx-auto px-4 sm:px-8 py-10 space-y-10">
+
+      <!-- ===================== Titre ===================== -->
+      <div class="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 class="text-4xl sm:text-5xl font-bold tracking-tight">Bonjour, {{ g.user.username }}</h1>
+          <p class="mt-2 ink-2 text-lg">
+            {% if active_count == 0 %}Aucune machine en cours pour le moment.
+            {% elif active_count == 1 %}Une machine tourne en ce moment.
+            {% else %}{{ active_count }} machines tournent en ce moment.{% endif %}
+            <span class="muted">Quota {{ active_count }}/{{ max_instances }}.</span>
+          </p>
+        </div>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-glass text-sm px-4 py-2">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          Actualiser
+        </a>
+      </div>
+
+      <!-- ===================== Nouvelle machine ===================== -->
+      <section class="glass glass-highlight rounded-[28px] p-6 sm:p-8">
+        <form method="POST" action="{{ url_for('create_instance') }}" class="relative space-y-7">
+          <div>
+            <h2 class="text-xl font-bold tracking-tight">Nouvelle machine</h2>
+            <p class="mt-1 text-sm ink-2">Choisissez une distribution, un mode et une durée. Tout le reste est automatique.</p>
+          </div>
+
+          <!-- Distribution -->
+          <div>
+            <p class="text-sm font-semibold mb-3">Distribution</p>
+            <div class="grid gap-3 sm:grid-cols-3">
+              {% set colors = {'ubuntu': '#E95420', 'debian': '#D70A53', 'alpine': '#0D597F'} %}
+              {% for key, d in distros.items() %}
+                <label class="relative">
+                  <input type="radio" name="os" value="{{ key }}" class="sr-only" {{ 'checked' if key == default_os }}>
+                  <span class="opt-card">
+                    <span class="mono-badge" style="background: {{ colors.get(key, 'var(--accent)') }}">{{ d.label[0] }}</span>
+                    <span class="min-w-0">
+                      <span class="block text-sm font-semibold truncate">{{ d.label }}</span>
+                      <span class="block text-xs muted truncate">{{ d.hint }}</span>
+                    </span>
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Mode + durée -->
+          <div class="grid gap-6 lg:grid-cols-2">
+            <div>
+              <p class="text-sm font-semibold mb-3">Mode d'accès</p>
+              <div class="seg">
+                {% for key, m in modes.items() %}
+                  <label>
+                    <input type="radio" name="mode" value="{{ key }}" data-hint="{{ m.hint }}" {{ 'checked' if key == default_mode }}>
+                    <span class="opt">
+                      {% if m.gui %}
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                      {% else %}
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                      {% endif %}
+                      {{ m.label }}
+                    </span>
+                  </label>
+                {% endfor %}
+              </div>
+              <p id="mode-hint" class="mt-2 text-xs muted">{{ modes[default_mode].hint }}</p>
+            </div>
+
+            <div>
+              <p class="text-sm font-semibold mb-3">Durée</p>
+              <div class="seg">
+                {% for d in duration_choices %}
+                  <label><input type="radio" name="duration" value="{{ d }}" {{ 'checked' if d == 10 }}><span class="opt">{{ d }} min</span></label>
+                {% endfor %}
+                <label>
+                  <input type="radio" name="duration" value="" id="custom-radio">
+                  <span class="opt">Autre <input id="custom" type="number" min="1" max="{{ max_duration }}" placeholder="45"
+                    class="w-14 bg-transparent border-b border-current text-center focus:outline-none mono text-sm"> min</span>
+                </label>
+              </div>
+              <p class="mt-2 text-xs muted">Entre 1 et {{ max_duration }} minutes, prolongeable ensuite.</p>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-4 pt-1">
+            <p class="text-xs muted">Mémoire : 256 Mo en mode terminal, 1 Go en mode bureau.</p>
+            {% if active_count >= max_instances %}
+              <button type="button" disabled class="btn btn-primary px-6 py-3">Quota atteint</button>
+            {% else %}
+              <button type="submit" class="btn btn-primary px-6 py-3">
+                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Louer cette machine
+              </button>
+            {% endif %}
+          </div>
+        </form>
+      </section>
+
+      <!-- ===================== Machines en cours ===================== -->
+      <section>
+        <div class="flex items-baseline justify-between mb-4">
+          <h2 class="text-xl font-bold tracking-tight">Machines en cours</h2>
+          <span class="text-sm muted">{{ active_count }} / {{ max_instances }}</span>
+        </div>
+
+        {% if active_instances %}
+          <div class="grid gap-5 md:grid-cols-2">
+            {% for inst in active_instances %}
+              <article class="glass glass-highlight card rounded-[26px] p-6 flex flex-col gap-5">
+                <div class="relative flex flex-col gap-5">
+
+                  <!-- En-tête -->
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <h3 class="font-bold truncate" title="{{ inst.container_name }}">{{ inst.container_name }}</h3>
+                      <div class="mt-2 flex flex-wrap gap-1.5">
+                        <span class="pill"><span class="dot" style="background: {{ colors.get(inst.os_type, 'var(--accent)') }}"></span>{{ inst.os_label }}</span>
+                        <span class="pill">{{ inst.mode_label }}</span>
+                        <span class="pill mono">{{ inst.container_id }}</span>
+                      </div>
+                    </div>
+                    {% set st = inst.docker_state %}
+                    {% set badge = {'running': ('var(--ok)', 'en ligne', True), 'restarting': ('var(--warn)', 'redémarrage', True),
+                                    'created': ('var(--accent)', 'création', False), 'absent': ('var(--bad)', 'introuvable', False)}.get(st, ('var(--muted)', st, False)) %}
+                    <span class="pill flex-none" title="État Docker : {{ st }}"><span class="dot {{ 'dot-live' if badge[2] }}" style="background: {{ badge[0] }}"></span>{{ badge[1] }}</span>
+                  </div>
+
+                  <!-- Accès -->
+                  <div class="flex flex-wrap gap-2">
+                    {% if inst.term_url %}
+                    <a href="{{ inst.term_url }}" target="_blank" rel="noopener" class="btn btn-glass text-sm px-4 py-2" title="Terminal dans le navigateur (identifiant root)">
+                      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                      Terminal
+                    </a>
+                    {% endif %}
+                    {% if inst.is_desktop %}
+                      <a href="{{ inst.gui_url }}" target="_blank" rel="noopener" class="btn btn-primary text-sm px-4 py-2" title="Bureau XFCE dans le navigateur">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        Bureau
+                      </a>
+                    {% endif %}
+                  </div>
+
+                  <!-- SSH -->
+                  <div class="code-dark px-4 py-3 flex items-center justify-between gap-3">
+                    <code class="mono text-sm truncate"><span class="opacity-40 select-none">$ </span>{{ inst.ssh_command }}</code>
+                    <button type="button" data-copy="{{ inst.ssh_command }}" class="copy-btn flex-none inline-flex items-center gap-1.5 text-xs opacity-80 hover:opacity-100" title="Copier">
+                      <svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      <span class="lbl">Copier</span>
+                    </button>
+                  </div>
+
+                  <!-- Mot de passe -->
+                  <div class="flex items-center justify-between gap-3 text-sm">
+                    <div>
+                      <span class="ink-2">Mot de passe root</span>
+                      {% if inst.is_desktop %}<span class="block text-xs muted">Bureau : <code class="mono">{{ inst.vnc_password }}</code> (8 premiers caractères)</span>{% endif %}
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <code class="pwd mono text-sm px-2.5 py-1 rounded-lg min-w-[9rem] text-center tracking-wider" style="background: var(--field); border: 1px solid var(--glass-border)" data-value="{{ inst.root_password }}">••••••••••••</code>
+                      <button type="button" class="toggle-pwd icon-btn" title="Afficher / masquer">
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      </button>
+                      <button type="button" data-copy="{{ inst.root_password }}" class="copy-btn icon-btn" title="Copier le mot de passe">
+                        <svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Temps restant -->
+                  <div>
+                    <div class="flex items-baseline justify-between text-sm">
+                      <span class="ink-2">Temps restant</span>
+                      <span class="countdown mono text-base font-semibold tabular-nums" data-remaining="{{ inst.remaining_seconds }}" data-total="{{ inst.total_seconds }}">--:--</span>
+                    </div>
+                    <div class="bar-track mt-2"><div class="bar" style="width: 100%"></div></div>
+                    <p class="mt-1.5 text-xs muted">Expire à {{ inst.expires_at_local }} · port SSH {{ inst.port }}</p>
+                  </div>
+
+                  <!-- Actions -->
+                  <div class="pt-4 flex items-center justify-between gap-3" style="border-top: 1px solid var(--glass-border)">
+                    <form method="POST" action="{{ url_for('extend_instance', instance_id=inst.id) }}" class="flex items-center gap-2">
+                      <select name="minutes" class="field text-sm py-1.5">
+                        {% for m in extend_choices %}<option value="{{ m }}">+ {{ m }} min</option>{% endfor %}
+                      </select>
+                      <button type="submit" class="btn btn-glass text-sm px-3.5 py-1.5">Prolonger</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.id) }}"
+                          onsubmit="return confirm('Détruire définitivement {{ inst.container_name }} ?');">
+                      <button type="submit" class="btn btn-danger text-sm px-3.5 py-1.5">Terminer</button>
+                    </form>
+                  </div>
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="glass rounded-[26px] px-6 py-14 text-center">
+            <svg class="w-9 h-9 mx-auto muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            <p class="mt-4 font-semibold">Aucune machine en cours</p>
+            <p class="mt-1 text-sm muted">Choisissez une distribution ci-dessus pour en louer une.</p>
+          </div>
+        {% endif %}
+      </section>
+
+      <!-- ===================== Aide ===================== -->
+      <section class="glass rounded-[26px] p-6 sm:p-8 grid gap-6 md:grid-cols-[1fr_1.5fr]">
+        <div>
+          <h2 class="text-xl font-bold tracking-tight">Accéder à sa machine</h2>
+          <p class="mt-1 text-sm ink-2">Trois façons, selon vos habitudes.</p>
+        </div>
+        <ol class="space-y-3 text-sm">
+          <li class="flex gap-3"><span class="pill flex-none">1</span><span><strong>Terminal</strong> — s'ouvre dans le navigateur ; identifiant <code class="mono">root</code> et le mot de passe de la carte.</span></li>
+          <li class="flex gap-3"><span class="pill flex-none">2</span><span><strong>Bureau</strong> (mode bureau graphique) — XFCE et Firefox dans le navigateur, mot de passe : les 8 premiers caractères. Patientez quelques secondes au premier démarrage.</span></li>
+          <li class="flex gap-3"><span class="pill flex-none">3</span><span><strong>SSH</strong> — copiez la commande, collez-la dans un terminal, saisissez le mot de passe (il ne s'affiche pas quand vous le tapez).</span></li>
+        </ol>
+      </section>
+
+      <!-- ===================== Historique ===================== -->
+      {% if history_instances %}
+        <details class="group">
+          <summary class="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold ink-2 hover:text-[var(--ink)] select-none">
+            <svg class="chev w-4 h-4 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            Historique des locations ({{ history_instances|length }})
+          </summary>
+          <div class="mt-4 glass rounded-[22px] overflow-x-auto">
+            <table class="glass-table w-full text-sm text-left">
+              <thead><tr><th>Machine</th><th>Distribution</th><th>Mode</th><th>Créée le</th><th>Fin prévue</th><th>Issue</th></tr></thead>
+              <tbody class="ink-2">
+                {% for inst in history_instances %}
+                  <tr>
+                    <td class="mono text-xs">{{ inst.container_name }}</td>
+                    <td>{{ inst.os_label }}</td>
+                    <td>{{ inst.mode_label }}</td>
+                    <td>{{ inst.created_at_local }}</td>
+                    <td>{{ inst.expires_date_local }}</td>
+                    <td>{% if inst.status == 'expired' %}<span class="pill"><span class="dot" style="background: var(--warn)"></span>Expirée</span>
+                        {% else %}<span class="pill"><span class="dot" style="background: var(--muted)"></span>Arrêtée</span>{% endif %}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      {% endif %}
+    </main>
+
+    <footer class="max-w-6xl mx-auto px-4 sm:px-8 pb-10 text-xs muted flex flex-wrap justify-between gap-2">
+      <span>InsaCloud — Projet 3, Outils de déploiement de plateformes</span><span>INSA · STI 4A</span>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      // --- Durée personnalisée --------------------------------------------------
+      var custom = document.getElementById("custom"), customRadio = document.getElementById("custom-radio");
+      if (custom) {
+        custom.addEventListener("focus", function () { customRadio.checked = true; });
+        custom.addEventListener("input", function () { customRadio.checked = true; customRadio.value = custom.value; });
+        customRadio.addEventListener("change", function () { if (customRadio.checked) custom.focus(); });
+      }
+      // --- Aide contextuelle du mode -------------------------------------------
+      var hint = document.getElementById("mode-hint");
+      document.querySelectorAll('input[name="mode"]').forEach(function (r) {
+        r.addEventListener("change", function () { if (hint) hint.textContent = r.dataset.hint; });
+      });
+      // --- Toasts : fermeture + disparition automatique -------------------------
+      document.querySelectorAll(".flash-close").forEach(function (b) { b.addEventListener("click", function () { b.closest(".toast").remove(); }); });
+      setTimeout(function () { var t = document.getElementById("toasts"); if (t) { t.style.transition = "opacity .6s"; t.style.opacity = "0"; setTimeout(function () { t.remove(); }, 700); } }, 7000);
+
+      // --- Compte à rebours + barres ------------------------------------------
+      var startedAt = Date.now(), reloadScheduled = false;
+      var counters = Array.prototype.slice.call(document.querySelectorAll(".countdown"));
+      counters.forEach(function (el) { el.dataset.initial = el.dataset.remaining; el.bar = el.closest("article").querySelector(".bar"); });
+      function fmt(s) { var h = Math.floor(s/3600), m = Math.floor((s%3600)/60), x = s%60;
+        var mm = (m<10?"0":"")+m, ss = (x<10?"0":"")+x; return h ? h+":"+mm+":"+ss : mm+":"+ss; }
+      function tick() {
+        var elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        counters.forEach(function (el) {
+          var left = Math.max(0, parseInt(el.dataset.initial, 10) - elapsed), total = parseInt(el.dataset.total, 10) || 1;
+          el.textContent = fmt(left);
+          el.bar.style.width = Math.max(0, Math.min(100, left / total * 100)) + "%";
+          var urgent = left <= 60; el.bar.classList.toggle("urgent", urgent); el.style.color = urgent ? "var(--bad)" : "";
+          if (left === 0 && !reloadScheduled) { reloadScheduled = true; el.textContent = "expirée"; setTimeout(function () { location.reload(); }, 12000); }
+        });
+      }
+      if (counters.length) { tick(); setInterval(tick, 1000); }
+
+      // --- Copier ----------------------------------------------------------------
+      var CHECK = '<polyline points="20 6 9 17 4 12"/>';
+      document.querySelectorAll(".copy-btn").forEach(function (btn) {
+        var ico = btn.querySelector(".ico"), lbl = btn.querySelector(".lbl"), original = ico.innerHTML;
+        function done() { ico.innerHTML = CHECK; if (lbl) lbl.textContent = "Copié";
+          setTimeout(function () { ico.innerHTML = original; if (lbl) lbl.textContent = "Copier"; }, 1600); }
+        btn.addEventListener("click", function () {
+          var text = btn.dataset.copy;
+          if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done); }
+          else { var ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+            document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); done(); } catch (e) {} document.body.removeChild(ta); }
+        });
+      });
+      // --- Afficher / masquer le mot de passe ---------------------------------
+      document.querySelectorAll(".toggle-pwd").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var code = btn.parentElement.querySelector(".pwd"), hidden = code.textContent.charAt(0) === "•";
+          code.textContent = hidden ? code.dataset.value : "••••••••••••"; code.classList.toggle("tracking-wider", !hidden);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

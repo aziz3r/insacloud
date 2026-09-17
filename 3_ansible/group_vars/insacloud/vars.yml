@@ -1,0 +1,17 @@
+---
+# =============================================================================
+#  group_vars/insacloud/vars.yml - Variables EN CLAIR du groupe [insacloud]
+# -----------------------------------------------------------------------------
+#  Bonne pratique Ansible Vault : les variables secrètes vivent dans vault.yml
+#  (chiffré) avec un préfixe "vault_", et ce fichier en clair fait le lien.
+#  Ainsi `grep insacloud_secret_key` montre immédiatement d'où vient le secret,
+#  sans jamais exposer sa valeur.
+# =============================================================================
+
+# Clé secrète des sessions Flask -> vient du Vault (group_vars/insacloud/vault.yml)
+insacloud_secret_key: "{{ vault_insacloud_secret_key }}"
+
+# --- Paramètres applicatifs surchargeables (valeurs par défaut dans roles/webapp/defaults) ---
+insacloud_web_port: 5000
+insacloud_max_instances: 3
+insacloud_max_duration: 120

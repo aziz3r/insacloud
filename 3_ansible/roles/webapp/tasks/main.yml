@@ -1,0 +1,182 @@
+---
+# =============================================================================
+#  roles/webapp/tasks/main.yml - Déploiement de l'application InsaCloud
+# -----------------------------------------------------------------------------
+#  1. Garde-fou : le secret Flask doit venir du Vault
+#  2. Python / pip / venv + Flask
+#  3. Utilisateur système + arborescence
+#  4. Code de l'application et Dockerfiles
+#  5. Fichier d'environnement (secrets) + unités systemd
+#  6. Images Docker (construites seulement si nécessaire)
+#  7. Démarrage et vérification
+# =============================================================================
+
+# ------------------------------------------------------------ 1. Garde-fou
+- name: Vérifier que la clé secrète Flask provient bien du Vault
+  ansible.builtin.assert:
+    that:
+      - insacloud_secret_key is defined
+      - insacloud_secret_key | length >= 32
+    fail_msg: >-
+      insacloud_secret_key est vide ou trop courte. Définissez
+      vault_insacloud_secret_key dans group_vars/insacloud/vault.yml
+      (ansible-vault edit group_vars/insacloud/vault.yml).
+    quiet: true
+
+# ------------------------------------------------------------ 2. Python
+- name: Installer Python 3, pip et venv
+  ansible.builtin.apt:
+    name: "{{ webapp_system_packages }}"
+    state: present
+
+# ------------------------------------------------------------ 3. Utilisateur
+- name: Créer l'utilisateur système {{ insacloud_user }} (membre du groupe docker)
+  ansible.builtin.user:
+    name: "{{ insacloud_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ insacloud_root }}"
+    create_home: false
+    groups: docker
+    append: true
+
+- name: Créer l'arborescence applicative
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0755"
+  loop:
+    - "{{ insacloud_root }}"
+    - "{{ insacloud_app_dir }}"
+    - "{{ insacloud_app_dir }}/templates"
+    - "{{ insacloud_docker_dir }}"
+
+- name: Créer le virtualenv et installer Flask
+  ansible.builtin.pip:
+    name: "{{ webapp_pip_packages }}"
+    virtualenv: "{{ insacloud_venv }}"
+    virtualenv_command: "python3 -m venv"
+    state: present
+
+# ------------------------------------------------------------ 4. Code
+- name: Copier le code de l'application Flask
+  ansible.builtin.copy:
+    src: "{{ insacloud_src_webapp }}/{{ item }}"
+    dest: "{{ insacloud_app_dir }}/{{ item }}"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0644"
+  loop: "{{ webapp_files }}"
+  notify:
+    - Redémarrer insacloud-web
+    - Redémarrer insacloud-faucheur
+
+- name: Copier les sources Docker des machines louées (Dockerfiles + entrypoint.sh)
+  ansible.builtin.copy:
+    src: "{{ insacloud_src_docker }}/"      # le "/" final copie le CONTENU du dossier
+    dest: "{{ insacloud_docker_dir }}/"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0644"
+  register: docker_sources
+
+# ------------------------------------------------------------ 5. Secrets + systemd
+- name: Créer le répertoire de configuration
+  ansible.builtin.file:
+    path: "{{ insacloud_env_file | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Déployer le fichier d'environnement (contient la SECRET_KEY du Vault)
+  ansible.builtin.template:
+    src: insacloud.env.j2
+    dest: "{{ insacloud_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"          # lisible uniquement par root (systemd le lit pour nous)
+  no_log: true            # ne jamais afficher le secret dans la sortie Ansible
+  notify:
+    - Redémarrer insacloud-web
+    - Redémarrer insacloud-faucheur
+
+- name: Déployer les unités systemd (web + faucheur)
+  ansible.builtin.template:
+    src: insacloud.service.j2
+    dest: "/etc/systemd/system/{{ item.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ insacloud_services }}"
+  loop_control:
+    label: "{{ item.name }}"
+  notify:
+    - Recharger systemd
+    - Redémarrer insacloud-web
+    - Redémarrer insacloud-faucheur
+
+# ------------------------------------------------------------ 6. Images Docker
+- name: Vérifier quelles images existent déjà
+  ansible.builtin.command:
+    cmd: "docker image inspect {{ item.name }}:latest"
+  loop: "{{ insacloud_images }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: image_check
+  failed_when: false
+  changed_when: false
+
+- name: Construire les images manquantes ou dont les sources ont changé (long la 1re fois)
+  ansible.builtin.command:
+    cmd: >-
+      docker build -t {{ item.name }}:latest
+      {{ '--build-arg DESKTOP=1' if item.desktop else '' }}
+      -f {{ insacloud_docker_dir }}/{{ item.dockerfile }}
+      {{ insacloud_docker_dir }}
+  loop: "{{ insacloud_images }}"
+  loop_control:
+    label: "{{ item.name }}"
+    index_var: idx
+  when: image_check.results[idx].rc != 0 or docker_sources.changed
+
+# ------------------------------------------------------------ 7. Démarrage
+- name: Appliquer les handlers en attente (daemon-reload, redémarrages)
+  ansible.builtin.meta: flush_handlers
+
+- name: Activer et démarrer les services InsaCloud
+  ansible.builtin.systemd:
+    name: "{{ item.name }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop: "{{ insacloud_services }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Attendre que le serveur web écoute sur le port {{ insacloud_web_port }}
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ insacloud_web_port }}"
+    timeout: 60
+
+- name: Vérifier que la page de connexion répond (HTTP 200)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ insacloud_web_port }}/login"
+    status_code: 200
+
+- name: Vérifier que le Faucheur est actif
+  ansible.builtin.command:
+    cmd: systemctl is-active insacloud-faucheur
+  register: faucheur_state
+  changed_when: false
+
+- name: Résumé du déploiement
+  ansible.builtin.debug:
+    msg:
+      - "InsaCloud est déployé : http://{{ ansible_host | default(inventory_hostname) }}:{{ insacloud_web_port }}"
+      - "Images : {{ insacloud_images | map(attribute='name') | join(', ') }}"
+      - "Faucheur : {{ faucheur_state.stdout }}"
+      - "Logs : journalctl -u insacloud-web -f  |  journalctl -u insacloud-faucheur -f"

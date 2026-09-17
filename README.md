@@ -1,0 +1,272 @@
+# InsaCloud ☁️
+
+> Mini-fournisseur de cloud : louez une machine Linux (Ubuntu, Debian ou Alpine) pour quelques minutes,
+> en mode **terminal** ou avec un **bureau graphique dans le navigateur**, et laissez-la disparaître toute seule.
+
+Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. Nadia Fettah).
+
+**Stack** : Python / Flask · SQLite · Docker · Ansible (rôles + Vault) · Vagrant · Tailwind CSS · systemd
+
+---
+
+## Sommaire
+
+1. [Fonctionnalités](#fonctionnalités)
+2. [Architecture](#architecture)
+3. [Arborescence](#arborescence)
+4. [Démarrage rapide (poste de développement)](#démarrage-rapide-poste-de-développement)
+5. [Déploiement de production (Vagrant + Ansible)](#déploiement-de-production-vagrant--ansible)
+6. [Utilisation](#utilisation)
+7. [Fonctionnement interne](#fonctionnement-interne)
+8. [Configuration](#configuration)
+9. [Sécurité](#sécurité)
+10. [Démonstrations pour la soutenance](#démonstrations-pour-la-soutenance)
+11. [Problèmes rencontrés et solutions](#problèmes-rencontrés-et-solutions)
+12. [Limites et pistes d'amélioration](#limites-et-pistes-damélioration)
+
+---
+
+## Fonctionnalités
+
+| | |
+|---|---|
+| **Comptes** | inscription / connexion, mots de passe hachés (Werkzeug), sessions signées |
+| **3 distributions** | Ubuntu 22.04 · Debian 12 · Alpine Linux 3.20 |
+| **2 modes** | **Terminal** (SSH + terminal web `ttyd`) ou **Bureau graphique** (XFCE + Firefox via noVNC, + SSH) |
+| **Location à durée limitée** | 1 à 120 min, prolongeable, quota de 3 machines par utilisateur |
+| **Accès** | commande SSH exacte (`ssh root@<hôte> -p <port>`), bouton *Terminal*, bouton *Bureau*, mot de passe root unique par machine |
+| **Haute disponibilité** | `--restart=always` + `supervisord` dans chaque machine : tout service qui plante est relancé |
+| **Le Faucheur** | démon qui détruit (`docker rm -f`) les machines expirées et réconcilie Docker ↔ base |
+| **IaC** | VM Vagrant, playbook Ansible idempotent en rôles, secrets chiffrés avec Ansible Vault, services systemd |
+| **Interface** | thème « Liquid Glass » (verre translucide), mode sombre automatique, sans framework JS |
+
+## Architecture
+
+```
+            ┌─────────────────────── Poste de contrôle ───────────────────────┐
+            │  Vagrant ──► VM Ubuntu 192.168.56.10      Ansible (rôles + Vault)│
+            └──────────────────────────────┬───────────────────────────────────┘
+                                           │ SSH + sudo
+┌──────────────────────────────────────────▼──────────────────────────────────────────┐
+│ VM de production                                                                    │
+│  systemd ─ insacloud-web ──► Flask (app.py) ─ subprocess ─► docker CLI ─► dockerd   │
+│         └ insacloud-faucheur ──► faucheur.py ─┘                 │                   │
+│                     └────── SQLite (WAL) ─────┘        conteneurs insacloud_<user>_… │
+│  /etc/insacloud/insacloud.env  (SECRET_KEY issue du Vault, 0600)   ports 8000-9000  │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+        ▲ HTTP :5000                 ▲ ssh -p <port>    ▲ http://…:<port>  (ttyd / noVNC)
+   Navigateur ───────────────────────┴───────────────────┘
+```
+
+Chaque machine louée est un conteneur Docker qui publie :
+
+| Port interne | Service | Mode |
+|---|---|---|
+| 22 | OpenSSH (root, mot de passe) | terminal + bureau |
+| 7681 | `ttyd` — terminal web (auth HTTP Basic `root`) | terminal + bureau |
+| 6080 | noVNC (websockify → Xvnc :1 → XFCE) | bureau uniquement |
+
+## Arborescence
+
+```
+Projet_InsaCloud/
+├── Vagrantfile                      VM Ubuntu 22.04 en 192.168.56.10 (VirtualBox / VMware)
+├── 1_docker/
+│   ├── Dockerfile                   Ubuntu 22.04   (--build-arg DESKTOP=1 → variante bureau)
+│   ├── debian.Dockerfile            Debian 12
+│   ├── alpine.Dockerfile            Alpine 3.20
+│   └── entrypoint.sh                script commun : mot de passe, supervisord, sshd/ttyd/Xvnc/XFCE/noVNC
+├── 2_webapp/
+│   ├── app.py                       serveur Flask, routes, appels docker via subprocess
+│   ├── database.py                  schéma SQLite (users, instances), accès, migrations
+│   ├── faucheur.py                  démon de destruction des machines expirées
+│   └── templates/
+│       ├── login.html               connexion / inscription
+│       └── dashboard.html           location, cartes machines, historique
+└── 3_ansible/
+    ├── ansible.cfg
+    ├── inventaire.ini               vm-insacloud → 192.168.56.10
+    ├── site.yml                     compose les rôles docker + webapp
+    ├── group_vars/insacloud/
+    │   ├── vars.yml                 variables en clair
+    │   └── vault.yml                secrets chiffrés (ansible-vault)
+    └── roles/
+        ├── docker/                  installe Docker Engine (dépôt officiel, amd64/arm64)
+        └── webapp/                  Python/Flask, code, 6 images Docker, systemd, secrets
+```
+
+## Démarrage rapide (poste de développement)
+
+Pré-requis : Python ≥ 3.10, Docker (Docker Desktop, ou `brew install colima docker && colima start` sur macOS).
+
+```bash
+git clone https://github.com/aziz3r/insacloud.git
+cd insacloud
+```
+
+Construire les images des machines louées (les variantes *bureau* pèsent ~1,4 Go et prennent quelques minutes) :
+
+```bash
+cd 1_docker
+docker build -t insacloud_ubuntu:latest         -f Dockerfile        .
+docker build -t insacloud_ubuntu_desktop:latest -f Dockerfile        --build-arg DESKTOP=1 .
+docker build -t insacloud_debian:latest         -f debian.Dockerfile .
+docker build -t insacloud_debian_desktop:latest -f debian.Dockerfile --build-arg DESKTOP=1 .
+docker build -t insacloud_alpine:latest         -f alpine.Dockerfile .
+docker build -t insacloud_alpine_desktop:latest -f alpine.Dockerfile --build-arg DESKTOP=1 .
+cd ..
+```
+
+Lancer l'application (Flask + Faucheur dans le même processus) :
+
+```bash
+cd 2_webapp
+python3 -m venv .venv && .venv/bin/pip install flask
+INSACLOUD_EMBED_FAUCHEUR=1 INSACLOUD_PORT=5055 .venv/bin/python app.py
+```
+
+Ouvrez <http://localhost:5055>, créez un compte, louez une machine.
+
+> macOS : le port 5000 est occupé par *AirPlay Receiver* (il répond 403), d'où `INSACLOUD_PORT=5055`.
+
+## Déploiement de production (Vagrant + Ansible)
+
+Pré-requis sur le poste de contrôle : Vagrant + VirtualBox (ou VMware Fusion), Ansible ≥ 2.12.
+
+```bash
+# 1. Créer la VM (Ubuntu 22.04, 192.168.56.10, 4 Go)
+vagrant up                      # ou : vagrant up --provider=vmware_desktop
+
+# 2. Déployer (le mot de passe du Vault est demandé)
+cd 3_ansible
+ansible-playbook site.yml --ask-vault-pass
+
+# 3. Relancer pour constater l'idempotence : changed=0
+ansible-playbook site.yml --ask-vault-pass
+```
+
+Le site est alors sur <http://192.168.56.10:5000>. Le premier déploiement construit les six images sur la VM (15 à 25 min) ; les suivants sont quasi instantanés.
+
+Le playbook :
+
+| Rôle | Tâches |
+|---|---|
+| `docker` | cache APT, pré-requis, clé GPG et dépôt officiel Docker (architecture détectée), `docker-ce`, service activé, `docker info` |
+| `webapp` | Python 3 / pip / venv + Flask, utilisateur système `insacloud` (groupe docker), copie du code et de `1_docker/`, fichier d'environnement secret (0600), unités systemd `insacloud-web` et `insacloud-faucheur`, build des images **seulement si absentes ou si les sources ont changé**, démarrage, vérification HTTP 200 |
+
+Commandes utiles sur la VM :
+
+```bash
+vagrant ssh
+sudo systemctl status insacloud-web insacloud-faucheur
+sudo journalctl -u insacloud-faucheur -f
+docker ps --filter name=insacloud_
+```
+
+### Secrets (Ansible Vault)
+
+La clé secrète des sessions Flask vit dans `3_ansible/group_vars/insacloud/vault.yml`, chiffré en AES-256.
+
+```bash
+cd 3_ansible
+ansible-vault view  group_vars/insacloud/vault.yml     # lire
+ansible-vault edit  group_vars/insacloud/vault.yml     # modifier
+ansible-vault rekey group_vars/insacloud/vault.yml     # changer le mot de passe du Vault
+```
+
+Pour repartir de zéro avec votre propre secret :
+
+```bash
+python3 -c "import secrets; print('vault_insacloud_secret_key: \"' + secrets.token_hex(32) + '\"')" > group_vars/insacloud/vault.yml
+ansible-vault encrypt group_vars/insacloud/vault.yml
+```
+
+Chaîne d'injection : `vault.yml` → `vars.yml` (`insacloud_secret_key: "{{ vault_insacloud_secret_key }}"`) → template `insacloud.env.j2` → `/etc/insacloud/insacloud.env` (0600 root, tâche `no_log`) → `EnvironmentFile=` des unités systemd → variable `INSACLOUD_SECRET_KEY` lue par Flask.
+
+## Utilisation
+
+1. **Créer un compte** puis se connecter.
+2. **Louer** : choisir une distribution, un mode (*Terminal* ou *Bureau graphique*), une durée, puis *Louer cette machine*.
+3. Sur la carte de la machine :
+   - **Terminal** — ouvre un terminal dans le navigateur (identifiant `root`, mot de passe de la carte) ;
+   - **Bureau** — ouvre le bureau XFCE dans le navigateur (mot de passe = **8 premiers caractères**, limite du protocole VNC) ;
+   - **SSH** — copier la commande, par ex. `ssh root@192.168.56.10 -p 8412`, puis saisir le mot de passe.
+4. **Prolonger** ou **Terminer** à tout moment ; à l'expiration, le Faucheur détruit la machine et elle passe dans l'historique.
+
+## Fonctionnement interne
+
+**Location** (`app.py`, route `POST /instances/create`) :
+1. validation (durée 1–120, distribution/mode en liste blanche, quota) ;
+2. tirage de 2 ou 3 ports aléatoires dans 8000–9000, chacun vérifié non réservé en base **et** libre sur l'hôte (`socket.bind`) ;
+3. `docker run -d --restart=always -p <p1>:22 -p <p2>:7681 [-p <p3>:6080 --shm-size 512m] --name insacloud_<user>_<id> -e ROOT_PASSWORD=<aléatoire> --memory 256m|1g insacloud_<distro>[_desktop]:latest` ;
+4. enregistrement en base ; en cas d'échec le conteneur est détruit (aucun orphelin).
+
+**Base SQLite** (`database.py`) : dates en UTC au format de `datetime('now')` → l'expiration se détecte en pur SQL ; `PRAGMA journal_mode=WAL` pour que Flask et le Faucheur partagent le fichier ; migrations douces (`ALTER TABLE … ADD COLUMN`) pour conserver les anciennes bases.
+
+**Le Faucheur** (`faucheur.py`) : toutes les 10 s, `SELECT … WHERE status='running' AND expires_at <= datetime('now')` → `docker rm -f` → `status='expired'`. Toutes les ~60 s, réconciliation : conteneurs `insacloud_*` inconnus de la base supprimés, instances sans conteneur marquées `stopped`. Arrêt propre sur `SIGTERM`.
+
+**Images** (`1_docker/`) : un Dockerfile par distribution, la variante bureau s'active par `--build-arg DESKTOP=1` (`ENV INSACLOUD_MODE=${DESKTOP:+desktop}`). `entrypoint.sh` applique le mot de passe root, génère la configuration `supervisord` selon le mode, et lance `supervisord` en PID 1 : si un service meurt il est relancé ; si supervisord meurt, Docker relance le conteneur.
+
+## Configuration
+
+Toutes les options sont des variables d'environnement (définies par Ansible dans `/etc/insacloud/insacloud.env`) :
+
+| Variable | Défaut | Rôle |
+|---|---|---|
+| `INSACLOUD_HOST` / `INSACLOUD_PORT` | `0.0.0.0` / `5000` | écoute du serveur web |
+| `INSACLOUD_SECRET_KEY` | générée dans `.secret_key` | clé des sessions Flask |
+| `INSACLOUD_DB` | `2_webapp/insacloud.db` | fichier SQLite |
+| `INSACLOUD_PORT_MIN` / `INSACLOUD_PORT_MAX` | `8000` / `9000` | plage des ports publiés |
+| `INSACLOUD_MAX_INSTANCES` | `3` | quota par utilisateur |
+| `INSACLOUD_MAX_DURATION` | `120` | durée maximale (minutes) |
+| `INSACLOUD_CONTAINER_MEMORY` / `INSACLOUD_GUI_MEMORY` | `256m` / `1g` | mémoire des machines |
+| `INSACLOUD_IMAGE_<DISTRO>[_DESKTOP]` | `insacloud_<distro>[_desktop]:latest` | noms des images |
+| `INSACLOUD_SSH_HOST` | hôte de l'URL | hôte affiché dans la commande SSH |
+| `INSACLOUD_FAUCHEUR_INTERVAL` | `10` | période du Faucheur (s) |
+| `INSACLOUD_EMBED_FAUCHEUR` | `0` | `1` = Faucheur en thread dans Flask (dev) |
+
+## Sécurité
+
+Mots de passe hachés et salés ; sessions `HttpOnly` / `SameSite=Lax` ; entrées validées par listes blanches et expressions régulières ; requêtes SQL paramétrées ; mot de passe root aléatoire par machine ; terminal web et VNC protégés par mot de passe, Xvnc lié à `localhost` ; conteneurs limités en mémoire ; secrets chiffrés (Vault) et confinés en 0600 sur le serveur ; services sous un utilisateur système sans shell.
+
+## Démonstrations pour la soutenance
+
+**Haute disponibilité** — faire mourir le service principal *de l'intérieur* (Docker ignore volontairement `--restart=always` après un `docker stop`/`docker kill` manuel) :
+
+```bash
+docker exec insacloud_<user>_<id> kill -TERM 1
+docker inspect -f '{{.State.Status}} redémarrages={{.RestartCount}}' insacloud_<user>_<id>
+```
+
+**Le Faucheur** — louer une machine pour 1 minute puis suivre `journalctl -u insacloud-faucheur -f` (ou la console en dev).
+
+**Idempotence** — relancer `ansible-playbook site.yml --ask-vault-pass` : `changed=0`.
+
+**Secret jamais en clair** — sur la VM : `sudo cat /etc/insacloud/insacloud.env` (0600) vs `cat /etc/systemd/system/insacloud-web.service` (aucun secret).
+
+## Problèmes rencontrés et solutions
+
+| Problème | Solution |
+|---|---|
+| `docker kill` ne relance pas le conteneur | politique de redémarrage ignorée après un arrêt manuel → démonstration par un vrai crash (`kill -TERM 1` depuis l'intérieur) |
+| `kill -9 1` sans effet dans un conteneur | le noyau protège le PID 1 des signaux non gérés → SIGTERM |
+| Firefox indisponible sur Ubuntu 22.04 (Snap) | dépôt APT officiel de Mozilla (`firefox-esr`, amd64 + arm64) |
+| `ttyd` absent de Debian 12 | binaire statique officiel, architecture détectée au build |
+| `ttyd` en lecture seule (≥ 1.7) | détection de l'option `-W` à l'exécution |
+| `vncpasswd` introuvable sur Debian 12 | paquet `tigervnc-tools`, binaire détecté à l'exécution |
+| Mot de passe VNC limité à 8 caractères | mot de passe bureau = 8 premiers caractères, affiché sur la carte |
+| Flask et Faucheur sur la même base SQLite | mode WAL |
+| `pip install` interdit sur Ubuntu récent (PEP 668) | virtualenv géré par Ansible |
+| Port 5000 pris par AirPlay sur macOS | port configurable |
+
+## Limites et pistes d'amélioration
+
+- Serveur de développement Flask → `gunicorn` dans l'unité systemd.
+- Pas de HTTPS ni de limitation des tentatives de connexion.
+- Ports publiés sur toutes les interfaces de la VM → pare-feu (`ufw`).
+- Images bureau volumineuses (~1,4 Go) → registre Docker privé pour éviter de reconstruire sur chaque serveur.
+- Un seul nœud Docker → orchestrateur (Swarm / Kubernetes) pour plusieurs hôtes.
+
+---
+
+Auteur : Aziz Baoueb — INSA, STI 4A.

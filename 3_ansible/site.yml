@@ -1,0 +1,30 @@
+---
+# =============================================================================
+#  site.yml - Point d'entrée du déploiement InsaCloud
+# -----------------------------------------------------------------------------
+#  Ce playbook ne contient plus de tâches : il compose des RÔLES réutilisables.
+#
+#    roles/docker  : installe Docker Engine (dépôt officiel, idempotent)
+#    roles/webapp  : Python + Flask, code de l'application, images Docker,
+#                    services systemd (web + faucheur), secrets via Vault
+#
+#  Variables : group_vars/insacloud/vars.yml   (claires)
+#              group_vars/insacloud/vault.yml  (chiffrées avec ansible-vault)
+#
+#  Lancement :
+#    ansible-playbook site.yml --ask-vault-pass
+#  Simulation :
+#    ansible-playbook site.yml --ask-vault-pass --check --diff
+#  Un seul rôle :
+#    ansible-playbook site.yml --ask-vault-pass --tags webapp
+# =============================================================================
+
+- name: Déployer la plateforme InsaCloud
+  hosts: insacloud
+  become: true
+
+  roles:
+    - role: docker
+      tags: [docker]
+    - role: webapp
+      tags: [webapp]

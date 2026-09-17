@@ -1,0 +1,66 @@
+---
+# =============================================================================
+#  roles/webapp/defaults/main.yml - Variables par défaut du rôle webapp
+# =============================================================================
+
+# --- Emplacements sur le serveur ---------------------------------------------
+insacloud_user: insacloud
+insacloud_root: /opt/insacloud
+insacloud_app_dir: "{{ insacloud_root }}/app"
+insacloud_docker_dir: "{{ insacloud_root }}/docker"
+insacloud_venv: "{{ insacloud_root }}/venv"
+insacloud_env_file: /etc/insacloud/insacloud.env     # secrets, mode 0600 root
+
+# --- Sources sur le poste de contrôle (relatives au dossier 3_ansible) --------
+insacloud_src_webapp: "{{ playbook_dir }}/../2_webapp"
+insacloud_src_docker: "{{ playbook_dir }}/../1_docker"
+
+# --- Paramètres applicatifs (injectés en variables d'environnement) ---------
+insacloud_web_port: 5000
+insacloud_port_min: 8000
+insacloud_port_max: 9000
+insacloud_max_instances: 3
+insacloud_max_duration: 120
+insacloud_faucheur_interval: 10
+insacloud_container_memory: 256m
+insacloud_gui_memory: 1g            # machines "bureau graphique"
+
+# Clé secrète Flask : DOIT être fournie par le Vault (group_vars/insacloud/vault.yml)
+insacloud_secret_key: ""
+
+# --- Paquets Python -----------------------------------------------------------
+webapp_system_packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - python3-setuptools
+webapp_pip_packages:
+  - flask
+
+# --- Fichiers de l'application à copier (relatifs à 2_webapp/) ---------------
+webapp_files:
+  - app.py
+  - database.py
+  - faucheur.py
+  - templates/login.html
+  - templates/dashboard.html
+
+# --- Images Docker des machines louées (multi-OS) ---------------------------
+# 6 images = 3 distributions × 2 modes. `desktop: true` ajoute --build-arg DESKTOP=1.
+# `env` = suffixe de la variable INSACLOUD_IMAGE_<env> lue par app.py.
+insacloud_images:
+  - { name: insacloud_ubuntu,         dockerfile: Dockerfile,        desktop: false, env: UBUNTU }
+  - { name: insacloud_ubuntu_desktop, dockerfile: Dockerfile,        desktop: true,  env: UBUNTU_DESKTOP }
+  - { name: insacloud_debian,         dockerfile: debian.Dockerfile, desktop: false, env: DEBIAN }
+  - { name: insacloud_debian_desktop, dockerfile: debian.Dockerfile, desktop: true,  env: DEBIAN_DESKTOP }
+  - { name: insacloud_alpine,         dockerfile: alpine.Dockerfile, desktop: false, env: ALPINE }
+  - { name: insacloud_alpine_desktop, dockerfile: alpine.Dockerfile, desktop: true,  env: ALPINE_DESKTOP }
+
+# --- Services systemd ---------------------------------------------------------
+insacloud_services:
+  - name: insacloud-web
+    description: "InsaCloud - Serveur web Flask"
+    script: app.py
+  - name: insacloud-faucheur
+    description: "InsaCloud - Faucheur (destruction des machines expirées)"
+    script: faucheur.py

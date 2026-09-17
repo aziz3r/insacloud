@@ -1,0 +1,66 @@
+---
+# =============================================================================
+#  roles/docker/tasks/main.yml - Installation idempotente de Docker Engine
+# -----------------------------------------------------------------------------
+#  Chaque tâche décrit un ÉTAT désiré (présent, démarré, ...) : relancer le
+#  rôle sur une machine déjà configurée ne change rien (0 "changed").
+# =============================================================================
+
+- name: Mettre à jour le cache APT (valide 1 h)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Installer les pré-requis (certificats, curl, gnupg)
+  ansible.builtin.apt:
+    name: "{{ docker_prerequisites }}"
+    state: present
+
+- name: Créer le répertoire des clés APT
+  ansible.builtin.file:
+    path: "{{ docker_keyring | dirname }}"
+    state: directory
+    mode: "0755"
+
+- name: Télécharger la clé GPG du dépôt Docker
+  ansible.builtin.get_url:
+    url: "{{ docker_gpg_url }}"
+    dest: "{{ docker_keyring }}"
+    mode: "0644"
+
+- name: Ajouter le dépôt APT officiel de Docker ({{ docker_arch }})
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [arch={{ docker_arch }} signed-by={{ docker_keyring }}]
+      {{ docker_repo_url }} {{ ansible_distribution_release }} stable
+    filename: docker
+    state: present
+    update_cache: true
+
+- name: Installer Docker Engine
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+
+- name: Activer et démarrer le service Docker
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Ajouter les utilisateurs au groupe docker
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
+
+- name: Vérifier que le démon Docker répond
+  ansible.builtin.command:
+    cmd: docker info --format '{{ "{{" }}.ServerVersion{{ "}}" }}'
+  register: docker_info
+  changed_when: false
+
+- name: Afficher la version de Docker installée
+  ansible.builtin.debug:
+    msg: "Docker Engine {{ docker_info.stdout }} opérationnel ({{ docker_arch }})"

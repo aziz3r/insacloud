@@ -1,0 +1,29 @@
+---
+# =============================================================================
+#  roles/docker/defaults/main.yml - Variables par défaut du rôle docker
+#  (surchargeables depuis group_vars ou le playbook)
+# =============================================================================
+
+# Dépôt officiel Docker pour Ubuntu
+docker_repo_url: "https://download.docker.com/linux/ubuntu"
+docker_gpg_url: "https://download.docker.com/linux/ubuntu/gpg"
+docker_keyring: "/etc/apt/keyrings/docker.asc"
+
+# Architecture APT déduite des facts : aarch64 -> arm64, sinon amd64
+docker_arch: "{{ 'arm64' if ansible_architecture == 'aarch64' else 'amd64' }}"
+
+# Paquets pré-requis pour ajouter un dépôt APT signé
+docker_prerequisites:
+  - ca-certificates
+  - curl
+  - gnupg
+
+# Paquets Docker à installer
+docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+
+# Utilisateurs existants à ajouter au groupe docker (ex: [vagrant])
+docker_users: []

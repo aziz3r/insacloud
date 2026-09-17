@@ -1,0 +1,20 @@
+# --- Secrets : ne jamais committer ---
+3_ansible/.vault_pass
+2_webapp/.secret_key
+
+# --- Données locales ---
+2_webapp/*.db
+2_webapp/*.db-wal
+2_webapp/*.db-shm
+
+# --- Python ---
+__pycache__/
+*.pyc
+2_webapp/.venv/
+
+# --- Vagrant / Ansible ---
+.vagrant/
+*.retry
+
+# --- macOS ---
+.DS_Store
