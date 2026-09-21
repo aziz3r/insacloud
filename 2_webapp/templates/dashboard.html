@@ -5,405 +5,300 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <meta name="referrer" content="no-referrer">
-  <title>InsaCloud — Mes machines</title>
+  <title>Machines · InsaCloud</title>
   <link rel="stylesheet" href="{{ static_url('css/tailwind.css') }}">
   <link rel="stylesheet" href="{{ static_url('css/insacloud.css') }}">
 </head>
-<body class="min-h-screen antialiased">
+<body>
 
-  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
-
-  <div class="relative z-10">
-
-    <!-- ===================== Barre flottante ===================== -->
-    <header class="px-4 sm:px-8 pt-5 sticky top-0 z-20">
-      <div class="glass rounded-full max-w-6xl mx-auto pl-5 pr-2 h-14 flex items-center justify-between">
-        <a href="{{ url_for('dashboard') }}" class="text-lg font-bold tracking-tight">InsaCloud</a>
-        <div class="flex items-center gap-2">
-          <span class="pill hidden sm:inline-flex"><span class="avatar">{{ g.user.username[0]|upper }}</span>{{ g.user.username }}</span>
-          <form method="POST" action="{{ url_for('logout') }}">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <button type="submit" class="btn btn-glass text-sm px-3.5 py-1.5" title="Se déconnecter">
-              <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-              <span class="hidden sm:inline">Déconnexion</span>
-            </button>
-          </form>
-        </div>
-      </div>
-    </header>
-
-    <!-- ===================== Messages flash ===================== -->
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div id="toasts" class="fixed top-24 right-4 sm:right-8 z-30 w-[min(92vw,26rem)] space-y-2">
-          {% for category, message in messages %}
-            <div class="toast glass toast-{{ category if category in ['success','error','info'] else 'info' }}" role="status">
-              <span class="flex-1">{{ message }}</span>
-              <button type="button" class="flash-close opacity-60 hover:opacity-100" aria-label="Fermer">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
-            </div>
-          {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
-
-    <main class="max-w-6xl mx-auto px-4 sm:px-8 py-10 space-y-10">
-
-      <!-- ===================== Titre ===================== -->
-      <div class="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 class="text-4xl sm:text-5xl font-bold tracking-tight">Bonjour, {{ g.user.username }}</h1>
-          <p class="mt-2 ink-2 text-lg">
-            {% if active_count == 0 %}Aucune machine en cours pour le moment.
-            {% elif active_count == 1 %}Une machine tourne en ce moment.
-            {% else %}{{ active_count }} machines tournent en ce moment.{% endif %}
-            <span class="muted">Quota {{ active_count }}/{{ max_instances }}.</span>
-          </p>
-        </div>
-        <a href="{{ url_for('dashboard') }}" class="btn btn-glass text-sm px-4 py-2">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-          Actualiser
-        </a>
-      </div>
-
-      <!-- ===================== Révélation unique du mot de passe ===================== -->
-      {% if reveal %}
-        <section id="reveal" class="reveal glass p-6 sm:p-7" role="alert">
-          <div class="flex flex-wrap items-start justify-between gap-4">
-            <div class="min-w-0">
-              <h2 class="text-lg font-bold tracking-tight">
-                {{ 'Nouveau mot de passe de' if reveal.rotated else 'Mot de passe root de' }} {{ reveal.name }}
-              </h2>
-              <p class="mt-1 text-sm ink-2">
-                Il n'est <strong>affiché qu'une seule fois</strong> et n'est stocké nulle part. Notez-le maintenant ;
-                sinon, vous pourrez le régénérer depuis la carte de la machine.
-              </p>
-              <div class="mt-4 flex flex-wrap items-center gap-3">
-                <code class="secret mono">{{ reveal.password }}</code>
-                <button type="button" data-copy="{{ reveal.password }}" class="copy-btn btn btn-glass text-sm px-3.5 py-2">
-                  <svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                  <span class="lbl">Copier</span>
-                </button>
-              </div>
-              {% if reveal.vnc_password %}
-                <p class="mt-3 text-sm ink-2">Mot de passe du bureau graphique (VNC, 8 caractères) :
-                  <code class="secret mono text-sm">{{ reveal.vnc_password }}</code></p>
-              {% endif %}
-            </div>
-            <button type="button" class="reveal-close btn btn-glass text-sm px-3.5 py-2">J'ai noté, masquer</button>
-          </div>
-        </section>
-      {% endif %}
-
-      <!-- ===================== Nouvelle machine ===================== -->
-      <section class="glass glass-highlight rounded-[28px] p-6 sm:p-8">
-        <form method="POST" action="{{ url_for('create_instance') }}" class="relative space-y-7">
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="{{ url_for('dashboard') }}" class="wordmark">InsaCloud</a>
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-2">{{ g.user.username }}</span>
+        <form method="POST" action="{{ url_for('logout') }}">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-          <div>
-            <h2 class="text-xl font-bold tracking-tight">Nouvelle machine</h2>
-            <p class="mt-1 text-sm ink-2">Choisissez une distribution, un mode et une durée. Tout le reste est automatique.</p>
-          </div>
+          <button type="submit" class="btn btn-ghost btn-sm">Se déconnecter</button>
+        </form>
+      </div>
+    </div>
+  </header>
 
-          <div>
-            <p class="text-sm font-semibold mb-3">Distribution</p>
-            <div class="grid gap-3 sm:grid-cols-3">
-              {% for key, d in distros.items() %}
-                <label class="relative">
-                  <input type="radio" name="os" value="{{ key }}" class="sr-only" {{ 'checked' if key == default_os }}>
-                  <span class="opt-card">
-                    <span class="mono-badge {{ 'os-' ~ key if key in ['ubuntu','debian','alpine'] else 'os-other' }}">{{ d.label[0] }}</span>
-                    <span class="min-w-0">
-                      <span class="block text-sm font-semibold truncate">{{ d.label }}</span>
-                      <span class="block text-xs muted truncate">{{ d.hint }}</span>
-                    </span>
-                  </span>
-                </label>
-              {% endfor %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div id="toasts">
+        {% for category, message in messages %}
+          <div class="notice notice-{{ category if category in ['success','error','info'] else 'info' }}" role="status">
+            <span class="flex-1">{{ message }}</span>
+            <button type="button" class="flash-close icon-btn" aria-label="Fermer">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <main class="page">
+
+    <div class="page-head">
+      <div>
+        <h1>Machines</h1>
+        <p class="text-2">
+          {% if active_count == 0 %}Aucune machine en cours.{% elif active_count == 1 %}1 machine en cours.{% else %}{{ active_count }} machines en cours.{% endif %}
+          <span class="muted">Quota {{ active_count }}/{{ max_instances }}.</span>
+        </p>
+      </div>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-ghost btn-sm">Actualiser</a>
+    </div>
+
+    {% if reveal %}
+      <section id="reveal" class="reveal" role="alert">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="font-medium">{{ 'Nouveau mot de passe root de' if reveal.rotated else 'Mot de passe root de' }} {{ reveal.name }}</p>
+            <p class="text-2 text-sm mt-1">Notez-le maintenant. Vous pourrez le retrouver plus tard en ouvrant le coffre avec le mot de passe de votre compte.</p>
+            <div class="mt-3 flex flex-wrap items-center gap-2">
+              <code class="secret">{{ reveal.password }}</code>
+              <button type="button" data-copy="{{ reveal.password }}" class="copy-btn btn btn-secondary btn-sm">
+                <svg class="ico w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                <span class="lbl">Copier</span>
+              </button>
+              {% if reveal.vnc_password %}<span class="text-sm text-2">Bureau (VNC) : <code class="secret text-sm">{{ reveal.vnc_password }}</code></span>{% endif %}
             </div>
           </div>
+          <button type="button" class="reveal-close btn btn-ghost btn-sm">Masquer</button>
+        </div>
+      </section>
+    {% endif %}
 
-          <div class="grid gap-6 lg:grid-cols-2">
-            <div>
-              <p class="text-sm font-semibold mb-3">Mode d'accès</p>
+    <!-- ===================== Nouvelle machine ===================== -->
+    <section class="section">
+      <div class="section-grid">
+        <div>
+          <h2 class="text-[15px]">Nouvelle machine</h2>
+          <p class="help">Distribution, mode d'accès et durée. La machine est prête en quelques secondes et détruite à l'expiration.</p>
+        </div>
+        <form method="POST" action="{{ url_for('create_instance') }}" class="space-y-6">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <div class="form-row">
+            <div class="form-group">
+              <span class="label">Distribution</span>
               <div class="seg">
-                {% for key, m in modes.items() %}
-                  <label>
-                    <input type="radio" name="mode" value="{{ key }}" data-hint="{{ m.hint }}" {{ 'checked' if key == default_mode }}>
-                    <span class="opt">
-                      {% if m.gui %}
-                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                      {% else %}
-                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-                      {% endif %}
-                      {{ m.label }}
-                    </span>
-                  </label>
+                {% for key, d in distros.items() %}
+                  <label><input type="radio" name="os" value="{{ key }}" {{ 'checked' if key == default_os }}><span class="opt"><span class="dot {{ 'os-' ~ key if key in ['ubuntu','debian','alpine'] else 'os-other' }}"></span>{{ d.label }}</span></label>
                 {% endfor %}
               </div>
-              <p id="mode-hint" class="mt-2 text-xs muted">{{ modes[default_mode].hint }}</p>
             </div>
-            <div>
-              <p class="text-sm font-semibold mb-3">Durée</p>
+            <div class="form-group">
+              <span class="label">Mode d'accès</span>
+              <div class="seg">
+                {% for key, m in modes.items() %}
+                  <label><input type="radio" name="mode" value="{{ key }}" data-hint="{{ m.hint }}" {{ 'checked' if key == default_mode }}><span class="opt">{{ m.label }}</span></label>
+                {% endfor %}
+              </div>
+              <p id="mode-hint" class="help">{{ modes[default_mode].hint }}</p>
+            </div>
+            <div class="form-group">
+              <span class="label">Durée</span>
               <div class="seg">
                 {% for d in duration_choices %}
                   <label><input type="radio" name="duration" value="{{ d }}" {{ 'checked' if d == 10 }}><span class="opt">{{ d }} min</span></label>
                 {% endfor %}
-                <label>
-                  <input type="radio" name="duration" value="" id="custom-radio">
-                  <span class="opt">Autre <input id="custom" type="number" min="1" max="{{ max_duration }}" placeholder="45" class="custom-input mono text-sm"> min</span>
-                </label>
+                <label><input type="radio" name="duration" value="" id="custom-radio"><span class="opt">Autre&nbsp;<input id="custom" type="number" min="1" max="{{ max_duration }}" placeholder="45" class="custom-input mono">&nbsp;min</span></label>
               </div>
-              <p class="mt-2 text-xs muted">Entre 1 et {{ max_duration }} minutes, prolongeable ensuite.</p>
+              <p class="help">1 à {{ max_duration }} minutes, prolongeable.</p>
             </div>
           </div>
-
-          <div class="flex flex-wrap items-center justify-between gap-4 pt-1">
-            <p class="text-xs muted">
-              {% if ssh_public_key %}Accès SSH par votre clé uniquement · {% endif %}Mémoire : 256 Mo en mode terminal, 1 Go en mode bureau.
-            </p>
+          <div class="flex items-center gap-4">
             {% if active_count >= max_instances %}
-              <button type="button" disabled class="btn btn-primary px-6 py-3">Quota atteint</button>
+              <button type="button" disabled class="btn btn-primary">Quota atteint</button>
             {% else %}
-              <button type="submit" class="btn btn-primary px-6 py-3">
-                <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Louer cette machine
-              </button>
+              <button type="submit" class="btn btn-primary">Louer la machine</button>
             {% endif %}
+            <span class="help">256 Mo en terminal, 1 Go en bureau{% if ssh_public_key %} · accès SSH par votre clé{% endif %}.</span>
           </div>
         </form>
-      </section>
+      </div>
+    </section>
 
-      <!-- ===================== Machines en cours ===================== -->
-      <section>
-        <div class="flex items-baseline justify-between mb-4">
-          <h2 class="text-xl font-bold tracking-tight">Machines en cours</h2>
-          <span class="text-sm muted">{{ active_count }} / {{ max_instances }}</span>
+    <!-- ===================== Machines en cours ===================== -->
+    <section class="section">
+      <div class="section-head">
+        <h2>En cours</h2>
+        <span class="muted text-sm">{{ active_count }} / {{ max_instances }}</span>
+      </div>
+
+      {% if active_instances %}
+        <div class="vault-strip">
+          {% if vault_open %}
+            <svg class="w-4 h-4 lock-open flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>
+            <div class="grow">Accès visibles · se masquent dans <span id="vault-countdown" class="mono" data-remaining="{{ vault_remaining }}">{{ '%02d:%02d' % (vault_remaining // 60, vault_remaining % 60) }}</span></div>
+            <form method="POST" action="{{ url_for('vault_lock') }}">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Masquer maintenant</button>
+            </form>
+          {% else %}
+            <svg class="w-4 h-4 lock flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+            <div class="grow text-2">Mots de passe masqués. Saisissez le mot de passe de votre compte pour les afficher {{ vault_window }} minutes.</div>
+            <form method="POST" action="{{ url_for('vault_unlock') }}" class="vault-form">
+              <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+              <label for="vault-password" class="sr-only">Mot de passe du compte</label>
+              <input id="vault-password" name="password" type="password" required autocomplete="current-password" placeholder="Mot de passe du compte" class="field field-sm">
+              <button type="submit" class="btn btn-secondary btn-sm">Afficher</button>
+            </form>
+          {% endif %}
         </div>
 
-        {% if active_instances %}
-          <!-- Coffre : les accès (mots de passe) ne s'affichent qu'après re-authentification -->
-          <div class="vault-bar glass {{ 'vault-bar-open' if vault_open }}">
-            {% if vault_open %}
-              <span class="chip vault-open flex-none"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg></span>
-              <div class="flex-1 min-w-0 text-sm">
-                <p class="font-semibold">Coffre ouvert</p>
-                <p class="muted text-xs">Se referme dans <span id="vault-countdown" class="mono" data-remaining="{{ vault_remaining }}">{{ '%02d:%02d' % (vault_remaining // 60, vault_remaining % 60) }}</span></p>
-              </div>
-              <form method="POST" action="{{ url_for('vault_lock') }}" class="flex-none">
-                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-glass text-sm px-4 py-2">Verrouiller</button>
-              </form>
-            {% else %}
-              <span class="chip flex-none"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>
-              <div class="flex-1 min-w-0 text-sm">
-                <p class="font-semibold">Coffre verrouillé</p>
-                <p class="muted text-xs">Votre mot de passe de compte affiche les accès pendant {{ vault_window }} min.</p>
-              </div>
-              <form method="POST" action="{{ url_for('vault_unlock') }}" class="vault-form">
-                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                <label for="vault-password" class="sr-only">Mot de passe du compte</label>
-                <input id="vault-password" name="password" type="password" required autocomplete="current-password" placeholder="Mot de passe du compte" class="field field-sm text-sm">
-                <button type="submit" class="btn btn-primary text-sm px-4 py-2">Afficher les accès</button>
-              </form>
-            {% endif %}
-          </div>
-        {% endif %}
-
-        {% if active_instances %}
-          <div class="grid gap-5 md:grid-cols-2">
-            {% for inst in active_instances %}
-              <article class="glass glass-highlight card rounded-[26px] p-6">
-                <div class="relative flex flex-col gap-5">
-
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                      <h3 class="font-bold truncate" title="{{ inst.container_name }}">{{ inst.container_name }}</h3>
-                      <div class="mt-2 flex flex-wrap gap-1.5">
-                        <span class="pill"><span class="dot {{ 'os-' ~ inst.os_type if inst.os_type in ['ubuntu','debian','alpine'] else 'os-other' }}"></span>{{ inst.os_label }}</span>
-                        <span class="pill">{{ inst.mode_label }}</span>
-                        <span class="pill mono">{{ inst.container_id }}</span>
-                      </div>
-                    </div>
+        <div class="machines">
+          {% for inst in active_instances %}
+            <article class="machine">
+              <div class="machine-row">
+                <div class="min-w-0">
+                  <div class="machine-name">
+                    <span class="name" title="{{ inst.container_name }}">{{ inst.container_name }}</span>
                     {% set st = inst.docker_state %}
                     {% set badge = {'running': ('st-ok', 'en ligne', True), 'restarting': ('st-warn', 'redémarrage', True),
                                     'created': ('st-accent', 'création', False), 'absent': ('st-bad', 'introuvable', False)}.get(st, ('st-muted', st, False)) %}
-                    <span class="pill flex-none" title="État Docker : {{ st }}"><span class="dot {{ badge[0] }} {{ 'dot-live' if badge[2] }}"></span>{{ badge[1] }}</span>
+                    <span class="status" title="État Docker : {{ st }}"><span class="dot {{ badge[0] }} {{ 'dot-live' if badge[2] }}"></span>{{ badge[1] }}</span>
                   </div>
-
-                  <!-- Accès -->
-                  <div class="flex flex-wrap gap-2">
-                    {% if inst.term_url %}
-                      <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-glass text-sm px-4 py-2" title="Terminal dans le navigateur : tapez root puis le mot de passe">
-                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-                        Terminal
-                      </a>
-                    {% endif %}
-                    {% if inst.is_desktop %}
-                      <a href="{{ inst.gui_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-primary text-sm px-4 py-2" title="Bureau XFCE dans le navigateur">
-                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-                        Bureau
-                      </a>
-                    {% endif %}
-                    <form method="POST" action="{{ url_for('rotate_password', instance_id=inst.id) }}" data-confirm="Générer un nouveau mot de passe root pour {{ inst.container_name }} ? L'ancien ne fonctionnera plus.">
-                      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                      <button type="submit" class="btn btn-glass text-sm px-4 py-2" title="Nouveau mot de passe, affiché une seule fois">
-                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-                        Régénérer le mot de passe
-                      </button>
-                    </form>
-                  </div>
-
-                  <!-- SSH -->
-                  <div class="code-dark px-4 py-3 flex items-center justify-between gap-3">
-                    <code class="mono text-sm truncate"><span class="opacity-40 select-none">$ </span>{{ inst.ssh_command }}</code>
-                    <button type="button" data-copy="{{ inst.ssh_command }}" class="copy-btn flex-none inline-flex items-center gap-1.5 text-xs opacity-80 hover:opacity-100" title="Copier">
-                      <svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-                      <span class="lbl">Copier</span>
-                    </button>
-                  </div>
-                  {% if vault_open %}
-                    <!-- Coffre ouvert : tout le nécessaire pour se connecter -->
-                    <div class="vault-box rounded-2xl p-4 space-y-3 text-sm">
-                      {% if inst.root_password %}
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <span class="ink-2">Mot de passe root</span>
-                          <span class="flex items-center gap-2">
-                            <code class="secret mono text-sm">{{ inst.root_password }}</code>
-                            <button type="button" data-copy="{{ inst.root_password }}" class="copy-btn icon-btn" title="Copier"><svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
-                          </span>
-                        </div>
-                        {% if inst.is_desktop %}
-                          <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="ink-2">Mot de passe du bureau (VNC)</span>
-                            <span class="flex items-center gap-2">
-                              <code class="secret mono text-sm">{{ inst.vnc_password }}</code>
-                              <button type="button" data-copy="{{ inst.vnc_password }}" class="copy-btn icon-btn" title="Copier"><svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
-                            </span>
-                          </div>
-                        {% endif %}
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                          <span class="ink-2">Terminal web</span>
-                          <span class="mono text-xs">login : root · <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="accent underline">{{ inst.term_url }}</a></span>
-                        </div>
-                        {% if inst.is_desktop %}
-                          <div class="flex flex-wrap items-center justify-between gap-2">
-                            <span class="ink-2">Bureau</span>
-                            <span class="mono text-xs"><a href="{{ inst.gui_url }}" target="_blank" rel="noopener noreferrer" class="accent underline">{{ inst.gui_url.split('?')[0] }}</a></span>
-                          </div>
-                        {% endif %}
-                        <p class="text-xs muted">{% if ssh_public_key %}SSH : votre clé publique est installée, le mot de passe ne sert qu'au terminal web et au bureau.{% else %}SSH : <code class="mono">{{ inst.ssh_command }}</code> puis ce mot de passe.{% endif %}</p>
-                      {% else %}
-                        <p class="text-xs muted">Mot de passe indisponible pour cette machine (créée avant le coffre) — utilisez <em>Régénérer le mot de passe</em>.</p>
-                      {% endif %}
-                    </div>
-                  {% else %}
-                    <p class="text-xs muted -mt-3">
-                      {% if ssh_public_key %}SSH par clé uniquement (votre clé publique est installée).{% else %}Mot de passe root : ouvrez le coffre ci-dessus pour l'afficher, ou régénérez-le.{% endif %}
-                    </p>
-                  {% endif %}
-
-                  <!-- Temps restant -->
-                  <div>
-                    <div class="flex items-baseline justify-between text-sm">
-                      <span class="ink-2">Temps restant</span>
-                      <span class="countdown mono text-base font-semibold tabular-nums" data-remaining="{{ inst.remaining_seconds }}" data-total="{{ inst.total_seconds }}">--:--</span>
-                    </div>
-                    <div class="bar-track mt-2"><div class="bar"></div></div>
-                    <p class="mt-1.5 text-xs muted">Expire à {{ inst.expires_at_local }} · port SSH {{ inst.port }}</p>
-                  </div>
-
-                  <!-- Actions -->
-                  <div class="pt-4 flex items-center justify-between gap-3 border-t border-glass">
-                    <form method="POST" action="{{ url_for('extend_instance', instance_id=inst.id) }}" class="flex items-center gap-2">
-                      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                      <select name="minutes" class="field field-sm text-sm">
-                        {% for m in extend_choices %}<option value="{{ m }}">+ {{ m }} min</option>{% endfor %}
-                      </select>
-                      <button type="submit" class="btn btn-glass text-sm px-3.5 py-1.5">Prolonger</button>
-                    </form>
-                    <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.id) }}" data-confirm="Détruire définitivement {{ inst.container_name }} ?">
-                      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                      <button type="submit" class="btn btn-danger text-sm px-3.5 py-1.5">Terminer</button>
-                    </form>
+                  <div class="machine-sub">
+                    <span><span class="dot {{ 'os-' ~ inst.os_type if inst.os_type in ['ubuntu','debian','alpine'] else 'os-other' }} inline-block mr-1 align-middle"></span>{{ inst.os_label }}</span>
+                    <span>{{ inst.mode_label }}</span>
+                    <span class="mono">{{ inst.container_id }}</span>
+                    <span>port SSH {{ inst.port }}</span>
                   </div>
                 </div>
-              </article>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="glass rounded-[26px] px-6 py-14 text-center">
-            <svg class="w-9 h-9 mx-auto muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            <p class="mt-4 font-semibold">Aucune machine en cours</p>
-            <p class="mt-1 text-sm muted">Choisissez une distribution ci-dessus pour en louer une.</p>
-          </div>
-        {% endif %}
-      </section>
 
-      <!-- ===================== Clé SSH ===================== -->
-      <section class="glass rounded-[26px] p-6 sm:p-8 grid gap-6 md:grid-cols-[1fr_1.5fr]">
+                <div class="machine-time">
+                  <div class="row"><span>Temps restant</span><span class="countdown" data-remaining="{{ inst.remaining_seconds }}" data-total="{{ inst.total_seconds }}">--:--</span></div>
+                  <div class="bar-track"><div class="bar"></div></div>
+                  <div class="row"><span>Expire à {{ inst.expires_at_local }}</span></div>
+                </div>
+
+                <div class="machine-actions">
+                  {% if inst.term_url %}<a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" title="Terminal dans le navigateur : root puis le mot de passe">Terminal</a>{% endif %}
+                  {% if inst.is_desktop %}<a href="{{ inst.gui_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm" title="Bureau XFCE dans le navigateur">Bureau</a>{% endif %}
+                  <form method="POST" action="{{ url_for('extend_instance', instance_id=inst.id) }}">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                    <select name="minutes" class="field field-sm w-auto" aria-label="Durée de prolongation">
+                      {% for m in extend_choices %}<option value="{{ m }}">+{{ m }} min</option>{% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-ghost btn-sm">Prolonger</button>
+                  </form>
+                  <form method="POST" action="{{ url_for('rotate_password', instance_id=inst.id) }}" data-confirm="Générer un nouveau mot de passe root pour {{ inst.container_name }} ? L'ancien ne fonctionnera plus.">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" title="Nouveau mot de passe root">Régénérer</button>
+                  </form>
+                  <form method="POST" action="{{ url_for('delete_instance', instance_id=inst.id) }}" data-confirm="Détruire définitivement {{ inst.container_name }} ?">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-danger btn-sm">Terminer</button>
+                  </form>
+                </div>
+              </div>
+
+              <div class="mt-3 flex items-center gap-2 min-w-0">
+                <span class="cmd"><span class="muted select-none">$</span> {{ inst.ssh_command }}</span>
+                <button type="button" data-copy="{{ inst.ssh_command }}" class="copy-btn icon-btn" title="Copier la commande SSH">
+                  <svg class="ico w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                </button>
+                {% if ssh_public_key %}<span class="help mt-0">SSH par clé.</span>{% endif %}
+              </div>
+
+              {% if vault_open %}
+                <div class="access">
+                  {% if inst.root_password %}
+                    <div><div class="k">Mot de passe root</div><div class="v"><code>{{ inst.root_password }}</code>
+                      <button type="button" data-copy="{{ inst.root_password }}" class="copy-btn icon-btn" title="Copier"><svg class="ico w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div></div>
+                    {% if inst.is_desktop %}
+                      <div><div class="k">Mot de passe du bureau (VNC)</div><div class="v"><code>{{ inst.vnc_password }}</code>
+                        <button type="button" data-copy="{{ inst.vnc_password }}" class="copy-btn icon-btn" title="Copier"><svg class="ico w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button></div></div>
+                    {% endif %}
+                    <div><div class="k">Terminal web</div><div class="v">login <code>root</code> · <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="mono">{{ inst.term_url }}</a></div></div>
+                    {% if inst.is_desktop %}<div><div class="k">Bureau</div><div class="v"><a href="{{ inst.gui_url }}" target="_blank" rel="noopener noreferrer" class="mono">{{ inst.gui_url.split('?')[0] }}</a></div></div>{% endif %}
+                  {% else %}
+                    <div class="col-span-2 muted">Mot de passe indisponible pour cette machine (créée avant le coffre) — utilisez <em>Régénérer</em>.</div>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </article>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="hairline pt-10 pb-6 text-center">
+          <p class="font-medium">Aucune machine en cours</p>
+          <p class="help">Choisissez une distribution ci-dessus pour en louer une.</p>
+        </div>
+      {% endif %}
+    </section>
+
+    <!-- ===================== Clé SSH ===================== -->
+    <section class="section">
+      <div class="section-grid">
         <div>
-          <h2 class="text-xl font-bold tracking-tight">Clé SSH publique</h2>
-          <p class="mt-1 text-sm ink-2">Recommandé : vos machines n'accepteront alors <strong>que votre clé</strong> en SSH, jamais un mot de passe.
-            Générez-la avec <code class="mono text-xs">ssh-keygen -t ed25519</code> et collez le contenu de <code class="mono text-xs">~/.ssh/id_ed25519.pub</code>.</p>
+          <h2 class="text-[15px]">Clé SSH publique</h2>
+          <p class="help">Recommandé : vos machines n'accepteront que cette clé en SSH, jamais un mot de passe. Générez-la avec <code class="mono">ssh-keygen -t ed25519</code> et collez le contenu de <code class="mono">~/.ssh/id_ed25519.pub</code>.</p>
         </div>
         <form method="POST" action="{{ url_for('set_ssh_key') }}" class="space-y-3">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-          <textarea name="ssh_public_key" rows="3" maxlength="1024" spellcheck="false" placeholder="ssh-ed25519 AAAA… commentaire"
-                    class="field mono text-xs">{{ ssh_public_key }}</textarea>
+          <textarea name="ssh_public_key" rows="3" maxlength="1024" spellcheck="false" placeholder="ssh-ed25519 AAAA… commentaire" class="field mono">{{ ssh_public_key }}</textarea>
           <div class="flex items-center justify-between gap-3">
-            <span class="text-xs muted">{% if ssh_public_key %}<span class="dot st-ok"></span> Clé enregistrée{% else %}Aucune clé : accès SSH par mot de passe{% endif %}</span>
-            <button type="submit" class="btn btn-glass text-sm px-4 py-2">{{ 'Mettre à jour' if ssh_public_key else 'Enregistrer la clé' }}</button>
+            <span class="help mt-0">{% if ssh_public_key %}<span class="dot st-ok inline-block mr-1 align-middle"></span>Clé enregistrée{% else %}Aucune clé : accès SSH par mot de passe{% endif %}</span>
+            <button type="submit" class="btn btn-secondary btn-sm">{{ 'Mettre à jour' if ssh_public_key else 'Enregistrer' }}</button>
           </div>
         </form>
-      </section>
+      </div>
+    </section>
 
-      <!-- ===================== Aide ===================== -->
-      <section class="glass rounded-[26px] p-6 sm:p-8 grid gap-6 md:grid-cols-[1fr_1.5fr]">
+    <!-- ===================== Aide ===================== -->
+    <section class="section">
+      <div class="section-grid">
         <div>
-          <h2 class="text-xl font-bold tracking-tight">Accéder à sa machine</h2>
-          <p class="mt-1 text-sm ink-2">Trois façons, selon vos habitudes{% if tls_machines %} — terminal et bureau sont chiffrés (TLS){% endif %}.</p>
+          <h2 class="text-[15px]">Accéder à une machine</h2>
+          <p class="help">Trois façons{% if tls_machines %}, chiffrées en TLS{% endif %}.</p>
         </div>
-        <ol class="space-y-3 text-sm">
-          <li class="flex gap-3"><span class="pill flex-none">1</span><span><strong>Terminal</strong> — s'ouvre dans le navigateur avec une invite de connexion, comme une console : tapez <code class="mono">root</code>, Entrée, puis le mot de passe (il ne s'affiche pas) et Entrée.</span></li>
-          <li class="flex gap-3"><span class="pill flex-none">2</span><span><strong>Bureau</strong> (mode bureau graphique) — XFCE et Firefox dans le navigateur ; mot de passe VNC = 8 premiers caractères. Patientez quelques secondes au premier démarrage.</span></li>
-          <li class="flex gap-3"><span class="pill flex-none">3</span><span><strong>SSH</strong> — copiez la commande ; avec une clé enregistrée la connexion est immédiate, sinon saisissez le mot de passe.</span></li>
+        <ol class="list-steps">
+          <li><strong class="text-[var(--text)]">Terminal</strong> — dans le navigateur, une invite de connexion comme sur une console : tapez <span class="kbd">root</span>, Entrée, puis le mot de passe (invisible à la frappe) et Entrée.</li>
+          <li><strong class="text-[var(--text)]">Bureau</strong> — pour les machines en mode bureau : XFCE et Firefox dans le navigateur, mot de passe VNC = 8 premiers caractères du mot de passe root.</li>
+          <li><strong class="text-[var(--text)]">SSH</strong> — copiez la commande ; avec une clé enregistrée la connexion est immédiate, sinon saisissez le mot de passe.</li>
         </ol>
-      </section>
+      </div>
+    </section>
 
-      <!-- ===================== Historique ===================== -->
-      {% if history_instances %}
-        <details class="group">
-          <summary class="inline-flex items-center gap-2 cursor-pointer text-sm font-semibold ink-2 select-none">
-            <svg class="chev w-4 h-4 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-            Historique des locations ({{ history_instances|length }})
+    <!-- ===================== Historique ===================== -->
+    {% if history_instances %}
+      <section class="section">
+        <details>
+          <summary class="inline-flex items-center gap-2 text-sm font-medium text-2">
+            <svg class="chev w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            Historique ({{ history_instances|length }})
           </summary>
-          <div class="mt-4 glass rounded-[22px] overflow-x-auto">
-            <table class="glass-table w-full text-sm text-left">
+          <div class="mt-4 overflow-x-auto">
+            <table class="table">
               <thead><tr><th>Machine</th><th>Distribution</th><th>Mode</th><th>Créée le</th><th>Fin prévue</th><th>Issue</th></tr></thead>
-              <tbody class="ink-2">
+              <tbody>
                 {% for inst in history_instances %}
                   <tr>
-                    <td class="mono text-xs">{{ inst.container_name }}</td>
+                    <td class="mono">{{ inst.container_name }}</td>
                     <td>{{ inst.os_label }}</td>
                     <td>{{ inst.mode_label }}</td>
                     <td>{{ inst.created_at_local }}</td>
                     <td>{{ inst.expires_date_local }}</td>
-                    <td>{% if inst.status == 'expired' %}<span class="pill"><span class="dot st-warn"></span>Expirée</span>
-                        {% else %}<span class="pill"><span class="dot st-muted"></span>Arrêtée</span>{% endif %}</td>
+                    <td>{% if inst.status == 'expired' %}<span class="status"><span class="dot st-warn"></span>Expirée</span>{% else %}<span class="status"><span class="dot st-muted"></span>Arrêtée</span>{% endif %}</td>
                   </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
         </details>
-      {% endif %}
-    </main>
+      </section>
+    {% endif %}
+  </main>
 
-    <footer class="max-w-6xl mx-auto px-4 sm:px-8 pb-10 text-xs muted flex flex-wrap justify-between gap-2">
-      <span>InsaCloud — Projet 3, Outils de déploiement de plateformes</span><span>INSA · STI 4A</span>
-    </footer>
-  </div>
+  <footer class="footer">
+    <span>InsaCloud — Projet 3, Outils de déploiement de plateformes</span>
+    <span>INSA · STI 4A</span>
+  </footer>
 
   <script src="{{ static_url('js/dashboard.js') }}" defer></script>
 </body>

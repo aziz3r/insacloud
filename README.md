@@ -39,7 +39,7 @@ Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. 
 | **Haute disponibilité** | `--restart=always` + `supervisord` dans chaque machine : tout service qui plante est relancé |
 | **Le Faucheur** | démon qui détruit (`docker rm -f`) les machines expirées et réconcilie Docker ↔ base |
 | **IaC** | VM Vagrant multi-provider, playbook Ansible idempotent en 3 rôles (`security_hardening`, `docker`, `webapp`), secrets chiffrés avec Ansible Vault, Gunicorn sous systemd, pare-feu UFW |
-| **Interface** | thème « Liquid Glass » (verre translucide), mode sombre automatique, sans framework JS |
+| **Interface** | console sobre (typographie, filets fins, une couleur d'accent), mode sombre automatique, sans framework JS ni ressource externe |
 
 ## Architecture
 

@@ -5,115 +5,75 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
   <meta name="referrer" content="no-referrer">
-  <title>InsaCloud — Connexion</title>
-  <!-- Aucune ressource externe : Tailwind précompilé + feuille du thème (CSP stricte) -->
+  <title>Connexion · InsaCloud</title>
   <link rel="stylesheet" href="{{ static_url('css/tailwind.css') }}">
   <link rel="stylesheet" href="{{ static_url('css/insacloud.css') }}">
 </head>
-<body class="min-h-screen antialiased" data-active-tab="{{ active_tab|default('login') }}">
+<body data-active-tab="{{ active_tab|default('login') }}">
 
-  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="{{ url_for('login') }}" class="wordmark">InsaCloud</a>
+      <span class="muted text-xs">Plateforme de location de machines · INSA</span>
+    </div>
+  </header>
 
-  <div class="relative z-10 min-h-screen flex flex-col">
+  <main class="auth">
+    <h1 id="form-title">Se connecter</h1>
+    <p id="form-subtitle" class="text-2">Accédez à vos machines.</p>
 
-    <header class="px-4 sm:px-8 pt-5">
-      <div class="glass rounded-full max-w-6xl mx-auto px-5 h-14 flex items-center justify-between">
-        <span class="text-lg font-bold tracking-tight">InsaCloud</span>
-        <span class="text-xs muted hidden sm:inline">Mini-fournisseur de cloud · INSA</span>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="mt-5 space-y-2">
+          {% for category, message in messages %}
+            <div class="notice notice-{{ category if category in ['success','error','info'] else 'info' }}">{{ message }}</div>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- Connexion -->
+    <form id="panel-login" method="POST" action="{{ url_for('login') }}" class="tab-panel mt-6 space-y-4" autocomplete="on">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div>
+        <label for="login-username" class="label">Identifiant</label>
+        <input id="login-username" name="username" type="text" required maxlength="32" autocomplete="username" autofocus class="field">
       </div>
-    </header>
-
-    <main class="flex-1 flex items-center justify-center px-4 sm:px-8 py-10">
-      <div class="glass glass-highlight rounded-[32px] w-full max-w-5xl grid lg:grid-cols-[1.1fr_1fr]">
-
-        <!-- Présentation -->
-        <section class="relative p-8 sm:p-12 flex flex-col justify-between gap-10">
-          <div>
-            <p class="text-sm font-semibold accent">Bienvenue</p>
-            <h1 class="mt-3 text-4xl sm:text-5xl font-bold tracking-tight leading-[1.05]">
-              Une machine Linux,<br>le temps qu'il vous faut.
-            </h1>
-            <p class="mt-5 ink-2 text-lg leading-relaxed max-w-md">
-              Choisissez une distribution, un mode terminal ou bureau graphique, une durée —
-              votre machine est prête en quelques secondes et disparaît toute seule à la fin.
-            </p>
-          </div>
-          <ul class="space-y-4">
-            <li class="flex gap-4 items-start">
-              <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></span>
-              <div><p class="font-semibold">Terminal ou bureau, au choix</p><p class="text-sm ink-2">SSH, terminal web, ou un vrai bureau XFCE avec Firefox dans votre navigateur.</p></div>
-            </li>
-            <li class="flex gap-4 items-start">
-              <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
-              <div><p class="font-semibold">Durée maîtrisée</p><p class="text-sm ink-2">De 1 à 120 minutes, prolongeable. Le Faucheur nettoie tout à l'expiration.</p></div>
-            </li>
-            <li class="flex gap-4 items-start">
-              <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
-              <div><p class="font-semibold">Sécurisé par conception</p><p class="text-sm ink-2">Mots de passe affichés une seule fois, accès SSH par clé, machines isolées et chiffrement en transit.</p></div>
-            </li>
-          </ul>
-        </section>
-
-        <!-- Formulaires -->
-        <section class="relative p-8 sm:p-12 lg:border-l border-glass">
-          <div class="seg" role="tablist">
-            <label><input type="radio" name="tab" value="login" checked><span>Connexion</span></label>
-            <label><input type="radio" name="tab" value="register"><span>Créer un compte</span></label>
-          </div>
-
-          <h2 id="form-title" class="mt-7 text-2xl font-bold tracking-tight">Bon retour parmi nous</h2>
-          <p id="form-subtitle" class="mt-1 muted text-sm">Connectez-vous pour retrouver vos machines.</p>
-
-          {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-              <div class="mt-5 space-y-2">
-                {% for category, message in messages %}
-                  <div class="toast toast-{{ category if category in ['success','error','info'] else 'info' }}">{{ message }}</div>
-                {% endfor %}
-              </div>
-            {% endif %}
-          {% endwith %}
-
-          <form id="panel-login" method="POST" action="{{ url_for('login') }}" class="tab-panel mt-6 space-y-4" autocomplete="on">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <div>
-              <label for="login-username" class="block text-sm font-medium mb-1.5">Identifiant</label>
-              <input id="login-username" name="username" type="text" required maxlength="32" autocomplete="username" autofocus class="field">
-            </div>
-            <div>
-              <label for="login-password" class="block text-sm font-medium mb-1.5">Mot de passe</label>
-              <input id="login-password" name="password" type="password" required autocomplete="current-password" class="field">
-            </div>
-            <button type="submit" class="btn btn-primary w-full py-3 mt-2">Se connecter</button>
-          </form>
-
-          <form id="panel-register" method="POST" action="{{ url_for('register') }}" class="tab-panel mt-6 space-y-4 hidden">
-            <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-            <div>
-              <label for="reg-username" class="block text-sm font-medium mb-1.5">Identifiant</label>
-              <input id="reg-username" name="username" type="text" required autocomplete="username" minlength="3" maxlength="32"
-                     pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}" title="3 à 32 caractères : lettres, chiffres, . _ -" class="field">
-              <p class="mt-1.5 text-xs muted">3 à 32 caractères — lettres, chiffres, point, tiret ou underscore.</p>
-            </div>
-            <div>
-              <label for="reg-password" class="block text-sm font-medium mb-1.5">Mot de passe</label>
-              <input id="reg-password" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
-              <p class="mt-1.5 text-xs muted">10 caractères minimum, différent de l'identifiant et des mots de passe courants.</p>
-            </div>
-            <div>
-              <label for="reg-confirm" class="block text-sm font-medium mb-1.5">Confirmer le mot de passe</label>
-              <input id="reg-confirm" name="confirm" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
-            </div>
-            <button type="submit" class="btn btn-primary w-full py-3 mt-2">Créer mon compte</button>
-          </form>
-        </section>
+      <div>
+        <label for="login-password" class="label">Mot de passe</label>
+        <input id="login-password" name="password" type="password" required autocomplete="current-password" class="field">
       </div>
-    </main>
+      <button type="submit" class="btn btn-primary btn-lg btn-block">Se connecter</button>
+      <p class="switch">Pas encore de compte ? <a href="#" data-tab-link="register">Créer un compte</a></p>
+    </form>
 
-    <footer class="px-4 sm:px-8 pb-6 text-center text-xs muted">
-      INSA · Outils de déploiement de plateformes · Projet 3
-    </footer>
-  </div>
+    <!-- Inscription -->
+    <form id="panel-register" method="POST" action="{{ url_for('register') }}" class="tab-panel mt-6 space-y-4 hidden">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <div>
+        <label for="reg-username" class="label">Identifiant</label>
+        <input id="reg-username" name="username" type="text" required autocomplete="username" minlength="3" maxlength="32"
+               pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}" title="3 à 32 caractères : lettres, chiffres, . _ -" class="field">
+        <p class="help">3 à 32 caractères : lettres, chiffres, point, tiret ou underscore.</p>
+      </div>
+      <div>
+        <label for="reg-password" class="label">Mot de passe</label>
+        <input id="reg-password" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
+        <p class="help">10 caractères minimum.</p>
+      </div>
+      <div>
+        <label for="reg-confirm" class="label">Confirmer le mot de passe</label>
+        <input id="reg-confirm" name="confirm" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
+      </div>
+      <button type="submit" class="btn btn-primary btn-lg btn-block">Créer mon compte</button>
+      <p class="switch">Déjà inscrit ? <a href="#" data-tab-link="login">Se connecter</a></p>
+    </form>
+  </main>
+
+  <footer class="footer">
+    <span>InsaCloud — Projet 3, Outils de déploiement de plateformes</span>
+    <span>INSA · STI 4A</span>
+  </footer>
 
   <script src="{{ static_url('js/login.js') }}" defer></script>
 </body>
