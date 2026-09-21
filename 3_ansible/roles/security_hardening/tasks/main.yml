@@ -1,0 +1,69 @@
+---
+# =============================================================================
+#  roles/security_hardening/tasks/main.yml - Durcissement de la VM (UFW)
+# -----------------------------------------------------------------------------
+#  Ordre volontaire :
+#    1. installer ufw
+#    2. écrire les politiques par défaut et TOUTES les règles d'autorisation
+#       (SSH en premier : on ne se coupe jamais la branche)
+#    3. activer le pare-feu en dernier
+#  Ce rôle passe AVANT le rôle docker : `ufw enable` recharge iptables et
+#  effacerait les chaînes DOCKER si Docker tournait déjà.
+#  Module utilisé : community.general.ufw (idempotent).
+#     -> ansible-galaxy collection install -r requirements.yml
+# =============================================================================
+
+- name: Installer UFW
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Politique par défaut - rejeter le trafic entrant
+  community.general.ufw:
+    direction: incoming
+    policy: "{{ ufw_default_incoming }}"
+
+- name: Politique par défaut - autoriser le trafic sortant
+  community.general.ufw:
+    direction: outgoing
+    policy: "{{ ufw_default_outgoing }}"
+
+- name: Autoriser SSH (port {{ ufw_ssh_port }}) avec limitation anti-force-brute
+  community.general.ufw:
+    rule: limit
+    port: "{{ ufw_ssh_port }}"
+    proto: tcp
+    comment: "SSH administration"
+
+- name: Autoriser les ports TCP applicatifs
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "InsaCloud web"
+  loop: "{{ ufw_allowed_tcp_ports }}"
+
+- name: Autoriser les plages de ports des machines louées
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "InsaCloud machines louees (SSH / terminal / bureau)"
+  loop: "{{ ufw_allowed_tcp_ranges }}"
+
+- name: Activer UFW (avec journalisation) — en dernier, une fois SSH autorisé
+  community.general.ufw:
+    state: enabled
+    logging: "{{ ufw_logging }}"
+
+- name: Lire l'état du pare-feu
+  ansible.builtin.command:
+    cmd: ufw status verbose
+  register: ufw_status
+  changed_when: false
+
+- name: Afficher l'état du pare-feu
+  ansible.builtin.debug:
+    msg: "{{ ufw_status.stdout_lines }}"

@@ -1,4 +1,5 @@
 # {{ ansible_managed }}
+# Unité systemd générée pour {{ item.name }}
 [Unit]
 Description={{ item.description }}
 After=network.target docker.service
@@ -9,9 +10,13 @@ Type=simple
 User={{ insacloud_user }}
 Group={{ insacloud_user }}
 WorkingDirectory={{ insacloud_app_dir }}
-# Variables d'environnement (dont la SECRET_KEY issue du Vault)
+# Variables d'environnement (dont la SECRET_KEY issue du Vault), fichier 0600 root
 EnvironmentFile={{ insacloud_env_file }}
-ExecStart={{ insacloud_venv }}/bin/python {{ insacloud_app_dir }}/{{ item.script }}
+# Web : Gunicorn (4 workers, 0.0.0.0:5000) — Faucheur : interpréteur Python du venv
+ExecStart={{ item.exec }}
+# Arrêt propre : SIGTERM au processus principal, puis 15 s avant SIGKILL
+KillMode=mixed
+TimeoutStopSec=15
 # Résilience : relance automatique en cas de crash
 Restart=always
 RestartSec=5

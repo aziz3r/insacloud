@@ -5,7 +5,7 @@
 
 Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. Nadia Fettah).
 
-**Stack** : Python / Flask · SQLite · Docker · Ansible (rôles + Vault) · Vagrant · Tailwind CSS · systemd
+**Stack** : Python / Flask + Gunicorn · SQLite · Docker · Ansible (rôles + Vault) · Vagrant · UFW · Tailwind CSS · systemd
 
 ---
 
@@ -37,7 +37,7 @@ Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. 
 | **Accès** | commande SSH exacte (`ssh root@<hôte> -p <port>`), bouton *Terminal*, bouton *Bureau*, mot de passe root unique par machine |
 | **Haute disponibilité** | `--restart=always` + `supervisord` dans chaque machine : tout service qui plante est relancé |
 | **Le Faucheur** | démon qui détruit (`docker rm -f`) les machines expirées et réconcilie Docker ↔ base |
-| **IaC** | VM Vagrant, playbook Ansible idempotent en rôles, secrets chiffrés avec Ansible Vault, services systemd |
+| **IaC** | VM Vagrant multi-provider, playbook Ansible idempotent en 3 rôles (`security_hardening`, `docker`, `webapp`), secrets chiffrés avec Ansible Vault, Gunicorn sous systemd, pare-feu UFW |
 | **Interface** | thème « Liquid Glass » (verre translucide), mode sombre automatique, sans framework JS |
 
 ## Architecture
@@ -70,7 +70,7 @@ Chaque machine louée est un conteneur Docker qui publie :
 
 ```
 Projet_InsaCloud/
-├── Vagrantfile                      VM Ubuntu 22.04 en 192.168.56.10 (VirtualBox / VMware)
+├── Vagrantfile                      VM Ubuntu 22.04 en 192.168.56.10 (VMware / Parallels / QEMU / VirtualBox)
 ├── 1_docker/
 │   ├── Dockerfile                   Ubuntu 22.04   (--build-arg DESKTOP=1 → variante bureau)
 │   ├── debian.Dockerfile            Debian 12
@@ -85,14 +85,16 @@ Projet_InsaCloud/
 │       └── dashboard.html           location, cartes machines, historique
 └── 3_ansible/
     ├── ansible.cfg
+    ├── requirements.yml             collections (community.general pour UFW)
     ├── inventaire.ini               vm-insacloud → 192.168.56.10
     ├── site.yml                     compose les rôles docker + webapp
     ├── group_vars/insacloud/
     │   ├── vars.yml                 variables en clair
     │   └── vault.yml                secrets chiffrés (ansible-vault)
     └── roles/
+        ├── security_hardening/      pare-feu UFW : SSH limité, 5000, 8000-9000, deny par défaut
         ├── docker/                  installe Docker Engine (dépôt officiel, amd64/arm64)
-        └── webapp/                  Python/Flask, code, 6 images Docker, systemd, secrets
+        └── webapp/                  Python/Flask/Gunicorn, code, images Docker, systemd, secrets
 ```
 
 ## Démarrage rapide (poste de développement)
@@ -131,28 +133,47 @@ Ouvrez <http://localhost:5055>, créez un compte, louez une machine.
 
 ## Déploiement de production (Vagrant + Ansible)
 
-Pré-requis sur le poste de contrôle : Vagrant + VirtualBox (ou VMware Fusion), Ansible ≥ 2.12.
+Pré-requis sur le poste de contrôle : Vagrant, un hyperviseur, Ansible ≥ 2.12.
+
+Le `Vagrantfile` est **multi-provider** — Vagrant prend le premier utilisable dans cet ordre :
+
+| Fournisseur | Plateforme | Installation |
+|---|---|---|
+| `vmware_desktop` | Mac Apple Silicon / Intel, Windows, Linux | `vagrant plugin install vagrant-vmware-desktop` + Vagrant VMware Utility |
+| `parallels` | Mac | `vagrant plugin install vagrant-parallels` |
+| `qemu` | Mac Apple Silicon sans hyperviseur commercial | `brew install qemu && vagrant plugin install vagrant-qemu` (ports redirigés sur localhost, pas d'IP 192.168.56.10) |
+| `virtualbox` | PC Windows / Linux, Mac Intel (repli) | VirtualBox |
 
 ```bash
 # 1. Créer la VM (Ubuntu 22.04, 192.168.56.10, 4 Go)
 vagrant up                      # ou : vagrant up --provider=vmware_desktop
 
-# 2. Déployer (le mot de passe du Vault est demandé)
+# 2. Installer la collection Ansible requise (module ufw)
 cd 3_ansible
+ansible-galaxy collection install -r requirements.yml
+
+# 3. Déployer (le mot de passe du Vault est demandé)
 ansible-playbook site.yml --ask-vault-pass
 
-# 3. Relancer pour constater l'idempotence : changed=0
+# 4. Relancer pour constater l'idempotence : changed=0
 ansible-playbook site.yml --ask-vault-pass
 ```
 
-Le site est alors sur <http://192.168.56.10:5000>. Le premier déploiement construit les six images sur la VM (15 à 25 min) ; les suivants sont quasi instantanés.
+Le site est alors sur <http://192.168.56.10:5000> (servi par **Gunicorn**, 4 workers).
+
+**Mode démonstration** : par défaut `demo_mode: true` (`group_vars/insacloud/vars.yml`) — seule l'image légère `insacloud_alpine` est construite (~1 min) et l'interface ne propose que ce choix. Pour les six images (les variantes bureau pèsent ~1,4 Go, 15 à 25 min) :
+
+```bash
+ansible-playbook site.yml --ask-vault-pass -e demo_mode=false
+```
 
 Le playbook :
 
 | Rôle | Tâches |
 |---|---|
+| `security_hardening` | installe UFW, politique `deny` entrant / `allow` sortant, SSH 22 en `limit` (anti-force-brute), 5000 (Gunicorn), plage 8000:9000 (machines louées), activation en dernier. Passe **avant** Docker car `ufw enable` recharge iptables |
 | `docker` | cache APT, pré-requis, clé GPG et dépôt officiel Docker (architecture détectée), `docker-ce`, service activé, `docker info` |
-| `webapp` | Python 3 / pip / venv + Flask, utilisateur système `insacloud` (groupe docker), copie du code et de `1_docker/`, fichier d'environnement secret (0600), unités systemd `insacloud-web` et `insacloud-faucheur`, build des images **seulement si absentes ou si les sources ont changé**, démarrage, vérification HTTP 200 |
+| `webapp` | Python 3 / pip / venv + Flask + **Gunicorn**, utilisateur système `insacloud` (groupe docker), copie du code et de `1_docker/`, fichier d'environnement secret (0600), unités systemd `insacloud-web` (Gunicorn) et `insacloud-faucheur`, build des images **seulement si absentes ou si les sources ont changé** (filtré par `demo_mode`), démarrage, vérification HTTP 200 |
 
 Commandes utiles sur la VM :
 
@@ -221,13 +242,14 @@ Toutes les options sont des variables d'environnement (définies par Ansible dan
 | `INSACLOUD_MAX_DURATION` | `120` | durée maximale (minutes) |
 | `INSACLOUD_CONTAINER_MEMORY` / `INSACLOUD_GUI_MEMORY` | `256m` / `1g` | mémoire des machines |
 | `INSACLOUD_IMAGE_<DISTRO>[_DESKTOP]` | `insacloud_<distro>[_desktop]:latest` | noms des images |
+| `INSACLOUD_AVAILABLE_IMAGES` | vide (tout) | images réellement construites ; l'interface masque les autres (mode démo) |
 | `INSACLOUD_SSH_HOST` | hôte de l'URL | hôte affiché dans la commande SSH |
 | `INSACLOUD_FAUCHEUR_INTERVAL` | `10` | période du Faucheur (s) |
 | `INSACLOUD_EMBED_FAUCHEUR` | `0` | `1` = Faucheur en thread dans Flask (dev) |
 
 ## Sécurité
 
-Mots de passe hachés et salés ; sessions `HttpOnly` / `SameSite=Lax` ; entrées validées par listes blanches et expressions régulières ; requêtes SQL paramétrées ; mot de passe root aléatoire par machine ; terminal web et VNC protégés par mot de passe, Xvnc lié à `localhost` ; conteneurs limités en mémoire ; secrets chiffrés (Vault) et confinés en 0600 sur le serveur ; services sous un utilisateur système sans shell.
+Pare-feu UFW sur la VM (tout rejeté sauf SSH limité, 5000 et 8000-9000) ; Gunicorn au lieu du serveur de développement ; mots de passe hachés et salés ; sessions `HttpOnly` / `SameSite=Lax` ; entrées validées par listes blanches et expressions régulières ; requêtes SQL paramétrées ; mot de passe root aléatoire par machine ; terminal web et VNC protégés par mot de passe, Xvnc lié à `localhost` ; conteneurs limités en mémoire ; secrets chiffrés (Vault) et confinés en 0600 sur le serveur ; services sous un utilisateur système sans shell.
 
 ## Démonstrations pour la soutenance
 
@@ -261,9 +283,8 @@ docker inspect -f '{{.State.Status}} redémarrages={{.RestartCount}}' insacloud_
 
 ## Limites et pistes d'amélioration
 
-- Serveur de développement Flask → `gunicorn` dans l'unité systemd.
-- Pas de HTTPS ni de limitation des tentatives de connexion.
-- Ports publiés sur toutes les interfaces de la VM → pare-feu (`ufw`).
+- Pas de HTTPS (reverse proxy nginx + certificat à ajouter devant Gunicorn).
+- Docker publie ses ports directement dans iptables : pour un filtrage strict des conteneurs, utiliser la chaîne `DOCKER-USER`.
 - Images bureau volumineuses (~1,4 Go) → registre Docker privé pour éviter de reconstruire sur chaque serveur.
 - Un seul nœud Docker → orchestrateur (Swarm / Kubernetes) pour plusieurs hôtes.
 

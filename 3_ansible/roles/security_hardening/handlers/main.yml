@@ -1,0 +1,5 @@
+---
+# Handler : recharger UFW si une règle a été modifiée après activation
+- name: Recharger ufw
+  ansible.builtin.command:
+    cmd: ufw reload

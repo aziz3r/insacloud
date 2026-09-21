@@ -53,7 +53,7 @@
     - "{{ insacloud_app_dir }}/templates"
     - "{{ insacloud_docker_dir }}"
 
-- name: Créer le virtualenv et installer Flask
+- name: Créer le virtualenv et installer Flask + Gunicorn
   ansible.builtin.pip:
     name: "{{ webapp_pip_packages }}"
     virtualenv: "{{ insacloud_venv }}"
@@ -119,10 +119,16 @@
     - Redémarrer insacloud-faucheur
 
 # ------------------------------------------------------------ 6. Images Docker
+- name: Afficher le mode de construction des images
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'MODE DÉMO : seule(s) ' ~ (demo_images | join(', ')) ~ ' sera/seront construite(s)'
+         if demo_mode | bool else 'Mode complet : ' ~ (insacloud_images | length) ~ ' images' }}
+
 - name: Vérifier quelles images existent déjà
   ansible.builtin.command:
     cmd: "docker image inspect {{ item.name }}:latest"
-  loop: "{{ insacloud_images }}"
+  loop: "{{ insacloud_images_to_build }}"
   loop_control:
     label: "{{ item.name }}"
   register: image_check
@@ -136,7 +142,7 @@
       {{ '--build-arg DESKTOP=1' if item.desktop else '' }}
       -f {{ insacloud_docker_dir }}/{{ item.dockerfile }}
       {{ insacloud_docker_dir }}
-  loop: "{{ insacloud_images }}"
+  loop: "{{ insacloud_images_to_build }}"   # filtrée par demo_mode
   loop_control:
     label: "{{ item.name }}"
     index_var: idx
@@ -177,6 +183,6 @@
   ansible.builtin.debug:
     msg:
       - "InsaCloud est déployé : http://{{ ansible_host | default(inventory_hostname) }}:{{ insacloud_web_port }}"
-      - "Images : {{ insacloud_images | map(attribute='name') | join(', ') }}"
+      - "Images : {{ insacloud_images_to_build | map(attribute='name') | join(', ') }}{{ ' (mode démo)' if demo_mode | bool else '' }}"
       - "Faucheur : {{ faucheur_state.stdout }}"
       - "Logs : journalctl -u insacloud-web -f  |  journalctl -u insacloud-faucheur -f"

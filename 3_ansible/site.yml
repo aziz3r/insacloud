@@ -4,9 +4,12 @@
 # -----------------------------------------------------------------------------
 #  Ce playbook ne contient plus de tâches : il compose des RÔLES réutilisables.
 #
-#    roles/docker  : installe Docker Engine (dépôt officiel, idempotent)
-#    roles/webapp  : Python + Flask, code de l'application, images Docker,
-#                    services systemd (web + faucheur), secrets via Vault
+#    roles/security_hardening : pare-feu UFW (SSH limité, 5000, 8000-9000)
+#    roles/docker             : installe Docker Engine (dépôt officiel, idempotent)
+#    roles/webapp             : Python + Flask + Gunicorn, code, images Docker,
+#                               services systemd (web + faucheur), secrets via Vault
+#
+#  Pré-requis : ansible-galaxy collection install -r requirements.yml
 #
 #  Variables : group_vars/insacloud/vars.yml   (claires)
 #              group_vars/insacloud/vault.yml  (chiffrées avec ansible-vault)
@@ -24,7 +27,13 @@
   become: true
 
   roles:
+    # 1. Pare-feu d'abord : `ufw enable` recharge iptables, il doit passer
+    #    avant que Docker n'installe ses propres chaînes.
+    - role: security_hardening
+      tags: [security]
+    # 2. Moteur de conteneurs
     - role: docker
       tags: [docker]
+    # 3. Application (Flask/Gunicorn, images, services, secrets)
     - role: webapp
       tags: [webapp]

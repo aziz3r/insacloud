@@ -71,6 +71,25 @@ DEFAULT_OS = "ubuntu"
 DEFAULT_MODE = "terminal"
 
 
+# Images réellement présentes sur le serveur (renseigné par Ansible selon demo_mode).
+# Vide = tout est proposé.
+AVAILABLE_IMAGES = {x.strip() for x in os.environ.get("INSACLOUD_AVAILABLE_IMAGES", "").split(",") if x.strip()}
+
+
+def image_available(distro: str, mode: str) -> bool:
+    """Vrai si l'image du couple (distribution, mode) est disponible sur ce serveur."""
+    if not AVAILABLE_IMAGES:
+        return True
+    return image_for(distro, mode).split(":")[0] in AVAILABLE_IMAGES
+
+
+def available_choices():
+    """Distributions et modes proposables (au moins une image existante)."""
+    distros = {k: v for k, v in DISTROS.items() if any(image_available(k, m) for m in MODES)}
+    modes = {k: v for k, v in MODES.items() if any(image_available(d, k) for d in distros)}
+    return distros, modes
+
+
 def image_for(distro: str, mode: str) -> str:
     """
     Nom de l'image Docker pour un couple (distribution, mode) :
@@ -380,6 +399,7 @@ def dashboard():
 
     active = [i for i in instances if i["is_running"]]
     history = [i for i in instances if not i["is_running"]]
+    distros_ok, modes_ok = available_choices()
     return render_template(
         "dashboard.html",
         active_instances=active,
@@ -389,10 +409,10 @@ def dashboard():
         duration_choices=DURATION_CHOICES,
         extend_choices=EXTEND_CHOICES,
         max_duration=MAX_DURATION_MINUTES,
-        distros=DISTROS,
-        modes=MODES,
-        default_os=DEFAULT_OS,
-        default_mode=DEFAULT_MODE,
+        distros=distros_ok,
+        modes=modes_ok,
+        default_os=DEFAULT_OS if DEFAULT_OS in distros_ok else next(iter(distros_ok), DEFAULT_OS),
+        default_mode=DEFAULT_MODE if DEFAULT_MODE in modes_ok else next(iter(modes_ok), DEFAULT_MODE),
         ssh_host=host,
     )
 
@@ -412,6 +432,10 @@ def create_instance():
     mode = request.form.get("mode", DEFAULT_MODE)
     if os_type not in DISTROS or mode not in MODES:
         flash("Distribution ou mode inconnu.", "error")
+        return redirect(url_for("dashboard"))
+    if not image_available(os_type, mode):
+        flash(f"{DISTROS[os_type]['label']} en mode {MODES[mode]['label'].lower()} n'est pas "
+              f"disponible sur ce serveur (mode démonstration).", "error")
         return redirect(url_for("dashboard"))
 
     if db.count_active_instances(g.user["id"]) >= MAX_INSTANCES_PER_USER:

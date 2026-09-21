@@ -15,3 +15,6 @@ insacloud_secret_key: "{{ vault_insacloud_secret_key }}"
 insacloud_web_port: 5000
 insacloud_max_instances: 3
 insacloud_max_duration: 120
+
+# Soutenance : true = seule l'image Alpine est construite (rapide). false = les 6 images.
+demo_mode: true

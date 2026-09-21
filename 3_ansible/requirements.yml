@@ -1,0 +1,6 @@
+---
+# Collections Ansible nécessaires (hors ansible-core)
+#   ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general      # module ufw (rôle security_hardening)
+    version: ">=8.0.0"

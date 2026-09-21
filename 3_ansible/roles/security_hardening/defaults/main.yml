@@ -1,0 +1,23 @@
+---
+# =============================================================================
+#  roles/security_hardening/defaults/main.yml - Pare-feu UFW de la VM hôte
+# =============================================================================
+
+# Politique par défaut : tout ce qui entre est rejeté, tout ce qui sort est permis
+ufw_default_incoming: deny
+ufw_default_outgoing: allow
+
+# Port SSH : "limit" = autorisé mais limité (max 6 connexions / 30 s par IP,
+# protection contre la force brute) — indispensable AVANT d'activer le pare-feu
+ufw_ssh_port: 22
+
+# Ports TCP ouverts individuellement
+ufw_allowed_tcp_ports:
+  - "{{ insacloud_web_port | default(5000) }}"     # Gunicorn (site InsaCloud)
+
+# Plages TCP ouvertes (début:fin) : ports publiés par les machines louées
+ufw_allowed_tcp_ranges:
+  - "{{ insacloud_port_min | default(8000) }}:{{ insacloud_port_max | default(9000) }}"
+
+# Journalisation des paquets rejetés : off | low | medium | high | full
+ufw_logging: low

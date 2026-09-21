@@ -36,6 +36,11 @@ webapp_system_packages:
   - python3-setuptools
 webapp_pip_packages:
   - flask
+  - gunicorn          # serveur WSGI de production (remplace `python app.py`)
+
+# --- Gunicorn ---------------------------------------------------------------
+insacloud_gunicorn_workers: 4
+insacloud_gunicorn_timeout: 60      # secondes ; `docker run` peut prendre quelques secondes
 
 # --- Fichiers de l'application à copier (relatifs à 2_webapp/) ---------------
 webapp_files:
@@ -46,6 +51,18 @@ webapp_files:
   - templates/dashboard.html
 
 # --- Images Docker des machines louées (multi-OS) ---------------------------
+# --- Mode démonstration -------------------------------------------------------
+# true  : ne construit QUE l'image légère insacloud_alpine (~1 min) — soutenance
+# false : construit les 6 images (les variantes bureau pèsent ~1,4 Go, 15-25 min)
+demo_mode: true
+demo_images:
+  - insacloud_alpine
+
+# Images effectivement construites (filtre appliqué par les tâches de build)
+insacloud_images_to_build: >-
+  {{ insacloud_images | selectattr('name', 'in', demo_images) | list
+     if demo_mode | bool else insacloud_images }}
+
 # 6 images = 3 distributions × 2 modes. `desktop: true` ajoute --build-arg DESKTOP=1.
 # `env` = suffixe de la variable INSACLOUD_IMAGE_<env> lue par app.py.
 insacloud_images:
@@ -57,10 +74,19 @@ insacloud_images:
   - { name: insacloud_alpine_desktop, dockerfile: alpine.Dockerfile, desktop: true,  env: ALPINE_DESKTOP }
 
 # --- Services systemd ---------------------------------------------------------
+# `exec` = commande ExecStart de l'unité systemd (template insacloud.service.j2)
 insacloud_services:
   - name: insacloud-web
-    description: "InsaCloud - Serveur web Flask"
-    script: app.py
+    description: "InsaCloud - Serveur web Flask (Gunicorn)"
+    exec: >-
+      {{ insacloud_venv }}/bin/gunicorn
+      --workers {{ insacloud_gunicorn_workers }}
+      --bind 0.0.0.0:{{ insacloud_web_port }}
+      --timeout {{ insacloud_gunicorn_timeout }}
+      --preload
+      --access-logfile - --error-logfile -
+      --chdir {{ insacloud_app_dir }}
+      app:app
   - name: insacloud-faucheur
     description: "InsaCloud - Faucheur (destruction des machines expirées)"
-    script: faucheur.py
+    exec: "{{ insacloud_venv }}/bin/python {{ insacloud_app_dir }}/faucheur.py"
