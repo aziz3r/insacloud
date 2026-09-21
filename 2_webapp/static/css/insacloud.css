@@ -138,6 +138,14 @@ table.glass-table td, table.glass-table th { padding: .7rem 1rem; }
 table.glass-table tbody tr { border-top: 1px solid var(--glass-border); }
 
 /* Coffre (accès affichés après re-authentification) */
+.vault-bar { display: flex; align-items: center; gap: 1rem; padding: .8rem 1rem .8rem .8rem; border-radius: 22px; margin-bottom: 1.25rem; }
+.vault-bar-open { background: rgba(52,199,89,.12); border-color: rgba(52,199,89,.35); }
 .chip.vault-open { color: var(--ok); }
+.vault-form { display: flex; align-items: center; gap: .5rem; flex: none; }
+.vault-form .field { width: 13rem; }
+@media (max-width: 640px) {
+  .vault-bar { flex-wrap: wrap; }
+  .vault-form { width: 100%; }
+  .vault-form .field { flex: 1; width: auto; }
+}
 .vault-box { background: rgba(52,199,89,.10); border: 1px solid rgba(52,199,89,.35); }
-.w-52 { width: 13rem; }

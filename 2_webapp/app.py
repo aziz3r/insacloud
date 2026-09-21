@@ -30,6 +30,7 @@ Variables d'environnement (toutes optionnelles, voir README) : INSACLOUD_*
 """
 
 import functools
+import hashlib
 import hmac
 import logging
 import os
@@ -232,6 +233,23 @@ def csrf_token() -> str:
 
 app.jinja_env.globals["csrf_token"] = csrf_token
 app.jinja_env.autoescape = True
+
+
+@functools.lru_cache(maxsize=64)
+def _static_fingerprint(filename: str) -> str:
+    """Empreinte courte du contenu d'un fichier statique (invalide le cache navigateur à chaque changement)."""
+    try:
+        with open(os.path.join(app.static_folder, filename), "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:10]
+    except OSError:
+        return "0"
+
+
+def static_url(filename: str) -> str:
+    return url_for("static", filename=filename, v=_static_fingerprint(filename))
+
+
+app.jinja_env.globals["static_url"] = static_url
 
 
 @app.before_request

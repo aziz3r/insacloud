@@ -7,8 +7,8 @@
   <meta name="referrer" content="no-referrer">
   <title>InsaCloud — Connexion</title>
   <!-- Aucune ressource externe : Tailwind précompilé + feuille du thème (CSP stricte) -->
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/insacloud.css') }}">
+  <link rel="stylesheet" href="{{ static_url('css/tailwind.css') }}">
+  <link rel="stylesheet" href="{{ static_url('css/insacloud.css') }}">
 </head>
 <body class="min-h-screen antialiased" data-active-tab="{{ active_tab|default('login') }}">
 
@@ -115,6 +115,6 @@
     </footer>
   </div>
 
-  <script src="{{ url_for('static', filename='js/login.js') }}" defer></script>
+  <script src="{{ static_url('js/login.js') }}" defer></script>
 </body>
 </html>

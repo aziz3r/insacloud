@@ -6,8 +6,8 @@
   <meta name="color-scheme" content="light dark">
   <meta name="referrer" content="no-referrer">
   <title>InsaCloud — Mes machines</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/insacloud.css') }}">
+  <link rel="stylesheet" href="{{ static_url('css/tailwind.css') }}">
+  <link rel="stylesheet" href="{{ static_url('css/insacloud.css') }}">
 </head>
 <body class="min-h-screen antialiased">
 
@@ -183,25 +183,27 @@
 
         {% if active_instances %}
           <!-- Coffre : les accès (mots de passe) ne s'affichent qu'après re-authentification -->
-          <div class="glass rounded-[22px] px-5 py-4 mb-5 flex flex-wrap items-center justify-between gap-4">
+          <div class="vault-bar glass {{ 'vault-bar-open' if vault_open }}">
             {% if vault_open %}
-              <div class="flex items-center gap-3 text-sm">
-                <span class="chip vault-open"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg></span>
-                <span><strong>Accès visibles</strong> encore <span id="vault-countdown" class="mono" data-remaining="{{ vault_remaining }}">--:--</span> — ils se masqueront ensuite automatiquement.</span>
+              <span class="chip vault-open flex-none"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg></span>
+              <div class="flex-1 min-w-0 text-sm">
+                <p class="font-semibold">Coffre ouvert</p>
+                <p class="muted text-xs">Se referme dans <span id="vault-countdown" class="mono" data-remaining="{{ vault_remaining }}">{{ '%02d:%02d' % (vault_remaining // 60, vault_remaining % 60) }}</span></p>
               </div>
-              <form method="POST" action="{{ url_for('vault_lock') }}">
+              <form method="POST" action="{{ url_for('vault_lock') }}" class="flex-none">
                 <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-glass text-sm px-4 py-2">Verrouiller maintenant</button>
+                <button type="submit" class="btn btn-glass text-sm px-4 py-2">Verrouiller</button>
               </form>
             {% else %}
-              <div class="flex items-center gap-3 text-sm">
-                <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>
-                <span><strong>Accès masqués.</strong> Saisissez le mot de passe de votre compte pour afficher les mots de passe et commandes pendant {{ vault_window }} minutes.</span>
+              <span class="chip flex-none"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>
+              <div class="flex-1 min-w-0 text-sm">
+                <p class="font-semibold">Coffre verrouillé</p>
+                <p class="muted text-xs">Votre mot de passe de compte affiche les accès pendant {{ vault_window }} min.</p>
               </div>
-              <form method="POST" action="{{ url_for('vault_unlock') }}" class="flex items-center gap-2">
+              <form method="POST" action="{{ url_for('vault_unlock') }}" class="vault-form">
                 <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
                 <label for="vault-password" class="sr-only">Mot de passe du compte</label>
-                <input id="vault-password" name="password" type="password" required autocomplete="current-password" placeholder="Mot de passe du compte" class="field field-sm text-sm w-52">
+                <input id="vault-password" name="password" type="password" required autocomplete="current-password" placeholder="Mot de passe du compte" class="field field-sm text-sm">
                 <button type="submit" class="btn btn-primary text-sm px-4 py-2">Afficher les accès</button>
               </form>
             {% endif %}
@@ -403,6 +405,6 @@
     </footer>
   </div>
 
-  <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer></script>
+  <script src="{{ static_url('js/dashboard.js') }}" defer></script>
 </body>
 </html>
