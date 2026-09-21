@@ -182,6 +182,33 @@
         </div>
 
         {% if active_instances %}
+          <!-- Coffre : les accès (mots de passe) ne s'affichent qu'après re-authentification -->
+          <div class="glass rounded-[22px] px-5 py-4 mb-5 flex flex-wrap items-center justify-between gap-4">
+            {% if vault_open %}
+              <div class="flex items-center gap-3 text-sm">
+                <span class="chip vault-open"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg></span>
+                <span><strong>Accès visibles</strong> encore <span id="vault-countdown" class="mono" data-remaining="{{ vault_remaining }}">--:--</span> — ils se masqueront ensuite automatiquement.</span>
+              </div>
+              <form method="POST" action="{{ url_for('vault_lock') }}">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-glass text-sm px-4 py-2">Verrouiller maintenant</button>
+              </form>
+            {% else %}
+              <div class="flex items-center gap-3 text-sm">
+                <span class="chip"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>
+                <span><strong>Accès masqués.</strong> Saisissez le mot de passe de votre compte pour afficher les mots de passe et commandes pendant {{ vault_window }} minutes.</span>
+              </div>
+              <form method="POST" action="{{ url_for('vault_unlock') }}" class="flex items-center gap-2">
+                <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+                <label for="vault-password" class="sr-only">Mot de passe du compte</label>
+                <input id="vault-password" name="password" type="password" required autocomplete="current-password" placeholder="Mot de passe du compte" class="field field-sm text-sm w-52">
+                <button type="submit" class="btn btn-primary text-sm px-4 py-2">Afficher les accès</button>
+              </form>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        {% if active_instances %}
           <div class="grid gap-5 md:grid-cols-2">
             {% for inst in active_instances %}
               <article class="glass glass-highlight card rounded-[26px] p-6">
@@ -233,9 +260,46 @@
                       <span class="lbl">Copier</span>
                     </button>
                   </div>
-                  <p class="text-xs muted -mt-3">
-                    {% if ssh_public_key %}SSH par clé uniquement (votre clé publique est installée).{% else %}Le mot de passe root a été affiché une seule fois à la création — régénérez-le si besoin.{% endif %}
-                  </p>
+                  {% if vault_open %}
+                    <!-- Coffre ouvert : tout le nécessaire pour se connecter -->
+                    <div class="vault-box rounded-2xl p-4 space-y-3 text-sm">
+                      {% if inst.root_password %}
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <span class="ink-2">Mot de passe root</span>
+                          <span class="flex items-center gap-2">
+                            <code class="secret mono text-sm">{{ inst.root_password }}</code>
+                            <button type="button" data-copy="{{ inst.root_password }}" class="copy-btn icon-btn" title="Copier"><svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+                          </span>
+                        </div>
+                        {% if inst.is_desktop %}
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="ink-2">Mot de passe du bureau (VNC)</span>
+                            <span class="flex items-center gap-2">
+                              <code class="secret mono text-sm">{{ inst.vnc_password }}</code>
+                              <button type="button" data-copy="{{ inst.vnc_password }}" class="copy-btn icon-btn" title="Copier"><svg class="ico w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></button>
+                            </span>
+                          </div>
+                        {% endif %}
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                          <span class="ink-2">Terminal web</span>
+                          <span class="mono text-xs">root · <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="accent underline">{{ inst.term_url }}</a></span>
+                        </div>
+                        {% if inst.is_desktop %}
+                          <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span class="ink-2">Bureau</span>
+                            <span class="mono text-xs"><a href="{{ inst.gui_url }}" target="_blank" rel="noopener noreferrer" class="accent underline">{{ inst.gui_url.split('?')[0] }}</a></span>
+                          </div>
+                        {% endif %}
+                        <p class="text-xs muted">{% if ssh_public_key %}SSH : votre clé publique est installée, le mot de passe ne sert qu'au terminal web et au bureau.{% else %}SSH : <code class="mono">{{ inst.ssh_command }}</code> puis ce mot de passe.{% endif %}</p>
+                      {% else %}
+                        <p class="text-xs muted">Mot de passe indisponible pour cette machine (créée avant le coffre) — utilisez <em>Régénérer le mot de passe</em>.</p>
+                      {% endif %}
+                    </div>
+                  {% else %}
+                    <p class="text-xs muted -mt-3">
+                      {% if ssh_public_key %}SSH par clé uniquement (votre clé publique est installée).{% else %}Mot de passe root : ouvrez le coffre ci-dessus pour l'afficher, ou régénérez-le.{% endif %}
+                    </p>
+                  {% endif %}
 
                   <!-- Temps restant -->
                   <div>

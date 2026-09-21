@@ -10,8 +10,10 @@ Fonctionnalités :
     état réel du conteneur, prolongation, rotation du mot de passe, destruction.
 
 Sécurité (voir aussi README, section « Sécurité ») :
-  - le mot de passe root d'une machine est généré, affiché UNE SEULE FOIS puis
-    oublié (jamais stocké) ; il peut être régénéré à chaud ;
+  - le mot de passe root d'une machine est généré, affiché une fois à la
+    création, puis conservé CHIFFRÉ (Fernet, clé hors base) ; il n'est
+    réaffiché qu'après re-authentification de l'utilisateur (« coffre »,
+    ouvert 5 minutes) ; il peut être régénéré à chaud ;
   - clé publique SSH par utilisateur : injectée dans la machine, l'accès SSH
     par mot de passe y est alors désactivé ;
   - jetons CSRF sur tous les formulaires, déconnexion en POST ;
@@ -38,8 +40,10 @@ import socket
 import string
 import subprocess
 import sys
+import time
 from datetime import timedelta
 
+from cryptography.fernet import Fernet, InvalidToken
 from flask import (Flask, abort, flash, g, redirect, render_template,
                    request, session, url_for)
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -67,6 +71,9 @@ EXTEND_CHOICES = [5, 10, 30]
 LOGIN_WINDOW_MINUTES = int(os.environ.get("INSACLOUD_LOGIN_WINDOW", "15"))
 LOGIN_MAX_FAILURES_USER = int(os.environ.get("INSACLOUD_LOGIN_MAX_USER", "5"))
 LOGIN_MAX_FAILURES_IP = int(os.environ.get("INSACLOUD_LOGIN_MAX_IP", "20"))
+
+# Coffre : durée pendant laquelle les accès restent visibles après re-authentification
+VAULT_WINDOW_MINUTES = int(os.environ.get("INSACLOUD_VAULT_WINDOW", "5"))
 
 # Politique de mot de passe des comptes
 PASSWORD_MIN_LENGTH = int(os.environ.get("INSACLOUD_PASSWORD_MIN", "10"))
@@ -159,6 +166,45 @@ def load_secret_key() -> str:
     return key
 
 
+def load_or_create_key(env_name: str, filename: str, generate) -> str:
+    """Clé lue dans l'environnement (Ansible/Vault) ou dans un fichier local 0600 créé une fois."""
+    key = os.environ.get(env_name)
+    if key:
+        return key
+    path = os.path.join(BASE_DIR, filename)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            key = f.read().strip()
+            if key:
+                return key
+    except FileNotFoundError:
+        pass
+    key = generate()
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(key)
+    os.chmod(path, 0o600)
+    return key
+
+
+# Clé de chiffrement des mots de passe root (distincte de la clé de session)
+VAULT = Fernet(load_or_create_key("INSACLOUD_VAULT_KEY", ".vault_key",
+                                  lambda: Fernet.generate_key().decode()))
+
+
+def encrypt_secret(value: str) -> str:
+    return VAULT.encrypt(value.encode()).decode()
+
+
+def decrypt_secret(token: str):
+    """Retourne le secret en clair, ou None s'il est absent / illisible (clé changée)."""
+    if not token:
+        return None
+    try:
+        return VAULT.decrypt(token.encode()).decode()
+    except (InvalidToken, ValueError):
+        return None
+
+
 app = Flask(__name__)
 app.config.update(
     SECRET_KEY=load_secret_key(),
@@ -229,6 +275,12 @@ def security_headers(response):
 
 def client_ip() -> str:
     return request.remote_addr or "?"
+
+
+def vault_remaining_seconds() -> int:
+    """Secondes restantes d'ouverture du coffre (0 = verrouillé)."""
+    until = session.get("vault_until", 0)
+    return max(0, int(until - time.time()))
 
 
 # =============================================================================
@@ -492,6 +544,37 @@ def set_ssh_key():
 
 
 # =============================================================================
+# Coffre : re-authentification pour afficher les accès des machines
+# =============================================================================
+@app.route("/vault/unlock", methods=["POST"])
+@login_required
+def vault_unlock():
+    """Ouvre le coffre pour VAULT_WINDOW_MINUTES après vérification du mot de passe du compte."""
+    ip = client_ip()
+    username = g.user["username"]
+    if db.count_recent_failures(LOGIN_WINDOW_MINUTES, username=username) >= LOGIN_MAX_FAILURES_USER:
+        flash(f"Trop de tentatives. Réessayez dans {LOGIN_WINDOW_MINUTES} minutes.", "error")
+        return redirect(url_for("dashboard"))
+    if not check_password_hash(g.user["password_hash"], request.form.get("password", "")):
+        db.record_login_attempt(username, ip, False)
+        log.warning("Coffre : mot de passe refusé user=%s ip=%s", username, ip)
+        flash("Mot de passe du compte incorrect.", "error")
+        return redirect(url_for("dashboard"))
+    session["vault_until"] = time.time() + VAULT_WINDOW_MINUTES * 60
+    log.info("Coffre ouvert : user=%s ip=%s (%s min)", username, ip, VAULT_WINDOW_MINUTES)
+    flash(f"Accès visibles pendant {VAULT_WINDOW_MINUTES} minutes.", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/vault/lock", methods=["POST"])
+@login_required
+def vault_lock():
+    session.pop("vault_until", None)
+    flash("Accès masqués.", "info")
+    return redirect(url_for("dashboard"))
+
+
+# =============================================================================
 # Tableau de bord et gestion des machines
 # =============================================================================
 @app.route("/dashboard")
@@ -500,9 +583,15 @@ def dashboard():
     now = db.utc_now()
     host = public_host()
     scheme = machine_scheme()
+    vault_open = vault_remaining_seconds() > 0
     instances = []
     for row in db.get_user_instances(g.user["id"]):
         inst = dict(row)
+        # Le mot de passe chiffré ne quitte jamais le serveur ; en clair seulement si le coffre est ouvert
+        secret = decrypt_secret(inst.pop("root_password", "")) if (vault_open and row["status"] == db.STATUS_RUNNING) else None
+        inst["root_password"] = secret
+        inst["vnc_password"] = secret[:8] if secret else None
+        inst["has_secret"] = bool(row["root_password"])
         expires = db.parse_utc(inst["expires_at"])
         created = db.parse_utc(inst["created_at"])
         is_running = inst["status"] == db.STATUS_RUNNING
@@ -544,6 +633,9 @@ def dashboard():
         reveal=reveal,
         ssh_public_key=g.user["ssh_public_key"] or "",
         tls_machines=bool(TLS_DIR),
+        vault_open=vault_open,
+        vault_remaining=vault_remaining_seconds(),
+        vault_window=VAULT_WINDOW_MINUTES,
     )
 
 
@@ -601,7 +693,8 @@ def create_instance():
 
     try:
         db.create_instance(g.user["id"], container_id, name, port, minutes,
-                           os_type, mode, term_port, gui_port)
+                           os_type, mode, term_port, gui_port,
+                           root_password_enc=encrypt_secret(root_password))
     except Exception as exc:  # noqa: BLE001
         log.exception("Échec d'enregistrement en BDD, suppression du conteneur %s", container_id)
         try:
@@ -636,6 +729,7 @@ def rotate_password(instance_id):
         log.error("Rotation impossible sur %s : %s", inst["container_name"], exc)
         flash(f"Impossible de changer le mot de passe : {exc}", "error")
         return redirect(url_for("dashboard"))
+    db.set_instance_password(instance_id, encrypt_secret(new_password))
     log.info("Mot de passe régénéré : %s par '%s'", inst["container_name"], g.user["username"])
     reveal_secret(inst["container_name"], new_password, bool(inst["gui_port"]), rotated=True)
     return redirect(url_for("dashboard"))

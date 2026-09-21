@@ -136,3 +136,8 @@ details[open] .chev { transform: rotate(90deg); }
 table.glass-table th { font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 table.glass-table td, table.glass-table th { padding: .7rem 1rem; }
 table.glass-table tbody tr { border-top: 1px solid var(--glass-border); }
+
+/* Coffre (accès affichés après re-authentification) */
+.chip.vault-open { color: var(--ok); }
+.vault-box { background: rgba(52,199,89,.10); border: 1px solid rgba(52,199,89,.35); }
+.w-52 { width: 13rem; }

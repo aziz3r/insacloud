@@ -12,15 +12,17 @@
 # =============================================================================
 
 # ------------------------------------------------------------ 1. Garde-fou
-- name: Vérifier que la clé secrète Flask provient bien du Vault
+- name: Vérifier que les clés secrètes proviennent bien du Vault
   ansible.builtin.assert:
     that:
       - insacloud_secret_key is defined
       - insacloud_secret_key | length >= 32
+      - insacloud_vault_key is defined
+      - insacloud_vault_key | length == 44          # clé Fernet : 32 octets en base64 urlsafe
     fail_msg: >-
-      insacloud_secret_key est vide ou trop courte. Définissez
-      vault_insacloud_secret_key dans group_vars/insacloud/vault.yml
-      (ansible-vault edit group_vars/insacloud/vault.yml).
+      insacloud_secret_key / insacloud_vault_key manquantes ou invalides. Définissez
+      vault_insacloud_secret_key et vault_insacloud_vault_key dans
+      group_vars/insacloud/vault.yml (ansible-vault edit …).
     quiet: true
 
 # ------------------------------------------------------------ 2. Python

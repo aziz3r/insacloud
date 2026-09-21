@@ -1,6 +1,7 @@
 # --- Secrets : ne jamais committer ---
 3_ansible/.vault_pass
 2_webapp/.secret_key
+2_webapp/.vault_key
 
 # --- Données locales ---
 2_webapp/*.db

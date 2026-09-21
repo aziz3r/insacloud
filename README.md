@@ -34,7 +34,7 @@ Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. 
 | **3 distributions** | Ubuntu 22.04 · Debian 12 · Alpine Linux 3.20 |
 | **2 modes** | **Terminal** (SSH + terminal web `ttyd`) ou **Bureau graphique** (XFCE + Firefox via noVNC, + SSH) |
 | **Location à durée limitée** | 1 à 120 min, prolongeable, quota de 3 machines par utilisateur |
-| **Accès** | commande SSH exacte (`ssh root@<hôte> -p <port>`), bouton *Terminal*, bouton *Bureau*, clé SSH personnelle ou mot de passe root **affiché une seule fois** |
+| **Accès** | commande SSH exacte (`ssh root@<hôte> -p <port>`), bouton *Terminal*, bouton *Bureau*, clé SSH personnelle ; mot de passe root affiché à la création puis accessible dans un **coffre** ouvert par re-authentification |
 | **Sécurité** | mot de passe jamais stocké et rotatif, CSRF, anti-force-brute, CSP stricte sans CDN, HTTPS de bout en bout, conteneurs à capacités minimales — voir [Sécurité](#sécurité) |
 | **Haute disponibilité** | `--restart=always` + `supervisord` dans chaque machine : tout service qui plante est relancé |
 | **Le Faucheur** | démon qui détruit (`docker rm -f`) les machines expirées et réconcilie Docker ↔ base |
@@ -126,7 +126,7 @@ Lancer l'application (Flask + Faucheur dans le même processus) :
 
 ```bash
 cd 2_webapp
-python3 -m venv .venv && .venv/bin/pip install flask
+python3 -m venv .venv && .venv/bin/pip install flask cryptography
 INSACLOUD_EMBED_FAUCHEUR=1 INSACLOUD_PORT=5055 .venv/bin/python app.py
 ```
 
@@ -206,13 +206,15 @@ python3 -c "import secrets; print('vault_insacloud_secret_key: \"' + secrets.tok
 ansible-vault encrypt group_vars/insacloud/vault.yml
 ```
 
-Chaîne d'injection : `vault.yml` → `vars.yml` (`insacloud_secret_key: "{{ vault_insacloud_secret_key }}"`) → template `insacloud.env.j2` → `/etc/insacloud/insacloud.env` (0600 root, tâche `no_log`) → `EnvironmentFile=` des unités systemd → variable `INSACLOUD_SECRET_KEY` lue par Flask.
+Le Vault contient deux secrets : `vault_insacloud_secret_key` (sessions Flask) et `vault_insacloud_vault_key` (clé Fernet des mots de passe root). Chaîne d'injection : `vault.yml` → `vars.yml` (`insacloud_secret_key: "{{ vault_insacloud_secret_key }}"`, idem pour la clé Fernet) → template `insacloud.env.j2` → `/etc/insacloud/insacloud.env` (0600 root, tâche `no_log`) → `EnvironmentFile=` des unités systemd → variables `INSACLOUD_SECRET_KEY` / `INSACLOUD_VAULT_KEY` lues par Flask.
+
+Pour générer votre propre clé Fernet : `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 
 ## Utilisation
 
 1. **Créer un compte** puis se connecter.
 2. **Louer** : choisir une distribution, un mode (*Terminal* ou *Bureau graphique*), une durée, puis *Louer cette machine*.
-3. Le **mot de passe root s'affiche une seule fois** (bandeau orange) : notez-le, il n'est stocké nulle part. Perdu ? *Régénérer le mot de passe* en crée un nouveau à chaud.
+3. Le **mot de passe root s'affiche** dans un bandeau à la création. Pour le revoir plus tard : saisissez le **mot de passe de votre compte** dans la barre « Accès masqués » → le **coffre** de chaque machine s'ouvre 5 minutes avec tout le nécessaire (mot de passe root, mot de passe VNC, commande SSH, liens terminal et bureau, boutons copier), puis se reverrouille. *Régénérer le mot de passe* en crée un nouveau à chaud.
 4. Sur la carte de la machine :
    - **Terminal** — ouvre un terminal dans le navigateur (identifiant `root` + mot de passe) ;
    - **Bureau** — ouvre le bureau XFCE dans le navigateur (mot de passe = **8 premiers caractères**, limite du protocole VNC) ;
@@ -242,6 +244,8 @@ Toutes les options sont des variables d'environnement (définies par Ansible dan
 |---|---|---|
 | `INSACLOUD_HOST` / `INSACLOUD_PORT` | `0.0.0.0` / `5000` | écoute du serveur web |
 | `INSACLOUD_SECRET_KEY` | générée dans `.secret_key` | clé des sessions Flask |
+| `INSACLOUD_VAULT_KEY` | générée dans `.vault_key` | clé Fernet de chiffrement des mots de passe root |
+| `INSACLOUD_VAULT_WINDOW` | `5` | minutes d'ouverture du coffre après re-authentification |
 | `INSACLOUD_DB` | `2_webapp/insacloud.db` | fichier SQLite |
 | `INSACLOUD_PORT_MIN` / `INSACLOUD_PORT_MAX` | `8000` / `9000` | plage des ports publiés |
 | `INSACLOUD_MAX_INSTANCES` | `3` | quota par utilisateur |
@@ -264,7 +268,7 @@ Modèle de menace : utilisateurs authentifiés mais non fiables, réseau local h
 
 | Domaine | Mesure |
 |---|---|
-| **Secrets des machines** | Mot de passe root de 16 caractères (CSPRNG), **affiché une seule fois** puis jamais stocké (la colonne en base reste vide) ; **rotation à chaud** ; effacé de l'environnement du PID 1 ; clé publique SSH par utilisateur → SSH **par clé uniquement** (`PasswordAuthentication no`) |
+| **Secrets des machines** | Mot de passe root de 16 caractères (CSPRNG), affiché à la création, puis **chiffré au repos** (Fernet : AES-128-CBC + HMAC-SHA256, clé dédiée `INSACLOUD_VAULT_KEY` issue du Vault, jamais en base) ; réaffiché uniquement dans le **coffre**, après **re-authentification** (mot de passe du compte, échecs comptés comme des échecs de connexion), pendant 5 minutes ; **rotation à chaud** ; effacé de l'environnement du PID 1 ; clé publique SSH par utilisateur → SSH **par clé uniquement** (`PasswordAuthentication no`) |
 | **Comptes** | PBKDF2-SHA256 salé (Werkzeug), comparaison en temps constant même si le compte n'existe pas ; mot de passe ≥ 10 caractères, ni courant ni égal à l'identifiant ; **verrouillage** après 5 échecs / 15 min par compte et 20 par IP, journalisé avec l'adresse IP |
 | **Sessions** | cookie `HttpOnly`, `Secure` (en HTTPS), `SameSite=Strict`, durée 2 h, session recréée à la connexion (anti-fixation), déconnexion en POST |
 | **CSRF** | jeton par session sur **tous** les formulaires, vérifié en temps constant sur toute requête modifiante |

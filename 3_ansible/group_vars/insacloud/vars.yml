@@ -10,6 +10,8 @@
 
 # Clé secrète des sessions Flask -> vient du Vault (group_vars/insacloud/vault.yml)
 insacloud_secret_key: "{{ vault_insacloud_secret_key }}"
+# Clé de chiffrement des mots de passe root des machines -> vient du Vault
+insacloud_vault_key: "{{ vault_insacloud_vault_key }}"
 
 # --- Paramètres applicatifs surchargeables (valeurs par défaut dans roles/webapp/defaults) ---
 insacloud_web_port: 5000

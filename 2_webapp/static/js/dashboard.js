@@ -34,6 +34,19 @@
     });
   }
 
+  // --- Coffre : compte à rebours, puis rechargement (les accès se masquent) ---
+  var vault = document.getElementById("vault-countdown");
+  if (vault) {
+    var vaultStart = Date.now(), vaultInitial = parseInt(vault.dataset.remaining, 10) || 0;
+    (function vtick() {
+      var left = Math.max(0, vaultInitial - Math.floor((Date.now() - vaultStart) / 1000));
+      var m = Math.floor(left / 60), s = left % 60;
+      vault.textContent = (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+      if (left === 0) { location.reload(); return; }
+      setTimeout(vtick, 1000);
+    })();
+  }
+
   // --- Confirmation des actions destructives --------------------------------
   document.querySelectorAll("form[data-confirm]").forEach(function (f) {
     f.addEventListener("submit", function (e) { if (!confirm(f.getAttribute("data-confirm"))) e.preventDefault(); });

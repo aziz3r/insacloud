@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS instances (
     container_id   TEXT    NOT NULL,           -- ID court Docker (12 caractères)
     container_name TEXT    NOT NULL,           -- nom lisible : insacloud_<user>_<rand>
     port           INTEGER NOT NULL,           -- port hôte redirigé vers le 22 du conteneur
-    root_password  TEXT    NOT NULL DEFAULT '', -- JAMAIS stocké : affiché une seule fois à la création
+    root_password  TEXT    NOT NULL DEFAULT '', -- CHIFFRÉ (Fernet, clé hors base) ; '' = indisponible
     os_type        TEXT    NOT NULL DEFAULT 'ubuntu',   -- distribution : ubuntu | debian | alpine
     mode           TEXT    NOT NULL DEFAULT 'terminal', -- terminal | desktop
     term_port      INTEGER,                   -- port hôte du terminal web (ttyd)
@@ -138,8 +138,10 @@ def init_db() -> None:
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         if "ssh_public_key" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN ssh_public_key TEXT")
-        # Sécurité : purge des mots de passe root que les anciennes versions stockaient en clair
-        conn.execute("UPDATE instances SET root_password = '' WHERE root_password != ''")
+        # Sécurité : purge des mots de passe root que les anciennes versions stockaient EN CLAIR
+        # (les valeurs chiffrées commencent par "gAAAA", préfixe des jetons Fernet)
+        conn.execute("UPDATE instances SET root_password = '' "
+                     "WHERE root_password != '' AND root_password NOT LIKE 'gAAAA%'")
 
 
 # -----------------------------------------------------------------------------
@@ -221,11 +223,13 @@ def purge_login_attempts(hours: int = 24) -> None:
 def create_instance(user_id: int, container_id: str, container_name: str,
                     port: int, duration_minutes: int,
                     os_type: str = "ubuntu", mode: str = "terminal",
-                    term_port: int = None, gui_port: int = None) -> int:
+                    term_port: int = None, gui_port: int = None,
+                    root_password_enc: str = "") -> int:
     """
     Enregistre une nouvelle location. La date d'expiration est calculée
     côté SQLite à partir de l'heure courante UTC : now + N minutes.
-    Le mot de passe root n'est volontairement PAS enregistré.
+    `root_password_enc` est le mot de passe root CHIFFRÉ par l'application
+    (jamais en clair en base).
     """
     with get_connection() as conn:
         cur = conn.execute(
@@ -234,12 +238,19 @@ def create_instance(user_id: int, container_id: str, container_name: str,
                 (user_id, container_id, container_name, port, root_password,
                  os_type, mode, term_port, gui_port, expires_at)
             VALUES
-                (?, ?, ?, ?, '', ?, ?, ?, ?, datetime('now', ?))
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
             """,
-            (user_id, container_id, container_name, port,
+            (user_id, container_id, container_name, port, root_password_enc or "",
              os_type, mode, term_port, gui_port, f"+{int(duration_minutes)} minutes"),
         )
         return cur.lastrowid
+
+
+def set_instance_password(instance_id: int, root_password_enc: str) -> None:
+    """Met à jour le mot de passe root chiffré après une rotation."""
+    with get_connection() as conn:
+        conn.execute("UPDATE instances SET root_password = ? WHERE id = ?",
+                     (root_password_enc, instance_id))
 
 
 def get_instance(instance_id: int, user_id: int = None):
