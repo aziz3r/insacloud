@@ -64,7 +64,7 @@ Chaque machine louée est un conteneur Docker qui publie :
 | Port interne | Service | Mode |
 |---|---|---|
 | 22 | OpenSSH (root, mot de passe) | terminal + bureau |
-| 7681 | `ttyd` — terminal web (auth HTTP Basic `root`) | terminal + bureau |
+| 7681 | `ttyd` — terminal web (authentification par `login` dans le terminal) | terminal + bureau |
 | 6080 | noVNC (websockify → Xvnc :1 → XFCE) | bureau uniquement |
 
 ## Arborescence
@@ -216,7 +216,7 @@ Pour générer votre propre clé Fernet : `python3 -c "from cryptography.fernet 
 2. **Louer** : choisir une distribution, un mode (*Terminal* ou *Bureau graphique*), une durée, puis *Louer cette machine*.
 3. Le **mot de passe root s'affiche** dans un bandeau à la création. Pour le revoir plus tard : saisissez le **mot de passe de votre compte** dans la barre « Accès masqués » → le **coffre** de chaque machine s'ouvre 5 minutes avec tout le nécessaire (mot de passe root, mot de passe VNC, commande SSH, liens terminal et bureau, boutons copier), puis se reverrouille. *Régénérer le mot de passe* en crée un nouveau à chaud.
 4. Sur la carte de la machine :
-   - **Terminal** — ouvre un terminal dans le navigateur (identifiant `root` + mot de passe) ;
+   - **Terminal** — ouvre un terminal dans le navigateur avec une invite de connexion comme une console : `root`, Entrée, puis le mot de passe ;
    - **Bureau** — ouvre le bureau XFCE dans le navigateur (mot de passe = **8 premiers caractères**, limite du protocole VNC) ;
    - **SSH** — copier la commande, par ex. `ssh root@192.168.56.10 -p 8412`.
 5. Recommandé : enregistrez votre **clé publique SSH** (section « Clé SSH publique ») — vos machines n'accepteront alors que cette clé en SSH, l'authentification par mot de passe y est désactivée.
@@ -274,7 +274,7 @@ Modèle de menace : utilisateurs authentifiés mais non fiables, réseau local h
 | **CSRF** | jeton par session sur **tous** les formulaires, vérifié en temps constant sur toute requête modifiante |
 | **En-têtes** | CSP stricte `default-src 'self'` (aucun CDN, aucun script ni style inline — Tailwind précompilé), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy`, COOP/CORP, `Cache-Control: no-store` sur les pages |
 | **Transport** | nginx TLS 1.2/1.3 + HTTP/2, HSTS, redirection 80→443, `limit_req` sur `/login`, `server_tokens off` ; Gunicorn confiné à `127.0.0.1` ; terminal web (`ttyd --ssl`) et noVNC (`websockify --cert`) chiffrés avec le même certificat |
-| **Conteneurs** | `--cap-drop ALL` + 10 capacités nécessaires à sshd, `--security-opt no-new-privileges`, `--pids-limit 512`, `--cpus 1`, `--memory`, Xvnc lié à `localhost`, terminal web protégé par authentification |
+| **Conteneurs** | `--cap-drop ALL` + 10 capacités nécessaires à sshd, `--security-opt no-new-privileges`, `--pids-limit 512`, `--cpus 1`, `--memory`, Xvnc lié à `localhost`, terminal web protégé par `login` (PAM, délai entre échecs, expiration 60 s) |
 | **Entrées** | listes blanches (distribution, mode, durée, clé SSH par expression régulière), requêtes SQL paramétrées, `MAX_CONTENT_LENGTH` 16 Ko, échappement Jinja2 |
 | **Isolation** | chaque machine n'est manipulable que par son propriétaire (`user_id` vérifié à chaque action) |
 | **Serveur** | UFW (deny par défaut, SSH en `limit`, 80/443, 8000-9000), secrets Ansible chiffrés (Vault) et déposés en 0600, services systemd sous un utilisateur sans shell |

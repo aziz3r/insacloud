@@ -44,6 +44,9 @@ RUN printf '%s\n' \
     '=========================================================' \
     > /etc/motd
 
+# `login` (terminal web) doit accepter root sur un pseudo-terminal : pas de liste securetty
+RUN rm -f /etc/securetty
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 

@@ -234,7 +234,7 @@
                   <!-- Accès -->
                   <div class="flex flex-wrap gap-2">
                     {% if inst.term_url %}
-                      <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-glass text-sm px-4 py-2" title="Terminal dans le navigateur (identifiant root)">
+                      <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-glass text-sm px-4 py-2" title="Terminal dans le navigateur : tapez root puis le mot de passe">
                         <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
                         Terminal
                       </a>
@@ -284,7 +284,7 @@
                         {% endif %}
                         <div class="flex flex-wrap items-center justify-between gap-2">
                           <span class="ink-2">Terminal web</span>
-                          <span class="mono text-xs">root · <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="accent underline">{{ inst.term_url }}</a></span>
+                          <span class="mono text-xs">login : root · <a href="{{ inst.term_url }}" target="_blank" rel="noopener noreferrer" class="accent underline">{{ inst.term_url }}</a></span>
                         </div>
                         {% if inst.is_desktop %}
                           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -365,7 +365,7 @@
           <p class="mt-1 text-sm ink-2">Trois façons, selon vos habitudes{% if tls_machines %} — terminal et bureau sont chiffrés (TLS){% endif %}.</p>
         </div>
         <ol class="space-y-3 text-sm">
-          <li class="flex gap-3"><span class="pill flex-none">1</span><span><strong>Terminal</strong> — s'ouvre dans le navigateur ; identifiant <code class="mono">root</code> et le mot de passe affiché à la création.</span></li>
+          <li class="flex gap-3"><span class="pill flex-none">1</span><span><strong>Terminal</strong> — s'ouvre dans le navigateur avec une invite de connexion, comme une console : tapez <code class="mono">root</code>, Entrée, puis le mot de passe (il ne s'affiche pas) et Entrée.</span></li>
           <li class="flex gap-3"><span class="pill flex-none">2</span><span><strong>Bureau</strong> (mode bureau graphique) — XFCE et Firefox dans le navigateur ; mot de passe VNC = 8 premiers caractères. Patientez quelques secondes au premier démarrage.</span></li>
           <li class="flex gap-3"><span class="pill flex-none">3</span><span><strong>SSH</strong> — copiez la commande ; avec une clé enregistrée la connexion est immédiate, sinon saisissez le mot de passe.</span></li>
         </ol>

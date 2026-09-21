@@ -41,10 +41,11 @@ apply_password() {
     fi
 }
 
-# Options de ttyd : authentification HTTP Basic root:<mot de passe>, TLS si certificat monté
+# Options de ttyd. L'authentification est faite par `login` DANS le terminal
+# (invite "login:" puis "Password:", comme une console), et non par une boîte
+# de dialogue HTTP du navigateur. TLS si un certificat est monté.
 ttyd_options() {
-    local pwd="$1"
-    local opts="-p 7681 -c root:${pwd} -t titleFixed=InsaCloud -t fontSize=15"
+    local opts="-p 7681 -t titleFixed=InsaCloud -t fontSize=15 -t disableLeaveAlert=true"
     # -W (écriture) n'existe qu'à partir de ttyd 1.7
     if ttyd --help 2>&1 | grep -q -- '--writable'; then opts="$opts -W"; fi
     if [ -r "$TLS_CERT" ] && [ -r "$TLS_KEY" ]; then
@@ -57,14 +58,7 @@ ttyd_options() {
 if [ "$1" = "setpass" ]; then
     [ -n "$2" ] || { echo "usage: entrypoint.sh setpass <mot_de_passe>" >&2; exit 2; }
     apply_password "$2"
-    # ttyd embarque le mot de passe dans sa ligne de commande : on la réécrit
-    # puis supervisord relance uniquement ce programme.
-    NEW_OPTS="$(ttyd_options "$2")"
-    LOGIN_SHELL="$(command -v bash || echo /bin/sh)"
-    sed -i "s|^command=.*ttyd .*$|command=$(command -v ttyd) ${NEW_OPTS} ${LOGIN_SHELL} -l|" "$CONF"
-    supervisorctl -c "$CONF" reread  >/dev/null
-    supervisorctl -c "$CONF" update  >/dev/null
-    supervisorctl -c "$CONF" restart ttyd >/dev/null
+    # SSH et le terminal web (`login`) lisent /etc/shadow ; VNC relit son fichier : rien à relancer.
     echo "mot de passe mis à jour (SSH, terminal web, VNC)"
     exit 0
 fi
@@ -83,7 +77,8 @@ if [ -n "$SSH_PUBKEY" ]; then
 fi
 
 # --- 2. Configuration supervisord ---------------------------------------------
-LOGIN_SHELL="$(command -v bash || echo /bin/sh)"
+# Bannière de l'invite de connexion du terminal web
+printf 'InsaCloud - %s\nIdentifiant : root  (mot de passe : voir le coffre du site)\n\n' "$(hostname)" > /etc/issue
 cat > "$CONF" <<SUPERVISOR
 [supervisord]
 nodaemon=true
@@ -111,7 +106,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:ttyd]
-command=$(command -v ttyd) $(ttyd_options "$ROOT_PASSWORD") $LOGIN_SHELL -l
+command=$(command -v ttyd) $(ttyd_options) /bin/sh -c "cat /etc/issue; exec $(command -v login)"
 priority=20
 autorestart=true
 stdout_logfile=/dev/null
