@@ -6,8 +6,8 @@
   var title    = document.getElementById("form-title");
   var subtitle = document.getElementById("form-subtitle");
   var copy = {
-    login:    ["Se connecter",    "Accédez à vos machines."],
-    register: ["Créer un compte", "Un identifiant, un mot de passe, c'est tout."]
+    login:    ["Connexion",       "Retrouvez vos machines."],
+    register: ["Créer un compte", "Un identifiant et un mot de passe suffisent."]
   };
   function show(tab) {
     panels.forEach(function (p) { p.classList.toggle("hidden", p.id !== "panel-" + tab); });

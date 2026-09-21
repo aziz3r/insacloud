@@ -39,7 +39,7 @@ Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. 
 | **Haute disponibilité** | `--restart=always` + `supervisord` dans chaque machine : tout service qui plante est relancé |
 | **Le Faucheur** | démon qui détruit (`docker rm -f`) les machines expirées et réconcilie Docker ↔ base |
 | **IaC** | VM Vagrant multi-provider, playbook Ansible idempotent en 3 rôles (`security_hardening`, `docker`, `webapp`), secrets chiffrés avec Ansible Vault, Gunicorn sous systemd, pare-feu UFW |
-| **Interface** | console sobre (typographie, filets fins, une couleur d'accent), mode sombre automatique, sans framework JS ni ressource externe |
+| **Interface** | console avec navigation latérale, identité INSA (rouge, IBM Plex auto-hébergée), tableau des machines, choix visuels, mode sombre — sans framework JS ni ressource externe |
 
 ## Architecture
 
@@ -81,7 +81,7 @@ Projet_InsaCloud/
 │   ├── app.py                       serveur Flask, routes, sécurité, appels docker via subprocess
 │   ├── database.py                  schéma SQLite (users, instances, login_attempts), migrations
 │   ├── faucheur.py                  démon de destruction des machines expirées
-│   ├── static/                      CSS (Tailwind précompilé + thème) et JS servis localement
+│   ├── static/                      CSS (Tailwind précompilé + thème), polices IBM Plex et JS servis localement
 │   └── templates/
 │       ├── login.html               connexion / inscription
 │       └── dashboard.html           location, cartes machines, clé SSH, historique

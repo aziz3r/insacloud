@@ -55,7 +55,7 @@
   // --- Compte à rebours + barres ------------------------------------------
   var startedAt = Date.now(), reloadScheduled = false;
   var counters = Array.prototype.slice.call(document.querySelectorAll(".countdown"));
-  counters.forEach(function (el) { el.dataset.initial = el.dataset.remaining; el.bar = el.closest("article").querySelector(".bar"); });
+  counters.forEach(function (el) { el.dataset.initial = el.dataset.remaining; el.bar = (el.closest(".time-cell") || el.closest("article") || document).querySelector(".bar"); });
   function fmt(s) { var h = Math.floor(s/3600), m = Math.floor((s%3600)/60), x = s%60;
     var mm = (m<10?"0":"")+m, ss = (x<10?"0":"")+x; return h ? h+":"+mm+":"+ss : mm+":"+ss; }
   function tick() {

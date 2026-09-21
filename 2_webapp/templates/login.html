@@ -10,71 +10,71 @@
   <link rel="stylesheet" href="{{ static_url('css/insacloud.css') }}">
 </head>
 <body data-active-tab="{{ active_tab|default('login') }}">
-
-  <header class="topbar">
-    <div class="topbar-inner">
-      <a href="{{ url_for('login') }}" class="wordmark">InsaCloud</a>
-      <span class="muted text-xs">Plateforme de location de machines · INSA</span>
+  <div class="auth-page">
+    <div class="auth-top">
+      <a href="{{ url_for('login') }}" class="logo">
+        <span class="logo-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle cx="7" cy="7.5" r=".6" fill="currentColor"/><circle cx="7" cy="16.5" r=".6" fill="currentColor"/></svg></span>
+        InsaCloud
+      </a>
     </div>
-  </header>
 
-  <main class="auth">
-    <h1 id="form-title">Se connecter</h1>
-    <p id="form-subtitle" class="text-2">Accédez à vos machines.</p>
+    <main class="auth-wrap">
+      <div class="auth-card">
+        <h1 id="form-title">Connexion</h1>
+        <p id="form-subtitle" class="lead">Retrouvez vos machines.</p>
 
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <div class="mt-5 space-y-2">
-          {% for category, message in messages %}
-            <div class="notice notice-{{ category if category in ['success','error','info'] else 'info' }}">{{ message }}</div>
-          {% endfor %}
-        </div>
-      {% endif %}
-    {% endwith %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="mt-5 space-y-2">
+              {% for category, message in messages %}
+                <div class="notice notice-{{ category if category in ['success','error','info'] else 'info' }}">{{ message }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
 
-    <!-- Connexion -->
-    <form id="panel-login" method="POST" action="{{ url_for('login') }}" class="tab-panel mt-6 space-y-4" autocomplete="on">
-      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-      <div>
-        <label for="login-username" class="label">Identifiant</label>
-        <input id="login-username" name="username" type="text" required maxlength="32" autocomplete="username" autofocus class="field">
+        <form id="panel-login" method="POST" action="{{ url_for('login') }}" class="tab-panel mt-6 space-y-4" autocomplete="on">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <div>
+            <label for="login-username" class="label">Identifiant</label>
+            <input id="login-username" name="username" type="text" required maxlength="32" autocomplete="username" autofocus class="field">
+          </div>
+          <div>
+            <label for="login-password" class="label">Mot de passe</label>
+            <input id="login-password" name="password" type="password" required autocomplete="current-password" class="field">
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg btn-block">Se connecter</button>
+          <p class="switch">Pas encore de compte ? <a href="#" data-tab-link="register">Créer un compte</a></p>
+        </form>
+
+        <form id="panel-register" method="POST" action="{{ url_for('register') }}" class="tab-panel mt-6 space-y-4 hidden">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <div>
+            <label for="reg-username" class="label">Identifiant</label>
+            <input id="reg-username" name="username" type="text" required autocomplete="username" minlength="3" maxlength="32"
+                   pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}" title="3 à 32 caractères : lettres, chiffres, . _ -" class="field">
+            <p class="help">3 à 32 caractères : lettres, chiffres, point, tiret ou underscore.</p>
+          </div>
+          <div>
+            <label for="reg-password" class="label">Mot de passe</label>
+            <input id="reg-password" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
+            <p class="help">10 caractères minimum.</p>
+          </div>
+          <div>
+            <label for="reg-confirm" class="label">Confirmer le mot de passe</label>
+            <input id="reg-confirm" name="confirm" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg btn-block">Créer mon compte</button>
+          <p class="switch">Déjà inscrit ? <a href="#" data-tab-link="login">Se connecter</a></p>
+        </form>
       </div>
-      <div>
-        <label for="login-password" class="label">Mot de passe</label>
-        <input id="login-password" name="password" type="password" required autocomplete="current-password" class="field">
-      </div>
-      <button type="submit" class="btn btn-primary btn-lg btn-block">Se connecter</button>
-      <p class="switch">Pas encore de compte ? <a href="#" data-tab-link="register">Créer un compte</a></p>
-    </form>
+    </main>
 
-    <!-- Inscription -->
-    <form id="panel-register" method="POST" action="{{ url_for('register') }}" class="tab-panel mt-6 space-y-4 hidden">
-      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-      <div>
-        <label for="reg-username" class="label">Identifiant</label>
-        <input id="reg-username" name="username" type="text" required autocomplete="username" minlength="3" maxlength="32"
-               pattern="[a-zA-Z0-9][a-zA-Z0-9_.\-]{2,31}" title="3 à 32 caractères : lettres, chiffres, . _ -" class="field">
-        <p class="help">3 à 32 caractères : lettres, chiffres, point, tiret ou underscore.</p>
-      </div>
-      <div>
-        <label for="reg-password" class="label">Mot de passe</label>
-        <input id="reg-password" name="password" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
-        <p class="help">10 caractères minimum.</p>
-      </div>
-      <div>
-        <label for="reg-confirm" class="label">Confirmer le mot de passe</label>
-        <input id="reg-confirm" name="confirm" type="password" required minlength="10" maxlength="128" autocomplete="new-password" class="field">
-      </div>
-      <button type="submit" class="btn btn-primary btn-lg btn-block">Créer mon compte</button>
-      <p class="switch">Déjà inscrit ? <a href="#" data-tab-link="login">Se connecter</a></p>
-    </form>
-  </main>
-
-  <footer class="footer">
-    <span>InsaCloud — Projet 3, Outils de déploiement de plateformes</span>
-    <span>INSA · STI 4A</span>
-  </footer>
-
+    <footer class="auth-foot">
+      <span>InsaCloud — location de machines à la minute</span>
+      <span>INSA · Outils de déploiement de plateformes</span>
+    </footer>
+  </div>
   <script src="{{ static_url('js/login.js') }}" defer></script>
 </body>
 </html>
