@@ -81,7 +81,11 @@
               <div class="mt-3 flex flex-wrap items-center gap-2">
                 <code class="secret">{{ reveal.password }}</code>
                 <button type="button" data-copy="{{ reveal.password }}" class="copy-btn btn btn-secondary btn-sm"><span class="ico inline-flex">{{ copy_svg }}</span><span class="lbl">Copier</span></button>
-                {% if reveal.vnc_password %}<span class="text-sm text-2 ml-2">Bureau (VNC) : <code class="secret text-sm">{{ reveal.vnc_password }}</code></span>{% endif %}
+                {% if reveal.vnc_password %}
+                  <span class="text-sm text-2 ml-2">Bureau (VNC) :</span>
+                  <code class="secret text-sm">{{ reveal.vnc_password }}</code>
+                  <button type="button" data-copy="{{ reveal.vnc_password }}" class="copy-btn btn btn-secondary btn-sm"><span class="ico inline-flex">{{ copy_svg }}</span><span class="lbl">Copier</span></button>
+                {% endif %}
               </div>
             </div>
             <button type="button" class="reveal-close btn btn-ghost btn-sm">Masquer</button>
