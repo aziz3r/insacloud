@@ -3,31 +3,87 @@
 #  entrypoint.sh - Script de démarrage commun aux images InsaCloud
 #  (Ubuntu, Debian, Alpine — mode "terminal" ou "desktop")
 # -----------------------------------------------------------------------------
-#  1. Applique le mot de passe root transmis par la plateforme (ROOT_PASSWORD)
-#  2. Génère la configuration supervisord selon le mode :
-#       terminal : sshd (22) + ttyd, terminal web (7681)
-#       desktop  : + Xvnc (5901, interne) + XFCE + noVNC (6080)
-#  3. Lance supervisord en PID 1 : chaque service est relancé s'il plante,
-#     et si supervisord lui-même meurt, Docker relance le conteneur
-#     grâce à --restart=always.
+#  Démarrage (CMD) :
+#    1. mot de passe root (ROOT_PASSWORD) et, si fournie, clé publique SSH
+#       (SSH_PUBKEY) -> l'authentification SSH par mot de passe est alors coupée
+#    2. configuration supervisord selon le mode :
+#         terminal : sshd (22) + ttyd, terminal web (7681)
+#         desktop  : + Xvnc (5901, interne) + XFCE + noVNC (6080)
+#       Si /tls/cert.pem et /tls/key.pem sont montés, ttyd et noVNC parlent TLS.
+#    3. supervisord en PID 1 (relance chaque service ; Docker relance le
+#       conteneur si supervisord meurt, grâce à --restart=always)
+#
+#  Rotation du mot de passe à chaud (utilisé par la plateforme) :
+#    docker exec <conteneur> /usr/local/bin/entrypoint.sh setpass <nouveau>
 # =============================================================================
 set -e
 
 : "${ROOT_PASSWORD:=insacloud}"
 : "${INSACLOUD_MODE:=terminal}"
 : "${VNC_RESOLUTION:=1280x800}"
-
-# --- 1. Mot de passe root (SSH + terminal web) --------------------------------
-echo "root:${ROOT_PASSWORD}" | chpasswd
-ssh-keygen -A >/dev/null 2>&1 || true          # clés hôte SSH si absentes
-
-# --- 2. Terminal web : ttyd protège l'accès par le mot de passe root ---------
-#     (l'option -W "writable" n'existe qu'à partir de ttyd 1.7)
-TTYD_OPTS="-p 7681 -c root:${ROOT_PASSWORD} -t titleFixed=InsaCloud -t fontSize=15"
-if ttyd --help 2>&1 | grep -q -- '--writable'; then TTYD_OPTS="$TTYD_OPTS -W"; fi
-LOGIN_SHELL="$(command -v bash || echo /bin/sh)"
+: "${SSH_PUBKEY:=}"
 
 CONF=/etc/supervisord.insacloud.conf
+TLS_CERT=/tls/cert.pem
+TLS_KEY=/tls/key.pem
+
+# --- Fonctions ----------------------------------------------------------------
+
+# Applique un mot de passe root pour SSH ; VNC = 8 premiers caractères (limite du protocole)
+apply_password() {
+    local pwd="$1"
+    echo "root:${pwd}" | chpasswd
+    if [ "$INSACLOUD_MODE" = "desktop" ]; then
+        mkdir -p /root/.vnc
+        local vncpasswd; vncpasswd="$(command -v tigervncpasswd || command -v vncpasswd)"
+        printf '%s' "${pwd:0:8}" | "$vncpasswd" -f > /root/.vnc/passwd
+        chmod 600 /root/.vnc/passwd
+    fi
+}
+
+# Options de ttyd : authentification HTTP Basic root:<mot de passe>, TLS si certificat monté
+ttyd_options() {
+    local pwd="$1"
+    local opts="-p 7681 -c root:${pwd} -t titleFixed=InsaCloud -t fontSize=15"
+    # -W (écriture) n'existe qu'à partir de ttyd 1.7
+    if ttyd --help 2>&1 | grep -q -- '--writable'; then opts="$opts -W"; fi
+    if [ -r "$TLS_CERT" ] && [ -r "$TLS_KEY" ]; then
+        opts="$opts --ssl --ssl-cert $TLS_CERT --ssl-key $TLS_KEY"
+    fi
+    echo "$opts"
+}
+
+# --- Sous-commande : rotation du mot de passe -------------------------------
+if [ "$1" = "setpass" ]; then
+    [ -n "$2" ] || { echo "usage: entrypoint.sh setpass <mot_de_passe>" >&2; exit 2; }
+    apply_password "$2"
+    # ttyd embarque le mot de passe dans sa ligne de commande : on la réécrit
+    # puis supervisord relance uniquement ce programme.
+    NEW_OPTS="$(ttyd_options "$2")"
+    LOGIN_SHELL="$(command -v bash || echo /bin/sh)"
+    sed -i "s|^command=.*ttyd .*$|command=$(command -v ttyd) ${NEW_OPTS} ${LOGIN_SHELL} -l|" "$CONF"
+    supervisorctl -c "$CONF" reread  >/dev/null
+    supervisorctl -c "$CONF" update  >/dev/null
+    supervisorctl -c "$CONF" restart ttyd >/dev/null
+    echo "mot de passe mis à jour (SSH, terminal web, VNC)"
+    exit 0
+fi
+
+# --- 1. Mot de passe root + clé SSH -----------------------------------------
+apply_password "$ROOT_PASSWORD"
+ssh-keygen -A >/dev/null 2>&1 || true          # clés hôte SSH si absentes
+
+if [ -n "$SSH_PUBKEY" ]; then
+    # Clé publique fournie par l'utilisateur : accès SSH par clé uniquement
+    mkdir -p /root/.ssh && chmod 700 /root/.ssh
+    printf '%s\n' "$SSH_PUBKEY" > /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+    sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+fi
+
+# --- 2. Configuration supervisord ---------------------------------------------
+LOGIN_SHELL="$(command -v bash || echo /bin/sh)"
 cat > "$CONF" <<SUPERVISOR
 [supervisord]
 nodaemon=true
@@ -55,7 +111,7 @@ stderr_logfile=/dev/stderr
 stderr_logfile_maxbytes=0
 
 [program:ttyd]
-command=$(command -v ttyd) $TTYD_OPTS $LOGIN_SHELL -l
+command=$(command -v ttyd) $(ttyd_options "$ROOT_PASSWORD") $LOGIN_SHELL -l
 priority=20
 autorestart=true
 stdout_logfile=/dev/null
@@ -64,15 +120,14 @@ SUPERVISOR
 
 # --- 3. Bureau graphique (mode desktop uniquement) ----------------------------
 if [ "$INSACLOUD_MODE" = "desktop" ]; then
-    mkdir -p /root/.vnc /tmp/runtime-root && chmod 700 /tmp/runtime-root
-    # Mot de passe VNC = 8 premiers caractères (limite du protocole VNC)
-    VNCPASSWD="$(command -v tigervncpasswd || command -v vncpasswd)"
-    printf '%s' "${ROOT_PASSWORD:0:8}" | "$VNCPASSWD" -f > /root/.vnc/passwd
-    chmod 600 /root/.vnc/passwd
-    # Racine web de noVNC (chemin différent selon la distribution)
+    mkdir -p /tmp/runtime-root && chmod 700 /tmp/runtime-root
     NOVNC_DIR=/usr/share/novnc
     [ -f /usr/share/webapps/novnc/vnc.html ] && NOVNC_DIR=/usr/share/webapps/novnc
     ln -sf "$NOVNC_DIR/vnc.html" "$NOVNC_DIR/index.html" 2>/dev/null || true
+    NOVNC_TLS=""
+    if [ -r "$TLS_CERT" ] && [ -r "$TLS_KEY" ]; then
+        NOVNC_TLS="--cert $TLS_CERT --key $TLS_KEY --ssl-only"
+    fi
 
     cat >> "$CONF" <<SUPERVISOR
 
@@ -93,7 +148,7 @@ stdout_logfile=/dev/null
 stderr_logfile=/dev/null
 
 [program:novnc]
-command=$(command -v websockify) --web $NOVNC_DIR 6080 localhost:5901
+command=$(command -v websockify) $NOVNC_TLS --web $NOVNC_DIR 6080 localhost:5901
 priority=50
 autorestart=true
 stdout_logfile=/dev/null
@@ -102,7 +157,9 @@ SUPERVISOR
 fi
 
 # `supervisorctl status` doit marcher sans option sur toutes les distributions
-# (Debian/Ubuntu cherchent /var/run/supervisor.sock, Alpine /run/supervisord.sock)
 ln -sf /run/supervisord.sock /var/run/supervisor.sock 2>/dev/null || true
+
+# Le mot de passe ne doit pas rester lisible dans l'environnement des processus
+unset ROOT_PASSWORD SSH_PUBKEY
 
 exec "$(command -v supervisord)" -c "$CONF"

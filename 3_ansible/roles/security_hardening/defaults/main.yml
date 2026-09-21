@@ -13,7 +13,8 @@ ufw_ssh_port: 22
 
 # Ports TCP ouverts individuellement
 ufw_allowed_tcp_ports:
-  - "{{ insacloud_web_port | default(5000) }}"     # Gunicorn (site InsaCloud)
+  - "80"        # nginx : redirection vers HTTPS
+  - "443"       # nginx : site InsaCloud en TLS (Gunicorn n'écoute que sur 127.0.0.1)
 
 # Plages TCP ouvertes (début:fin) : ports publiés par les machines louées
 ufw_allowed_tcp_ranges:

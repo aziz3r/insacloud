@@ -3,28 +3,32 @@
 app.py - Serveur web Flask d'InsaCloud (mini-fournisseur de Cloud).
 
 Fonctionnalités :
-  - Inscription / connexion des utilisateurs (mots de passe hachés).
-  - Location d'une machine (conteneur Docker Ubuntu + SSH) pour N minutes.
-  - Tableau de bord : commande SSH exacte, mot de passe, temps restant,
-    état réel du conteneur (docker inspect), prolongation, destruction anticipée.
+  - Inscription / connexion (mots de passe hachés, anti-force-brute, CSRF).
+  - Location d'une machine (conteneur Docker) : 3 distributions × 2 modes
+    (terminal ou bureau graphique), pour N minutes.
+  - Tableau de bord : commande SSH, terminal web, bureau, temps restant,
+    état réel du conteneur, prolongation, rotation du mot de passe, destruction.
 
-Interaction avec Docker : uniquement via `subprocess` (commande `docker`),
-comme demandé dans le cahier des charges. Commande de création utilisée :
+Sécurité (voir aussi README, section « Sécurité ») :
+  - le mot de passe root d'une machine est généré, affiché UNE SEULE FOIS puis
+    oublié (jamais stocké) ; il peut être régénéré à chaud ;
+  - clé publique SSH par utilisateur : injectée dans la machine, l'accès SSH
+    par mot de passe y est alors désactivé ;
+  - jetons CSRF sur tous les formulaires, déconnexion en POST ;
+  - limitation des tentatives de connexion (par compte et par adresse IP) ;
+  - en-têtes de sécurité avec CSP stricte (aucun script ni style externe) ;
+  - cookies HttpOnly / Secure / SameSite=Strict, session limitée dans le temps ;
+  - conteneurs lancés avec capacités minimales, no-new-privileges, limites CPU/PID.
 
-    docker run -d --restart=always -p <port_aleatoire>:22 <nom_image>
-      (+ --name et -e ROOT_PASSWORD pour identifier la machine et
-         lui donner un mot de passe unique)
+Interaction avec Docker : uniquement via `subprocess` (commande `docker`).
+Commande de création :
+    docker run -d --restart=always -p <port>:22 <image>   (+ options de durcissement)
 
-Lancement en développement :
-    python3 app.py
-Variables d'environnement utiles (toutes optionnelles) :
-    INSACLOUD_HOST, INSACLOUD_PORT, INSACLOUD_DEBUG
-    INSACLOUD_IMAGE, INSACLOUD_PORT_MIN, INSACLOUD_PORT_MAX
-    INSACLOUD_MAX_INSTANCES, INSACLOUD_MAX_DURATION
-    INSACLOUD_SSH_HOST, INSACLOUD_SECRET_KEY, INSACLOUD_EMBED_FAUCHEUR
+Variables d'environnement (toutes optionnelles, voir README) : INSACLOUD_*
 """
 
 import functools
+import hmac
 import logging
 import os
 import random
@@ -34,9 +38,11 @@ import socket
 import string
 import subprocess
 import sys
+from datetime import timedelta
 
 from flask import (Flask, abort, flash, g, redirect, render_template,
                    request, session, url_for)
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import database as db
@@ -46,13 +52,52 @@ import database as db
 # =============================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Distributions proposées : clé du formulaire -> (image Docker, libellé affiché)
-# Les images sont construites à partir de 1_docker/Dockerfile et alpine.Dockerfile.
-# Limite mémoire par machine louée (vide = pas de limite)
+# Plage de ports hôte dans laquelle on tire les ports publiés (SSH, terminal, bureau)
+PORT_MIN = int(os.environ.get("INSACLOUD_PORT_MIN", "8000"))
+PORT_MAX = int(os.environ.get("INSACLOUD_PORT_MAX", "9000"))
+
+# Règles métier
+MAX_INSTANCES_PER_USER = int(os.environ.get("INSACLOUD_MAX_INSTANCES", "3"))
+MIN_DURATION_MINUTES = 1
+MAX_DURATION_MINUTES = int(os.environ.get("INSACLOUD_MAX_DURATION", "120"))
+DURATION_CHOICES = [5, 10, 15, 30, 60]
+EXTEND_CHOICES = [5, 10, 30]
+
+# Anti-force-brute (connexion)
+LOGIN_WINDOW_MINUTES = int(os.environ.get("INSACLOUD_LOGIN_WINDOW", "15"))
+LOGIN_MAX_FAILURES_USER = int(os.environ.get("INSACLOUD_LOGIN_MAX_USER", "5"))
+LOGIN_MAX_FAILURES_IP = int(os.environ.get("INSACLOUD_LOGIN_MAX_IP", "20"))
+
+# Politique de mot de passe des comptes
+PASSWORD_MIN_LENGTH = int(os.environ.get("INSACLOUD_PASSWORD_MIN", "10"))
+COMMON_PASSWORDS = {"password", "motdepasse", "123456789", "1234567890", "azertyuiop",
+                    "qwertyuiop", "insacloud", "administrator", "iloveyou12"}
+
+# Mémoire / ressources des machines louées
 CONTAINER_MEMORY = os.environ.get("INSACLOUD_CONTAINER_MEMORY", "256m")
-GUI_CONTAINER_MEMORY = os.environ.get("INSACLOUD_GUI_MEMORY", "1g")   # un bureau a besoin de plus
-TERM_CONTAINER_PORT = 7681   # port du terminal web (ttyd) dans toutes les images
-GUI_CONTAINER_PORT = 6080    # port noVNC dans les images "bureau"
+GUI_CONTAINER_MEMORY = os.environ.get("INSACLOUD_GUI_MEMORY", "1g")
+CONTAINER_CPUS = os.environ.get("INSACLOUD_CONTAINER_CPUS", "1")
+CONTAINER_PIDS_LIMIT = os.environ.get("INSACLOUD_CONTAINER_PIDS", "512")
+TERM_CONTAINER_PORT = 7681   # ttyd dans toutes les images
+GUI_CONTAINER_PORT = 6080    # noVNC dans les images "bureau"
+
+# Certificat TLS monté dans les machines (terminal web + noVNC en HTTPS) : vide = HTTP
+TLS_DIR = os.environ.get("INSACLOUD_TLS_DIR", "")
+
+# Le site est-il servi en HTTPS (derrière nginx) ? -> cookies Secure, HSTS
+HTTPS = os.environ.get("INSACLOUD_HTTPS", "0") == "1"
+BEHIND_PROXY = os.environ.get("INSACLOUD_BEHIND_PROXY", "0") == "1"
+
+# Hôte affiché dans les commandes / liens. Par défaut : l'hôte de l'URL courante.
+SSH_HOST_OVERRIDE = os.environ.get("INSACLOUD_SSH_HOST")
+
+CONTAINER_PREFIX = "insacloud_"
+DOCKER_TIMEOUT = 60
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$")   # compatible noms Docker
+SSH_PUBKEY_RE = re.compile(
+    r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com)"
+    r" [A-Za-z0-9+/]+=*( [^\r\n]{0,128})?$"
+)
 
 # Distributions disponibles (images construites depuis 1_docker/*.Dockerfile)
 DISTROS = {
@@ -70,54 +115,21 @@ MODES = {
 DEFAULT_OS = "ubuntu"
 DEFAULT_MODE = "terminal"
 
-
 # Images réellement présentes sur le serveur (renseigné par Ansible selon demo_mode).
-# Vide = tout est proposé.
 AVAILABLE_IMAGES = {x.strip() for x in os.environ.get("INSACLOUD_AVAILABLE_IMAGES", "").split(",") if x.strip()}
 
-
-def image_available(distro: str, mode: str) -> bool:
-    """Vrai si l'image du couple (distribution, mode) est disponible sur ce serveur."""
-    if not AVAILABLE_IMAGES:
-        return True
-    return image_for(distro, mode).split(":")[0] in AVAILABLE_IMAGES
-
-
-def available_choices():
-    """Distributions et modes proposables (au moins une image existante)."""
-    distros = {k: v for k, v in DISTROS.items() if any(image_available(k, m) for m in MODES)}
-    modes = {k: v for k, v in MODES.items() if any(image_available(d, k) for d in distros)}
-    return distros, modes
-
-
-def image_for(distro: str, mode: str) -> str:
-    """
-    Nom de l'image Docker pour un couple (distribution, mode) :
-        insacloud_ubuntu:latest / insacloud_ubuntu_desktop:latest, etc.
-    Surchargeable par variable d'environnement (INSACLOUD_IMAGE_UBUNTU_DESKTOP…).
-    """
-    suffix = "_desktop" if MODES[mode]["gui"] else ""
-    default = f"insacloud_{distro}{suffix}:latest"
-    return os.environ.get(f"INSACLOUD_IMAGE_{distro.upper()}{suffix.upper()}", default)
-
-# Plage de ports hôte dans laquelle on tire un port aléatoire pour le SSH
-PORT_MIN = int(os.environ.get("INSACLOUD_PORT_MIN", "8000"))
-PORT_MAX = int(os.environ.get("INSACLOUD_PORT_MAX", "9000"))
-
-# Règles métier
-MAX_INSTANCES_PER_USER = int(os.environ.get("INSACLOUD_MAX_INSTANCES", "3"))
-MIN_DURATION_MINUTES = 1
-MAX_DURATION_MINUTES = int(os.environ.get("INSACLOUD_MAX_DURATION", "120"))
-DURATION_CHOICES = [5, 10, 15, 30, 60]          # proposées dans le formulaire
-EXTEND_CHOICES = [5, 10, 30]                    # prolongations proposées
-
-# Hôte affiché dans la commande SSH. Par défaut : l'hôte de l'URL courante
-# (ex: 192.168.56.10 si on consulte http://192.168.56.10:5000).
-SSH_HOST_OVERRIDE = os.environ.get("INSACLOUD_SSH_HOST")
-
-CONTAINER_PREFIX = "insacloud_"
-DOCKER_TIMEOUT = 60                             # secondes
-USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$")  # compatible noms Docker
+# Durcissement des conteneurs loués : capacités minimales pour sshd / supervisord,
+# pas d'escalade de privilèges, limites de processus et de CPU.
+CONTAINER_HARDENING = [
+    "--cap-drop", "ALL",
+    "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
+    "--cap-add", "FSETID", "--cap-add", "SETGID", "--cap-add", "SETUID",
+    "--cap-add", "SYS_CHROOT", "--cap-add", "NET_BIND_SERVICE",
+    "--cap-add", "KILL", "--cap-add", "AUDIT_WRITE",
+    "--security-opt", "no-new-privileges:true",
+    "--pids-limit", CONTAINER_PIDS_LIMIT,
+    "--cpus", CONTAINER_CPUS,
+]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -128,11 +140,7 @@ log = logging.getLogger("insacloud")
 
 
 def load_secret_key() -> str:
-    """
-    Clé secrète des sessions Flask.
-    Priorité : variable d'environnement > fichier .secret_key (créé une fois
-    pour toutes pour ne pas déconnecter les utilisateurs à chaque redémarrage).
-    """
+    """Clé secrète des sessions : variable d'environnement (Ansible/Vault) ou fichier local."""
     key = os.environ.get("INSACLOUD_SECRET_KEY")
     if key:
         return key
@@ -152,9 +160,75 @@ def load_secret_key() -> str:
 
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = load_secret_key()
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config.update(
+    SECRET_KEY=load_secret_key(),
+    SESSION_COOKIE_HTTPONLY=True,          # inaccessible à JavaScript
+    SESSION_COOKIE_SAMESITE="Strict",      # jamais envoyé depuis un autre site
+    SESSION_COOKIE_SECURE=HTTPS,           # HTTPS uniquement quand le site est en TLS
+    SESSION_COOKIE_NAME="insacloud_session",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=2),
+    MAX_CONTENT_LENGTH=16 * 1024,          # aucune requête légitime ne dépasse 16 Ko
+)
+if BEHIND_PROXY:
+    # Derrière nginx : faire confiance aux en-têtes X-Forwarded-* du proxy (1 saut)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+
+# =============================================================================
+# Sécurité HTTP : CSRF, en-têtes, session
+# =============================================================================
+def csrf_token() -> str:
+    """Jeton CSRF lié à la session (généré à la première page rendue)."""
+    if "_csrf" not in session:
+        session["_csrf"] = secrets.token_urlsafe(32)
+    return session["_csrf"]
+
+
+app.jinja_env.globals["csrf_token"] = csrf_token
+app.jinja_env.autoescape = True
+
+
+@app.before_request
+def security_before_request():
+    """Charge l'utilisateur, vérifie le jeton CSRF sur toute requête modifiante."""
+    user_id = session.get("user_id")
+    g.user = db.get_user_by_id(user_id) if user_id else None
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        expected = session.get("_csrf")
+        received = request.form.get("_csrf", "")
+        if not expected or not hmac.compare_digest(expected, received):
+            log.warning("CSRF refusé : %s %s ip=%s", request.method, request.path, client_ip())
+            abort(403)
+
+
+@app.after_request
+def security_headers(response):
+    """En-têtes de sécurité. La CSP n'autorise que les ressources du site lui-même."""
+    csp = (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'"
+    )
+    if HTTPS:
+        csp += "; upgrade-insecure-requests"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = csp
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    if request.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    else:
+        # Les pages contiennent des données sensibles : jamais mises en cache
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def client_ip() -> str:
+    return request.remote_addr or "?"
 
 
 # =============================================================================
@@ -167,7 +241,6 @@ class DockerError(Exception):
 def run_docker(*args, timeout: int = DOCKER_TIMEOUT) -> str:
     """Exécute `docker <args>` et retourne stdout, ou lève DockerError."""
     cmd = ["docker", *args]
-    log.debug("Exécution : %s", " ".join(cmd))
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
@@ -180,40 +253,58 @@ def run_docker(*args, timeout: int = DOCKER_TIMEOUT) -> str:
     return res.stdout.strip()
 
 
+def image_for(distro: str, mode: str) -> str:
+    """insacloud_<distro>[_desktop]:latest, surchargeable par INSACLOUD_IMAGE_<DISTRO>[_DESKTOP]."""
+    suffix = "_desktop" if MODES[mode]["gui"] else ""
+    default = f"insacloud_{distro}{suffix}:latest"
+    return os.environ.get(f"INSACLOUD_IMAGE_{distro.upper()}{suffix.upper()}", default)
+
+
+def image_available(distro: str, mode: str) -> bool:
+    if not AVAILABLE_IMAGES:
+        return True
+    return image_for(distro, mode).split(":")[0] in AVAILABLE_IMAGES
+
+
+def available_choices():
+    distros = {k: v for k, v in DISTROS.items() if any(image_available(k, m) for m in MODES)}
+    modes = {k: v for k, v in MODES.items() if any(image_available(d, k) for d in distros)}
+    return distros, modes
+
+
 def docker_run_container(port: int, name: str, root_password: str, os_type: str,
-                         mode: str, term_port: int, gui_port: int = None) -> str:
+                         mode: str, term_port: int, gui_port: int = None,
+                         ssh_public_key: str = None) -> str:
     """
     Crée et démarre une machine louée. Retourne l'ID court du conteneur.
-    Le couple (os_type, mode) choisi par l'utilisateur détermine l'image passée
-    à `docker run` ; `term_port` est publié vers le terminal web (7681) et,
-    en mode bureau, `gui_port` vers noVNC (6080).
 
-    Commande imposée par le cahier des charges :
-        docker run -d --restart=always -p <port>:22 <image>
-    --restart=always : si le processus interne (sshd) plante, le démon Docker
-    relance le conteneur immédiatement -> Haute Disponibilité.
+    Commande imposée : docker run -d --restart=always -p <port>:22 <image>
+    complétée par le terminal web, le bureau (mode desktop), le durcissement,
+    le mot de passe (jamais journalisé) et la clé SSH éventuelle.
     """
     spec = MODES[mode]
     args = [
         "run", "-d",
         "--restart=always",
-        "-p", f"{port}:22",                                  # SSH
-        "-p", f"{term_port}:{TERM_CONTAINER_PORT}",          # terminal web (ttyd)
+        "-p", f"{port}:22",
+        "-p", f"{term_port}:{TERM_CONTAINER_PORT}",
         "--name", name,
         "-e", f"ROOT_PASSWORD={root_password}",
+        *CONTAINER_HARDENING,
     ]
+    if ssh_public_key:
+        args += ["-e", f"SSH_PUBKEY={ssh_public_key}"]
+    if TLS_DIR:
+        args += ["-v", f"{TLS_DIR}:/tls:ro"]
     if spec["gui"] and gui_port:
-        args += ["-p", f"{gui_port}:{GUI_CONTAINER_PORT}"]   # bureau graphique (noVNC)
-        args += ["--shm-size", "512m"]                        # confort pour Firefox
+        args += ["-p", f"{gui_port}:{GUI_CONTAINER_PORT}", "--shm-size", "512m"]
     if spec["memory"]:
         args += ["--memory", spec["memory"]]
-    args.append(image_for(os_type, mode))   # <- image choisie dynamiquement
-    full_id = run_docker(*args)
-    return full_id[:12]
+    args.append(image_for(os_type, mode))
+    return run_docker(*args)[:12]
 
 
 def docker_remove_container(container_id: str) -> None:
-    """Détruit un conteneur (`docker rm -f`). Ne se plaint pas s'il n'existe plus."""
     try:
         run_docker("rm", "-f", container_id)
     except DockerError as exc:
@@ -223,21 +314,21 @@ def docker_remove_container(container_id: str) -> None:
 
 
 def docker_container_state(container_id: str) -> str:
-    """
-    État réel du conteneur vu par Docker : running / restarting / exited / …
-    Retourne 'absent' si le conteneur n'existe plus.
-    """
     try:
         return run_docker("inspect", "-f", "{{.State.Status}}", container_id, timeout=10)
     except DockerError:
         return "absent"
 
 
+def docker_rotate_password(container_id: str, new_password: str) -> None:
+    """Rotation à chaud : SSH, terminal web et VNC prennent le nouveau mot de passe."""
+    run_docker("exec", container_id, "/usr/local/bin/entrypoint.sh", "setpass", new_password)
+
+
 # =============================================================================
 # Utilitaires métier
 # =============================================================================
 def port_is_free_on_host(port: int) -> bool:
-    """Vérifie qu'aucun service n'écoute déjà sur ce port de l'hôte."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -248,11 +339,6 @@ def port_is_free_on_host(port: int) -> bool:
 
 
 def choose_random_port(exclude: set = frozenset()) -> int:
-    """
-    Tire un port aléatoire dans [PORT_MIN, PORT_MAX] qui n'est ni réservé
-    par une instance active en BDD, ni occupé sur l'hôte, ni dans `exclude`
-    (ports déjà attribués dans la même requête).
-    """
     for _ in range(100):
         port = random.randint(PORT_MIN, PORT_MAX)
         if port not in exclude and not db.port_in_use(port) and port_is_free_on_host(port):
@@ -260,17 +346,21 @@ def choose_random_port(exclude: set = frozenset()) -> int:
     raise DockerError("Aucun port libre disponible dans la plage configurée.")
 
 
-def generate_password(length: int = 12) -> str:
-    """Mot de passe root aléatoire, sans caractères ambigus (0/O, l/1)."""
+def generate_password(length: int = 16) -> str:
+    """Mot de passe root aléatoire (CSPRNG), sans caractères ambigus : ~90 bits d'entropie."""
     alphabet = "".join(c for c in string.ascii_letters + string.digits if c not in "0O1lI")
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def ssh_host() -> str:
-    """Hôte à utiliser dans la commande SSH affichée à l'utilisateur."""
+def public_host() -> str:
     if SSH_HOST_OVERRIDE:
         return SSH_HOST_OVERRIDE
     return request.host.split(":")[0]
+
+
+def machine_scheme() -> str:
+    """Terminal web et bureau sont en HTTPS dès qu'un certificat est monté dans les machines."""
+    return "https" if TLS_DIR else "http"
 
 
 def parse_int(value, default: int = 0) -> int:
@@ -280,18 +370,19 @@ def parse_int(value, default: int = 0) -> int:
         return default
 
 
+def password_policy_error(password: str, username: str):
+    """Retourne un message d'erreur si le mot de passe du compte est trop faible."""
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return f"Le mot de passe doit contenir au moins {PASSWORD_MIN_LENGTH} caractères."
+    if password.lower() in COMMON_PASSWORDS or password.lower() == username.lower():
+        return "Ce mot de passe est trop courant ou identique à l'identifiant."
+    return None
+
+
 # =============================================================================
 # Authentification
 # =============================================================================
-@app.before_request
-def load_current_user():
-    """Charge l'utilisateur connecté dans `g.user` à chaque requête."""
-    user_id = session.get("user_id")
-    g.user = db.get_user_by_id(user_id) if user_id else None
-
-
 def login_required(view):
-    """Décorateur : redirige vers /login si l'utilisateur n'est pas connecté."""
     @functools.wraps(view)
     def wrapped(*args, **kwargs):
         if g.user is None:
@@ -312,15 +403,33 @@ def login():
         return redirect(url_for("dashboard"))
 
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
+        username = request.form.get("username", "").strip()[:32]
         password = request.form.get("password", "")
+        ip = client_ip()
+
+        # Anti-force-brute : verrouillage temporaire par compte et par adresse IP
+        if (db.count_recent_failures(LOGIN_WINDOW_MINUTES, username=username) >= LOGIN_MAX_FAILURES_USER
+                or db.count_recent_failures(LOGIN_WINDOW_MINUTES, ip=ip) >= LOGIN_MAX_FAILURES_IP):
+            log.warning("Connexion verrouillée : user=%s ip=%s", username, ip)
+            flash(f"Trop de tentatives. Réessayez dans {LOGIN_WINDOW_MINUTES} minutes.", "error")
+            return render_template("login.html", active_tab="login"), 429
+
         user = db.get_user_by_username(username)
-        if user is None or not check_password_hash(user["password_hash"], password):
+        # check_password_hash est en temps constant ; on le fait même si le compte n'existe pas
+        ok = user is not None and check_password_hash(user["password_hash"], password)
+        if not ok:
+            check_password_hash(generate_password_hash("x"), password) if user is None else None
+            db.record_login_attempt(username, ip, False)
+            log.warning("Échec de connexion : user=%s ip=%s", username, ip)
             flash("Identifiant ou mot de passe incorrect.", "error")
             return render_template("login.html", active_tab="login"), 401
-        session.clear()
+
+        db.record_login_attempt(username, ip, True)
+        db.purge_login_attempts(24)
+        session.clear()                       # nouvelle session (anti-fixation)
+        session.permanent = True
         session["user_id"] = user["id"]
-        log.info("Connexion de l'utilisateur '%s'", username)
+        log.info("Connexion : user=%s ip=%s", username, ip)
         flash(f"Bienvenue, {username} !", "success")
         return redirect(url_for("dashboard"))
 
@@ -337,8 +446,9 @@ def register():
         flash("Identifiant invalide : 3 à 32 caractères (lettres, chiffres, . _ -), "
               "commençant par une lettre ou un chiffre.", "error")
         return render_template("login.html", active_tab="register"), 400
-    if len(password) < 6:
-        flash("Le mot de passe doit contenir au moins 6 caractères.", "error")
+    error = password_policy_error(password, username)
+    if error:
+        flash(error, "error")
         return render_template("login.html", active_tab="register"), 400
     if password != confirm:
         flash("Les deux mots de passe ne correspondent pas.", "error")
@@ -350,17 +460,35 @@ def register():
         return render_template("login.html", active_tab="register"), 409
 
     session.clear()
+    session.permanent = True
     session["user_id"] = user_id
-    log.info("Nouvel utilisateur inscrit : '%s'", username)
+    log.info("Inscription : user=%s ip=%s", username, client_ip())
     flash("Compte créé avec succès. Bienvenue sur InsaCloud !", "success")
     return redirect(url_for("dashboard"))
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     flash("Vous avez été déconnecté.", "info")
     return redirect(url_for("login"))
+
+
+# =============================================================================
+# Profil : clé publique SSH
+# =============================================================================
+@app.route("/profile/ssh-key", methods=["POST"])
+@login_required
+def set_ssh_key():
+    key = " ".join(request.form.get("ssh_public_key", "").strip().split())
+    if key and (len(key) > 1024 or not SSH_PUBKEY_RE.match(key)):
+        flash("Clé publique invalide : attendu « ssh-ed25519 AAAA… », « ssh-rsa AAAA… » ou « ecdsa-sha2-… ».", "error")
+        return redirect(url_for("dashboard"))
+    db.set_user_ssh_key(g.user["id"], key)
+    log.info("Clé SSH %s : user=%s", "enregistrée" if key else "supprimée", g.user["username"])
+    flash("Clé SSH enregistrée : vos prochaines machines n'accepteront que cette clé en SSH."
+          if key else "Clé SSH supprimée.", "success")
+    return redirect(url_for("dashboard"))
 
 
 # =============================================================================
@@ -370,7 +498,8 @@ def logout():
 @login_required
 def dashboard():
     now = db.utc_now()
-    host = ssh_host()
+    host = public_host()
+    scheme = machine_scheme()
     instances = []
     for row in db.get_user_instances(g.user["id"]):
         inst = dict(row)
@@ -379,27 +508,25 @@ def dashboard():
         is_running = inst["status"] == db.STATUS_RUNNING
         inst["is_running"] = is_running
         inst["remaining_seconds"] = max(0, int((expires - now).total_seconds())) if is_running else 0
-        # Durée totale de la location (pour la barre de progression du dashboard)
         inst["total_seconds"] = max(1, int((expires - created).total_seconds()))
         inst["expires_at_local"] = db.to_local(expires).strftime("%H:%M:%S")
         inst["expires_date_local"] = db.to_local(expires).strftime("%d/%m/%Y %H:%M")
         inst["created_at_local"] = db.to_local(created).strftime("%d/%m/%Y %H:%M")
         inst["ssh_command"] = f"ssh root@{host} -p {inst['port']}"
+        inst["docker_state"] = docker_container_state(inst["container_id"]) if is_running else "-"
         inst["os_label"] = DISTROS.get(inst["os_type"], {}).get("label", inst["os_type"])
         inst["mode_label"] = MODES.get(inst["mode"], {}).get("label", inst["mode"])
         inst["is_desktop"] = bool(inst["gui_port"])
-        # Terminal web (toutes les machines) et bureau graphique (mode desktop)
-        inst["term_url"] = f"http://{host}:{inst['term_port']}/" if inst["term_port"] else None
-        inst["gui_url"] = (f"http://{host}:{inst['gui_port']}/vnc.html?autoconnect=true&resize=remote"
+        inst["term_url"] = f"{scheme}://{host}:{inst['term_port']}/" if inst["term_port"] else None
+        inst["gui_url"] = (f"{scheme}://{host}:{inst['gui_port']}/vnc.html?autoconnect=true&resize=remote"
                            if inst["gui_port"] else None)
-        inst["vnc_password"] = inst["root_password"][:8]   # limite du protocole VNC
-        # État réel côté Docker (démontre la Haute Disponibilité : "restarting" si crash)
-        inst["docker_state"] = docker_container_state(inst["container_id"]) if is_running else "-"
         instances.append(inst)
 
     active = [i for i in instances if i["is_running"]]
     history = [i for i in instances if not i["is_running"]]
     distros_ok, modes_ok = available_choices()
+    # Secret à afficher une seule fois (déposé par create/rotate, consommé ici)
+    reveal = session.pop("reveal", None)
     return render_template(
         "dashboard.html",
         active_instances=active,
@@ -414,20 +541,31 @@ def dashboard():
         default_os=DEFAULT_OS if DEFAULT_OS in distros_ok else next(iter(distros_ok), DEFAULT_OS),
         default_mode=DEFAULT_MODE if DEFAULT_MODE in modes_ok else next(iter(modes_ok), DEFAULT_MODE),
         ssh_host=host,
+        reveal=reveal,
+        ssh_public_key=g.user["ssh_public_key"] or "",
+        tls_machines=bool(TLS_DIR),
     )
+
+
+def reveal_secret(inst_name: str, password: str, is_desktop: bool, rotated: bool = False) -> None:
+    """Dépose le mot de passe dans la session pour un affichage unique sur le tableau de bord."""
+    session["reveal"] = {
+        "name": inst_name,
+        "password": password,
+        "vnc_password": password[:8] if is_desktop else None,
+        "rotated": rotated,
+    }
 
 
 @app.route("/instances/create", methods=["POST"])
 @login_required
 def create_instance():
-    """Loue une nouvelle machine pour `duration` minutes."""
     minutes = parse_int(request.form.get("duration"))
     if not (MIN_DURATION_MINUTES <= minutes <= MAX_DURATION_MINUTES):
         flash(f"Durée invalide : choisissez entre {MIN_DURATION_MINUTES} et "
               f"{MAX_DURATION_MINUTES} minutes.", "error")
         return redirect(url_for("dashboard"))
 
-    # Distribution et mode choisis par l'utilisateur (listes blanches)
     os_type = request.form.get("os", DEFAULT_OS)
     mode = request.form.get("mode", DEFAULT_MODE)
     if os_type not in DISTROS or mode not in MODES:
@@ -443,7 +581,6 @@ def create_instance():
               f"{MAX_INSTANCES_PER_USER} machines simultanément.", "error")
         return redirect(url_for("dashboard"))
 
-    # 1) Préparation : port(s) libre(s), nom unique, mot de passe unique
     try:
         port = choose_random_port()
         term_port = choose_random_port(exclude={port})
@@ -454,18 +591,16 @@ def create_instance():
     name = f"{CONTAINER_PREFIX}{g.user['username']}_{secrets.token_hex(3)}"
     root_password = generate_password()
 
-    # 2) Création du conteneur
     try:
-        container_id = docker_run_container(port, name, root_password, os_type, mode, term_port, gui_port)
+        container_id = docker_run_container(port, name, root_password, os_type, mode,
+                                            term_port, gui_port, g.user["ssh_public_key"])
     except DockerError as exc:
         log.error("Échec de création du conteneur pour '%s' : %s", g.user["username"], exc)
         flash(f"Impossible de créer la machine : {exc}", "error")
         return redirect(url_for("dashboard"))
 
-    # 3) Enregistrement en BDD. En cas d'échec, on détruit le conteneur
-    #    pour ne pas laisser de machine orpheline.
     try:
-        db.create_instance(g.user["id"], container_id, name, port, root_password, minutes,
+        db.create_instance(g.user["id"], container_id, name, port, minutes,
                            os_type, mode, term_port, gui_port)
     except Exception as exc:  # noqa: BLE001
         log.exception("Échec d'enregistrement en BDD, suppression du conteneur %s", container_id)
@@ -478,29 +613,49 @@ def create_instance():
 
     log.info("Machine créée : %s (%s/%s, id=%s, port=%s, %s min) pour '%s'",
              name, os_type, mode, container_id, port, minutes, g.user["username"])
+    reveal_secret(name, root_password, MODES[mode]["gui"])
     flash(f"Machine « {name} » ({DISTROS[os_type]['label']}, {MODES[mode]['label'].lower()}) "
           f"louée pour {minutes} minute(s).", "success")
     return redirect(url_for("dashboard"))
 
 
-@app.route("/instances/<int:instance_id>/delete", methods=["POST"])
+@app.route("/instances/<int:instance_id>/rotate", methods=["POST"])
 @login_required
-def delete_instance(instance_id):
-    """Rend la machine avant la fin de la location (docker rm -f)."""
+def rotate_password(instance_id):
+    """Génère un nouveau mot de passe root et l'applique à chaud dans la machine."""
     inst = db.get_instance(instance_id, user_id=g.user["id"])
     if inst is None:
         abort(404)
     if inst["status"] != db.STATUS_RUNNING:
         flash("Cette machine n'est plus active.", "info")
         return redirect(url_for("dashboard"))
+    new_password = generate_password()
+    try:
+        docker_rotate_password(inst["container_id"], new_password)
+    except DockerError as exc:
+        log.error("Rotation impossible sur %s : %s", inst["container_name"], exc)
+        flash(f"Impossible de changer le mot de passe : {exc}", "error")
+        return redirect(url_for("dashboard"))
+    log.info("Mot de passe régénéré : %s par '%s'", inst["container_name"], g.user["username"])
+    reveal_secret(inst["container_name"], new_password, bool(inst["gui_port"]), rotated=True)
+    return redirect(url_for("dashboard"))
 
+
+@app.route("/instances/<int:instance_id>/delete", methods=["POST"])
+@login_required
+def delete_instance(instance_id):
+    inst = db.get_instance(instance_id, user_id=g.user["id"])
+    if inst is None:
+        abort(404)
+    if inst["status"] != db.STATUS_RUNNING:
+        flash("Cette machine n'est plus active.", "info")
+        return redirect(url_for("dashboard"))
     try:
         docker_remove_container(inst["container_id"])
     except DockerError as exc:
         log.error("Échec de suppression du conteneur %s : %s", inst["container_id"], exc)
         flash(f"Impossible de supprimer la machine : {exc}", "error")
         return redirect(url_for("dashboard"))
-
     db.set_instance_status(instance_id, db.STATUS_STOPPED)
     log.info("Machine %s rendue par '%s'", inst["container_name"], g.user["username"])
     flash(f"Machine « {inst['container_name']} » supprimée.", "success")
@@ -510,25 +665,20 @@ def delete_instance(instance_id):
 @app.route("/instances/<int:instance_id>/extend", methods=["POST"])
 @login_required
 def extend_instance(instance_id):
-    """Prolonge la location d'une machine active."""
     inst = db.get_instance(instance_id, user_id=g.user["id"])
     if inst is None:
         abort(404)
     if inst["status"] != db.STATUS_RUNNING:
         flash("Impossible de prolonger une machine inactive.", "error")
         return redirect(url_for("dashboard"))
-
     minutes = parse_int(request.form.get("minutes"))
     if not (MIN_DURATION_MINUTES <= minutes <= MAX_DURATION_MINUTES):
         flash("Durée de prolongation invalide.", "error")
         return redirect(url_for("dashboard"))
-
-    # On borne le temps restant total pour éviter les locations "infinies"
     remaining = (db.parse_utc(inst["expires_at"]) - db.utc_now()).total_seconds() / 60
     if remaining + minutes > MAX_DURATION_MINUTES:
         flash(f"Le temps restant ne peut pas dépasser {MAX_DURATION_MINUTES} minutes.", "error")
         return redirect(url_for("dashboard"))
-
     db.extend_instance(instance_id, minutes)
     flash(f"Location prolongée de {minutes} minute(s).", "success")
     return redirect(url_for("dashboard"))
@@ -537,6 +687,12 @@ def extend_instance(instance_id):
 # =============================================================================
 # Gestion d'erreurs
 # =============================================================================
+@app.errorhandler(403)
+def forbidden(_error):
+    flash("Requête refusée (jeton de sécurité invalide ou expiré). Réessayez.", "error")
+    return redirect(url_for("dashboard" if g.get("user") else "login"))
+
+
 @app.errorhandler(404)
 def not_found(_error):
     flash("Ressource introuvable.", "error")
@@ -546,24 +702,17 @@ def not_found(_error):
 # =============================================================================
 # Démarrage
 # =============================================================================
-db.init_db()  # crée le schéma au chargement du module (idempotent)
+db.init_db()
 
 if __name__ == "__main__":
     host = os.environ.get("INSACLOUD_HOST", "0.0.0.0")
     port = int(os.environ.get("INSACLOUD_PORT", "5000"))
     debug = os.environ.get("INSACLOUD_DEBUG", "0") == "1"
-
-    # Mode "tout-en-un" pratique en développement : le Faucheur tourne dans un
-    # thread du serveur Flask. En production (Ansible/systemd) il tourne dans
-    # son propre service, donc cette variable n'est pas définie.
     if os.environ.get("INSACLOUD_EMBED_FAUCHEUR", "0") == "1":
-        # Avec le rechargeur de Flask en debug, le module est chargé deux fois :
-        # on ne démarre le thread que dans le processus "fils" qui sert les requêtes.
         if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
             import faucheur
             faucheur.start_in_background()
             log.info("Faucheur démarré en thread d'arrière-plan.")
-
-    log.info("InsaCloud démarre sur http://%s:%s (distributions=%s, modes=%s)", host, port,
-             ", ".join(DISTROS), ", ".join(MODES))
+    log.info("InsaCloud démarre sur http://%s:%s (distributions=%s, modes=%s, TLS machines=%s)",
+             host, port, ", ".join(DISTROS), ", ".join(MODES), bool(TLS_DIR))
     app.run(host=host, port=port, debug=debug)

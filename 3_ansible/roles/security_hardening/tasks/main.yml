@@ -42,7 +42,7 @@
     rule: allow
     port: "{{ item }}"
     proto: tcp
-    comment: "InsaCloud web"
+    comment: "InsaCloud web (nginx)"
   loop: "{{ ufw_allowed_tcp_ports }}"
 
 - name: Autoriser les plages de ports des machines louées

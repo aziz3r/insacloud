@@ -1,0 +1,4 @@
+/* Source Tailwind. Recompiler apres modification des templates (voir README, section Developpement). */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

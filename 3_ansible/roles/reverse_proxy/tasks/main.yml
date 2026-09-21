@@ -1,0 +1,85 @@
+---
+# =============================================================================
+#  roles/reverse_proxy/tasks/main.yml - nginx : TLS, HSTS, en-têtes, rate-limit
+# -----------------------------------------------------------------------------
+#  Gunicorn n'écoute que sur 127.0.0.1:5000 ; seul nginx est exposé (80 -> 443).
+# =============================================================================
+
+- name: Installer nginx et openssl
+  ansible.builtin.apt:
+    name: [nginx, openssl]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Créer le répertoire du certificat TLS
+  ansible.builtin.file:
+    path: "{{ insacloud_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Générer un certificat TLS auto-signé (ECDSA P-256) — une seule fois
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes
+      -days {{ insacloud_tls_days }}
+      -subj "/CN={{ insacloud_server_name }}/O=InsaCloud"
+      -addext "subjectAltName={{ insacloud_tls_subject_alt_names }}"
+      -keyout {{ insacloud_tls_key }} -out {{ insacloud_tls_cert }}
+    creates: "{{ insacloud_tls_cert }}"
+  notify: Recharger nginx
+
+- name: Protéger la clé privée (lisible par root et par les conteneurs, qui tournent en root)
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ insacloud_tls_key }}", mode: "0644" }   # montée en lecture seule dans les machines louées
+    - { path: "{{ insacloud_tls_cert }}", mode: "0644" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Retirer le site nginx par défaut
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Recharger nginx
+
+- name: Déployer la configuration du site InsaCloud
+  ansible.builtin.template:
+    src: insacloud.nginx.j2
+    dest: /etc/nginx/sites-available/insacloud
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Recharger nginx
+
+- name: Activer le site InsaCloud
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/insacloud
+    dest: /etc/nginx/sites-enabled/insacloud
+    state: link
+  notify: Recharger nginx
+
+- name: Masquer la version de nginx (server_tokens off)
+  ansible.builtin.lineinfile:
+    path: /etc/nginx/nginx.conf
+    regexp: '^\s*#?\s*server_tokens'
+    line: "\tserver_tokens off;"
+    insertafter: 'http \{'
+  notify: Recharger nginx
+
+- name: Valider la configuration nginx
+  ansible.builtin.command:
+    cmd: nginx -t
+  changed_when: false
+
+- name: Activer et démarrer nginx
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started

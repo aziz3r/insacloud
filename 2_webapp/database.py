@@ -80,11 +80,23 @@ def get_connection() -> sqlite3.Connection:
 # -----------------------------------------------------------------------------
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    username      TEXT    NOT NULL UNIQUE,
-    password_hash TEXT    NOT NULL,
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    username       TEXT    NOT NULL UNIQUE,
+    password_hash  TEXT    NOT NULL,           -- PBKDF2-SHA256 salé (werkzeug)
+    ssh_public_key TEXT,                       -- clé publique SSH optionnelle
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Journal des tentatives de connexion : limitation anti-force-brute + audit
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    username   TEXT    NOT NULL,
+    ip         TEXT    NOT NULL,
+    success    INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts (username, created_at);
+CREATE INDEX IF NOT EXISTS idx_login_attempts_ip   ON login_attempts (ip, created_at);
 
 CREATE TABLE IF NOT EXISTS instances (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,7 +104,7 @@ CREATE TABLE IF NOT EXISTS instances (
     container_id   TEXT    NOT NULL,           -- ID court Docker (12 caractères)
     container_name TEXT    NOT NULL,           -- nom lisible : insacloud_<user>_<rand>
     port           INTEGER NOT NULL,           -- port hôte redirigé vers le 22 du conteneur
-    root_password  TEXT    NOT NULL,           -- mot de passe root de la machine louée
+    root_password  TEXT    NOT NULL DEFAULT '', -- JAMAIS stocké : affiché une seule fois à la création
     os_type        TEXT    NOT NULL DEFAULT 'ubuntu',   -- distribution : ubuntu | debian | alpine
     mode           TEXT    NOT NULL DEFAULT 'terminal', -- terminal | desktop
     term_port      INTEGER,                   -- port hôte du terminal web (ttyd)
@@ -123,6 +135,11 @@ def init_db() -> None:
             conn.execute("ALTER TABLE instances ADD COLUMN mode TEXT NOT NULL DEFAULT 'terminal'")
         if "term_port" not in columns:
             conn.execute("ALTER TABLE instances ADD COLUMN term_port INTEGER")
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "ssh_public_key" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN ssh_public_key TEXT")
+        # Sécurité : purge des mots de passe root que les anciennes versions stockaient en clair
+        conn.execute("UPDATE instances SET root_password = '' WHERE root_password != ''")
 
 
 # -----------------------------------------------------------------------------
@@ -157,16 +174,58 @@ def get_user_by_id(user_id: int):
         ).fetchone()
 
 
+def set_user_ssh_key(user_id: int, public_key: str) -> None:
+    """Enregistre (ou efface si chaîne vide) la clé publique SSH de l'utilisateur."""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE users SET ssh_public_key = ? WHERE id = ?",
+            (public_key or None, user_id),
+        )
+
+
+# -----------------------------------------------------------------------------
+# Tentatives de connexion (anti-force-brute)
+# -----------------------------------------------------------------------------
+def record_login_attempt(username: str, ip: str, success: bool) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO login_attempts (username, ip, success) VALUES (?, ?, ?)",
+            (username[:64], ip[:64], 1 if success else 0),
+        )
+
+
+def count_recent_failures(minutes: int, username: str = None, ip: str = None) -> int:
+    """Nombre d'échecs récents pour un compte et/ou une adresse IP."""
+    clauses, params = ["success = 0", "created_at >= datetime('now', ?)"], [f"-{int(minutes)} minutes"]
+    if username is not None:
+        clauses.append("username = ?"); params.append(username)
+    if ip is not None:
+        clauses.append("ip = ?"); params.append(ip)
+    with get_connection() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM login_attempts WHERE {' AND '.join(clauses)}", params
+        ).fetchone()
+        return row["n"]
+
+
+def purge_login_attempts(hours: int = 24) -> None:
+    """Supprime les entrées plus anciennes que `hours` (rétention courte)."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM login_attempts WHERE created_at < datetime('now', ?)",
+                     (f"-{int(hours)} hours",))
+
+
 # -----------------------------------------------------------------------------
 # Instances (machines louées)
 # -----------------------------------------------------------------------------
 def create_instance(user_id: int, container_id: str, container_name: str,
-                    port: int, root_password: str, duration_minutes: int,
+                    port: int, duration_minutes: int,
                     os_type: str = "ubuntu", mode: str = "terminal",
                     term_port: int = None, gui_port: int = None) -> int:
     """
     Enregistre une nouvelle location. La date d'expiration est calculée
     côté SQLite à partir de l'heure courante UTC : now + N minutes.
+    Le mot de passe root n'est volontairement PAS enregistré.
     """
     with get_connection() as conn:
         cur = conn.execute(
@@ -175,9 +234,9 @@ def create_instance(user_id: int, container_id: str, container_name: str,
                 (user_id, container_id, container_name, port, root_password,
                  os_type, mode, term_port, gui_port, expires_at)
             VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
+                (?, ?, ?, ?, '', ?, ?, ?, ?, datetime('now', ?))
             """,
-            (user_id, container_id, container_name, port, root_password,
+            (user_id, container_id, container_name, port,
              os_type, mode, term_port, gui_port, f"+{int(duration_minutes)} minutes"),
         )
         return cur.lastrowid

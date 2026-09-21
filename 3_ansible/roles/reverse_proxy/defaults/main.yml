@@ -1,0 +1,18 @@
+---
+# =============================================================================
+#  roles/reverse_proxy/defaults/main.yml - nginx en frontal TLS d'InsaCloud
+# =============================================================================
+insacloud_web_port: 5000                 # Gunicorn (127.0.0.1 uniquement)
+insacloud_server_name: "{{ ansible_host | default(inventory_hostname) }}"
+
+# Certificat TLS : auto-signé, généré une seule fois sur le serveur.
+# Il est aussi monté dans les machines louées (terminal web + noVNC en HTTPS).
+insacloud_tls_dir: /etc/insacloud/tls
+insacloud_tls_cert: "{{ insacloud_tls_dir }}/cert.pem"
+insacloud_tls_key: "{{ insacloud_tls_dir }}/key.pem"
+insacloud_tls_days: 825
+insacloud_tls_subject_alt_names: "IP:{{ ansible_host | default('127.0.0.1') }},DNS:insacloud.local,DNS:localhost"
+
+# Limitation de débit sur la page de connexion (en plus du verrouillage applicatif)
+nginx_login_rate: "10r/m"
+nginx_login_burst: 5

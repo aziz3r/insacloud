@@ -38,6 +38,10 @@ webapp_pip_packages:
   - flask
   - gunicorn          # serveur WSGI de production (remplace `python app.py`)
 
+# --- Sécurité : le site est servi en HTTPS par nginx (rôle reverse_proxy) ---
+insacloud_https: true
+insacloud_tls_dir: /etc/insacloud/tls     # certificat monté dans les machines louées
+
 # --- Gunicorn ---------------------------------------------------------------
 insacloud_gunicorn_workers: 4
 insacloud_gunicorn_timeout: 60      # secondes ; `docker run` peut prendre quelques secondes
@@ -81,7 +85,7 @@ insacloud_services:
     exec: >-
       {{ insacloud_venv }}/bin/gunicorn
       --workers {{ insacloud_gunicorn_workers }}
-      --bind 0.0.0.0:{{ insacloud_web_port }}
+      --bind 127.0.0.1:{{ insacloud_web_port }}
       --timeout {{ insacloud_gunicorn_timeout }}
       --preload
       --access-logfile - --error-logfile -

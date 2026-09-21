@@ -4,8 +4,9 @@
 # -----------------------------------------------------------------------------
 #  Ce playbook ne contient plus de tâches : il compose des RÔLES réutilisables.
 #
-#    roles/security_hardening : pare-feu UFW (SSH limité, 5000, 8000-9000)
+#    roles/security_hardening : pare-feu UFW (SSH limité, 80/443, 8000-9000)
 #    roles/docker             : installe Docker Engine (dépôt officiel, idempotent)
+#    roles/reverse_proxy      : nginx en HTTPS (certificat, HSTS, rate-limit)
 #    roles/webapp             : Python + Flask + Gunicorn, code, images Docker,
 #                               services systemd (web + faucheur), secrets via Vault
 #
@@ -34,6 +35,9 @@
     # 2. Moteur de conteneurs
     - role: docker
       tags: [docker]
-    # 3. Application (Flask/Gunicorn, images, services, secrets)
+    # 3. Frontal TLS : nginx + certificat (partagé avec les machines louées)
+    - role: reverse_proxy
+      tags: [proxy]
+    # 4. Application (Flask/Gunicorn sur 127.0.0.1, images, services, secrets)
     - role: webapp
       tags: [webapp]
