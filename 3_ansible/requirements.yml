@@ -4,3 +4,5 @@
 collections:
   - name: community.general      # module ufw (rôle security_hardening)
     version: ">=8.0.0"
+  - name: ansible.posix          # module authorized_key (rôle worker)
+    version: ">=1.5.0"

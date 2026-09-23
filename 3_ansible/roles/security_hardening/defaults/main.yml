@@ -11,6 +11,10 @@ ufw_default_outgoing: allow
 # protection contre la force brute) — indispensable AVANT d'activer le pare-feu
 ufw_ssh_port: 22
 
+# Adresses autorisées en SSH SANS limitation (ex. : le contrôleur, qui pilote
+# Docker sur les workers par SSH et ouvre de nombreuses connexions)
+ufw_ssh_allow_from: []
+
 # Ports TCP ouverts individuellement
 ufw_allowed_tcp_ports:
   - "80"        # nginx : redirection vers HTTPS

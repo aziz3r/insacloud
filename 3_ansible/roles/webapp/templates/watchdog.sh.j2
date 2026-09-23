@@ -1,0 +1,33 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# InsaCloud - watchdog : exécuté chaque minute par insacloud-watchdog.timer.
+# Vérifie le site, le Faucheur, nginx et la joignabilité des workers ; relance
+# ce qui est tombé. Tout est journalisé (journalctl -t insacloud-watchdog).
+set -u
+TAG=insacloud-watchdog
+ENV_FILE="{{ insacloud_env_file }}"
+[ -r "$ENV_FILE" ] && set -a && . "$ENV_FILE" && set +a
+
+restart_if_down() {   # $1 = unité, $2 = test (commande) 
+    if ! eval "$2" >/dev/null 2>&1; then
+        logger -t "$TAG" "$1 ne répond pas -> redémarrage"
+        systemctl restart "$1"
+        sleep 5
+        if eval "$2" >/dev/null 2>&1; then logger -t "$TAG" "$1 rétabli"; else logger -t "$TAG" "$1 toujours en échec"; fi
+    fi
+}
+
+restart_if_down nginx              "systemctl is-active --quiet nginx"
+restart_if_down insacloud-web      "curl -fsk -o /dev/null --max-time 10 https://127.0.0.1/login"
+restart_if_down insacloud-faucheur "systemctl is-active --quiet insacloud-faucheur"
+
+# Workers : un nœud injoignable est signalé (ses conteneurs redémarrent seuls grâce à --restart=always)
+IFS=',' read -ra WORKERS <<< "${INSACLOUD_WORKERS:-}"
+for entry in "${WORKERS[@]}"; do
+    [ -z "$entry" ] && continue
+    name="${entry%%=*}"; host="${entry#*=}"
+    if ! runuser -u {{ insacloud_user }} -- docker -H "ssh://${INSACLOUD_DOCKER_SSH_USER:-{{ insacloud_user }}}@${host}" info >/dev/null 2>&1; then
+        logger -t "$TAG" "worker ${name} (${host}) injoignable"
+    fi
+done
+exit 0

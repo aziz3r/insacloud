@@ -1,0 +1,36 @@
+---
+# roles/tls_cert : certificat ECDSA auto-signé, généré une seule fois par nœud
+- name: Installer openssl
+  ansible.builtin.apt:
+    name: openssl
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Créer le répertoire du certificat
+  ansible.builtin.file:
+    path: "{{ insacloud_tls_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Générer le certificat auto-signé du nœud {{ inventory_hostname }} ({{ insacloud_node_ip }})
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes
+      -days {{ insacloud_tls_days }}
+      -subj "/CN={{ insacloud_node_ip }}/O=InsaCloud"
+      -addext "subjectAltName={{ insacloud_tls_subject_alt_names }}"
+      -keyout {{ insacloud_tls_key }} -out {{ insacloud_tls_cert }}
+    creates: "{{ insacloud_tls_cert }}"
+
+- name: Permissions du certificat et de la clé (lus par nginx et par les conteneurs, en root)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - "{{ insacloud_tls_cert }}"
+    - "{{ insacloud_tls_key }}"

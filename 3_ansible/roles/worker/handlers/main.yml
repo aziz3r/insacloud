@@ -1,0 +1,5 @@
+---
+- name: Recharger sshd
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded

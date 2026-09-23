@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS instances (
     port           INTEGER NOT NULL,           -- port hôte redirigé vers le 22 du conteneur
     root_password  TEXT    NOT NULL DEFAULT '', -- CHIFFRÉ (Fernet, clé hors base) ; '' = indisponible
     os_type        TEXT    NOT NULL DEFAULT 'ubuntu',   -- distribution : ubuntu | debian | alpine
+    worker         TEXT    NOT NULL DEFAULT 'local',    -- nœud Docker qui héberge le conteneur
     mode           TEXT    NOT NULL DEFAULT 'terminal', -- terminal | desktop
     term_port      INTEGER,                   -- port hôte du terminal web (ttyd)
     gui_port       INTEGER,                   -- port hôte du bureau graphique (noVNC), NULL en mode terminal
@@ -135,6 +136,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE instances ADD COLUMN mode TEXT NOT NULL DEFAULT 'terminal'")
         if "term_port" not in columns:
             conn.execute("ALTER TABLE instances ADD COLUMN term_port INTEGER")
+        if "worker" not in columns:
+            conn.execute("ALTER TABLE instances ADD COLUMN worker TEXT NOT NULL DEFAULT 'local'")
         user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
         if "ssh_public_key" not in user_columns:
             conn.execute("ALTER TABLE users ADD COLUMN ssh_public_key TEXT")
@@ -224,7 +227,7 @@ def create_instance(user_id: int, container_id: str, container_name: str,
                     port: int, duration_minutes: int,
                     os_type: str = "ubuntu", mode: str = "terminal",
                     term_port: int = None, gui_port: int = None,
-                    root_password_enc: str = "") -> int:
+                    root_password_enc: str = "", worker: str = "local") -> int:
     """
     Enregistre une nouvelle location. La date d'expiration est calculée
     côté SQLite à partir de l'heure courante UTC : now + N minutes.
@@ -236,12 +239,12 @@ def create_instance(user_id: int, container_id: str, container_name: str,
             """
             INSERT INTO instances
                 (user_id, container_id, container_name, port, root_password,
-                 os_type, mode, term_port, gui_port, expires_at)
+                 os_type, mode, term_port, gui_port, worker, expires_at)
             VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
             """,
             (user_id, container_id, container_name, port, root_password_enc or "",
-             os_type, mode, term_port, gui_port, f"+{int(duration_minutes)} minutes"),
+             os_type, mode, term_port, gui_port, worker, f"+{int(duration_minutes)} minutes"),
         )
         return cur.lastrowid
 
@@ -317,15 +320,24 @@ def get_expired_instances():
         ).fetchall()
 
 
-def port_in_use(port: int) -> bool:
-    """Vrai si une instance active occupe déjà ce port hôte (SSH, terminal web ou bureau)."""
+def port_in_use(port: int, worker: str = "local") -> bool:
+    """Vrai si une instance active de ce nœud occupe déjà ce port hôte (SSH, terminal web ou bureau)."""
     with get_connection() as conn:
         row = conn.execute(
             """SELECT 1 FROM instances
-               WHERE (port = ? OR term_port = ? OR gui_port = ?) AND status = 'running' LIMIT 1""",
-            (port, port, port),
+               WHERE worker = ? AND (port = ? OR term_port = ? OR gui_port = ?) AND status = 'running' LIMIT 1""",
+            (worker, port, port, port),
         ).fetchone()
         return row is not None
+
+
+def count_running_per_worker() -> dict:
+    """{nom_du_worker: nombre de machines actives} — sert à répartir la charge."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT worker, COUNT(*) AS n FROM instances WHERE status = 'running' GROUP BY worker"
+        ).fetchall()
+        return {row["worker"]: row["n"] for row in rows}
 
 
 def set_instance_status(instance_id: int, status: str) -> None:

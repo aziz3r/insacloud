@@ -1,0 +1,10 @@
+---
+# =============================================================================
+#  roles/worker - Nœud qui héberge les machines louées
+#  Le contrôleur s'y connecte en SSH (utilisateur insacloud, membre du groupe
+#  docker) et pilote Docker via `docker -H ssh://insacloud@<worker>`.
+# =============================================================================
+insacloud_user: insacloud
+insacloud_root: /opt/insacloud
+# Clé publique du contrôleur (lue dans hostvars par site.yml)
+insacloud_controller_pubkey: "{{ hostvars[groups['controllers'][0]]['insacloud_controller_pubkey'] | default('') }}"

@@ -30,6 +30,15 @@
     direction: outgoing
     policy: "{{ ufw_default_outgoing }}"
 
+- name: Autoriser SSH sans limitation depuis les adresses de confiance (contrôleur)
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ item }}"
+    port: "{{ ufw_ssh_port }}"
+    proto: tcp
+    comment: "SSH depuis le controleur InsaCloud"
+  loop: "{{ ufw_ssh_allow_from }}"
+
 - name: Autoriser SSH (port {{ ufw_ssh_port }}) avec limitation anti-force-brute
   community.general.ufw:
     rule: limit

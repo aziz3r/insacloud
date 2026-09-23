@@ -18,12 +18,27 @@ docker_prerequisites:
   - curl
   - gnupg
 
+# true : n'installer que le client (le contrôleur pilote les workers via `docker -H ssh://`)
+docker_cli_only: false
+
 # Paquets Docker à installer
 docker_packages:
   - docker-ce
   - docker-ce-cli
   - containerd.io
   - docker-buildx-plugin
+docker_cli_packages:
+  - docker-ce-cli
+
+# Conservation de l'état : les conteneurs continuent de tourner pendant un
+# redémarrage du démon Docker (mise à jour, crash) ; --restart=always les
+# relance après un redémarrage de la machine.
+docker_daemon_config:
+  live-restore: true
+  log-driver: json-file
+  log-opts:
+    max-size: "10m"
+    max-file: "3"
 
 # Utilisateurs existants à ajouter au groupe docker (ex: [vagrant])
 docker_users: []

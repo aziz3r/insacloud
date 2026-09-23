@@ -25,6 +25,15 @@
       group_vars/insacloud/vault.yml (ansible-vault edit …).
     quiet: true
 
+- name: Construire la liste des nœuds Docker (workers) pour l'application
+  ansible.builtin.set_fact:
+    insacloud_workers_env: >-
+      {%- set items = [] -%}
+      {%- for w in groups['workers'] | default([]) -%}
+        {%- set _ = items.append(w ~ '=' ~ (hostvars[w]['node_ip'] | default(hostvars[w]['ansible_host']))) -%}
+      {%- endfor -%}
+      {{ items | join(',') }}
+
 # ------------------------------------------------------------ 2. Python
 - name: Installer Python 3, pip et venv
   ansible.builtin.apt:
@@ -32,15 +41,15 @@
     state: present
 
 # ------------------------------------------------------------ 3. Utilisateur
-- name: Créer l'utilisateur système {{ insacloud_user }} (membre du groupe docker)
+- name: Créer l'utilisateur système {{ insacloud_user }} (groupe docker uniquement en mode mono-hôte)
   ansible.builtin.user:
     name: "{{ insacloud_user }}"
     system: true
     shell: /usr/sbin/nologin
     home: "{{ insacloud_root }}"
     create_home: false
-    groups: docker
-    append: true
+    groups: "{{ 'docker' if (groups['workers'] | default([]) | length == 0) else omit }}"
+    append: "{{ groups['workers'] | default([]) | length == 0 }}"
 
 - name: Créer l'arborescence applicative
   ansible.builtin.file:
@@ -53,7 +62,28 @@
     - "{{ insacloud_root }}"
     - "{{ insacloud_app_dir }}"
     - "{{ insacloud_app_dir }}/templates"
-    - "{{ insacloud_docker_dir }}"
+
+- name: Configuration SSH du service (clé, hôtes acceptés à la première connexion, délais courts)
+  ansible.builtin.copy:
+    dest: "{{ insacloud_root }}/.ssh/config"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0600"
+    content: |
+      # Généré par Ansible : transport SSH du client Docker vers les workers
+      Host *
+          User {{ insacloud_user }}
+          IdentityFile {{ insacloud_root }}/.ssh/id_ed25519
+          IdentitiesOnly yes
+          StrictHostKeyChecking accept-new
+          UserKnownHostsFile {{ insacloud_root }}/.ssh/known_hosts
+          ConnectTimeout 5
+          ServerAliveInterval 15
+          LogLevel ERROR
+          # Multiplexage : une seule connexion SSH par worker, réutilisée 2 min
+          ControlMaster auto
+          ControlPath {{ insacloud_root }}/.ssh/cm-%C
+          ControlPersist 120
 
 - name: Créer le virtualenv et installer Flask + Gunicorn
   ansible.builtin.pip:
@@ -83,15 +113,6 @@
     group: "{{ insacloud_user }}"
     mode: "0644"
     directory_mode: "0755"
-
-- name: Copier les sources Docker des machines louées (Dockerfiles + entrypoint.sh)
-  ansible.builtin.copy:
-    src: "{{ insacloud_src_docker }}/"      # le "/" final copie le CONTENU du dossier
-    dest: "{{ insacloud_docker_dir }}/"
-    owner: "{{ insacloud_user }}"
-    group: "{{ insacloud_user }}"
-    mode: "0644"
-  register: docker_sources
 
 # ------------------------------------------------------------ 5. Secrets + systemd
 - name: Créer le répertoire de configuration
@@ -129,35 +150,26 @@
     - Redémarrer insacloud-web
     - Redémarrer insacloud-faucheur
 
-# ------------------------------------------------------------ 6. Images Docker
-- name: Afficher le mode de construction des images
-  ansible.builtin.debug:
-    msg: >-
-      {{ 'MODE DÉMO : seule(s) ' ~ (demo_images | join(', ')) ~ ' sera/seront construite(s)'
-         if demo_mode | bool else 'Mode complet : ' ~ (insacloud_images | length) ~ ' images' }}
+# ------------------------------------------------------------ 6. Watchdog
+- name: Déployer le script du watchdog
+  ansible.builtin.template:
+    src: watchdog.sh.j2
+    dest: "{{ insacloud_root }}/watchdog.sh"
+    owner: root
+    group: root
+    mode: "0755"
 
-- name: Vérifier quelles images existent déjà
-  ansible.builtin.command:
-    cmd: "docker image inspect {{ item.name }}:latest"
-  loop: "{{ insacloud_images_to_build }}"
-  loop_control:
-    label: "{{ item.name }}"
-  register: image_check
-  failed_when: false
-  changed_when: false
-
-- name: Construire les images manquantes ou dont les sources ont changé (long la 1re fois)
-  ansible.builtin.command:
-    cmd: >-
-      docker build -t {{ item.name }}:latest
-      {{ '--build-arg DESKTOP=1' if item.desktop else '' }}
-      -f {{ insacloud_docker_dir }}/{{ item.dockerfile }}
-      {{ insacloud_docker_dir }}
-  loop: "{{ insacloud_images_to_build }}"   # filtrée par demo_mode
-  loop_control:
-    label: "{{ item.name }}"
-    index_var: idx
-  when: image_check.results[idx].rc != 0 or docker_sources.changed
+- name: Déployer le service et le timer du watchdog
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - insacloud-watchdog.service
+    - insacloud-watchdog.timer
+  notify: Recharger systemd
 
 # ------------------------------------------------------------ 7. Démarrage
 - name: Appliquer les handlers en attente (daemon-reload, redémarrages)
@@ -190,6 +202,13 @@
     or 'content_security_policy' not in https_check
     or 'strict_transport_security' not in https_check
 
+- name: Activer le timer du watchdog (vérification chaque minute)
+  ansible.builtin.systemd:
+    name: insacloud-watchdog.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
 - name: Vérifier que le Faucheur est actif
   ansible.builtin.command:
     cmd: systemctl is-active insacloud-faucheur
@@ -201,5 +220,6 @@
     msg:
       - "InsaCloud est déployé : https://{{ ansible_host | default(inventory_hostname) }}  (certificat auto-signé)"
       - "Images : {{ insacloud_images_to_build | map(attribute='name') | join(', ') }}{{ ' (mode démo)' if demo_mode | bool else '' }}"
+      - "Nœuds Docker : {{ insacloud_workers_env if insacloud_workers_env else 'local (conteneurs sur ce serveur)' }}"
       - "Faucheur : {{ faucheur_state.stdout }}"
       - "Logs : journalctl -u insacloud-web -f  |  journalctl -u insacloud-faucheur -f"

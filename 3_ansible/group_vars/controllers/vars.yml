@@ -1,0 +1,6 @@
+---
+# Pare-feu du contrôleur : SSH (limité), HTTP -> HTTPS, HTTPS. Gunicorn reste sur 127.0.0.1.
+ufw_allowed_tcp_ports:
+  - "80"
+  - "443"
+ufw_allowed_tcp_ranges: []

@@ -5,7 +5,7 @@
 
 Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. Nadia Fettah).
 
-**Stack** : Python / Flask + Gunicorn · nginx (TLS) · SQLite · Docker · Ansible (rôles + Vault) · Vagrant · UFW · Tailwind CSS (précompilé) · systemd
+**Stack** : Python / Flask + Gunicorn · nginx (TLS) · SQLite · Docker · Ansible (rôles + Vault) · Vagrant (1 contrôleur + 2 workers) · UFW · systemd (watchdog)
 
 ---
 
@@ -38,26 +38,37 @@ Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. 
 | **Sécurité** | mot de passe jamais stocké et rotatif, CSRF, anti-force-brute, CSP stricte sans CDN, HTTPS de bout en bout, conteneurs à capacités minimales — voir [Sécurité](#sécurité) |
 | **Haute disponibilité** | `--restart=always` + `supervisord` dans chaque machine : tout service qui plante est relancé |
 | **Le Faucheur** | démon qui détruit (`docker rm -f`) les machines expirées et réconcilie Docker ↔ base |
-| **IaC** | VM Vagrant multi-provider, playbook Ansible idempotent en 3 rôles (`security_hardening`, `docker`, `webapp`), secrets chiffrés avec Ansible Vault, Gunicorn sous systemd, pare-feu UFW |
+| **Cluster** | 1 contrôleur + 2 workers (Vagrant) : le site répartit les machines sur le worker le moins chargé et pilote leur Docker par SSH |
+| **Conservation de l'état** | `--restart=always` + `live-restore` : les machines survivent au redémarrage du démon Docker **et** du worker, avec leurs données |
+| **Watchdog** | timer systemd toutes les minutes : relance le site, le Faucheur ou nginx s'ils tombent, signale un worker injoignable |
+| **IaC** | Vagrant multi-machines et multi-provider, playbook Ansible idempotent en 8 rôles, secrets chiffrés avec Ansible Vault, pare-feu UFW par groupe |
 | **Interface** | console avec navigation latérale, identité INSA (rouge, IBM Plex auto-hébergée), tableau des machines, choix visuels, mode sombre — sans framework JS ni ressource externe |
 
 ## Architecture
 
 ```
-            ┌─────────────────────── Poste de contrôle ───────────────────────┐
-            │  Vagrant ──► VM Ubuntu 192.168.56.10      Ansible (rôles + Vault)│
-            └──────────────────────────────┬───────────────────────────────────┘
-                                           │ SSH + sudo
-┌──────────────────────────────────────────▼──────────────────────────────────────────┐
-│ VM de production                                                                    │
-│  systemd ─ insacloud-web ──► Flask (app.py) ─ subprocess ─► docker CLI ─► dockerd   │
-│         └ insacloud-faucheur ──► faucheur.py ─┘                 │                   │
-│                     └────── SQLite (WAL) ─────┘        conteneurs insacloud_<user>_… │
-│  /etc/insacloud/insacloud.env  (SECRET_KEY issue du Vault, 0600)   ports 8000-9000  │
-└─────────────────────────────────────────────────────────────────────────────────────┘
-        ▲ HTTP :5000                 ▲ ssh -p <port>    ▲ http://…:<port>  (ttyd / noVNC)
-   Navigateur ───────────────────────┴───────────────────┘
+        ┌──────────────── Poste de contrôle ────────────────┐
+        │  Vagrant (3 VM)   Ansible (rôles + Vault)          │
+        └───────────────────────┬────────────────────────────┘
+                                │ SSH + sudo
+┌───────────────────────────────▼──────────────────────────────┐
+│ controller  192.168.56.10                                    │
+│   nginx (443, TLS) ─► Gunicorn 127.0.0.1:5000 ─► Flask       │
+│   insacloud-faucheur   insacloud-watchdog.timer (1 min)      │
+│   SQLite (WAL)         clé SSH de pilotage                   │
+└───────────┬───────────────────────────────┬──────────────────┘
+            │ docker -H ssh://insacloud@…   │
+┌───────────▼─────────────┐   ┌─────────────▼───────────┐
+│ worker1  192.168.56.11  │   │ worker2  192.168.56.12  │
+│ dockerd (live-restore)  │   │ dockerd (live-restore)  │
+│ conteneurs insacloud_*  │   │ conteneurs insacloud_*  │
+│ ports 8000-9000         │   │ ports 8000-9000         │
+└─────────────────────────┘   └─────────────────────────┘
+        ▲ ssh -p <port> · https://…:<port> (terminal web / bureau)
+   Navigateur ─────► https://192.168.56.10 (site)
 ```
+
+Le contrôleur n'exécute aucun conteneur loué : il n'a que le **client** Docker et pilote les workers par SSH (`docker -H ssh://insacloud@<worker>`), avec une clé dédiée et un compte sans mot de passe. Sans worker dans l'inventaire, tout retombe automatiquement sur un seul hôte (mode mono-machine).
 
 Chaque machine louée est un conteneur Docker qui publie :
 
@@ -71,7 +82,7 @@ Chaque machine louée est un conteneur Docker qui publie :
 
 ```
 Projet_InsaCloud/
-├── Vagrantfile                      VM Ubuntu 22.04 en 192.168.56.10 (VMware / Parallels / QEMU / VirtualBox)
+├── Vagrantfile                      3 VM Ubuntu 22.04 : controller .10, worker1 .11, worker2 .12
 ├── 1_docker/
 │   ├── Dockerfile                   Ubuntu 22.04   (--build-arg DESKTOP=1 → variante bureau)
 │   ├── debian.Dockerfile            Debian 12
@@ -79,6 +90,7 @@ Projet_InsaCloud/
 │   └── entrypoint.sh                script commun : mot de passe, supervisord, sshd/ttyd/Xvnc/XFCE/noVNC
 ├── 2_webapp/
 │   ├── app.py                       serveur Flask, routes, sécurité, appels docker via subprocess
+│   ├── workers.py                   nœuds Docker : configuration, choix du moins chargé, transport SSH
 │   ├── database.py                  schéma SQLite (users, instances, login_attempts), migrations
 │   ├── faucheur.py                  démon de destruction des machines expirées
 │   ├── static/                      CSS (Tailwind précompilé + thème), polices IBM Plex et JS servis localement
@@ -88,16 +100,20 @@ Projet_InsaCloud/
 └── 3_ansible/
     ├── ansible.cfg
     ├── requirements.yml             collections (community.general pour UFW)
-    ├── inventaire.ini               vm-insacloud → 192.168.56.10
+    ├── inventaire.ini               groupes [controllers] et [workers]
     ├── site.yml                     compose les rôles docker + webapp
     ├── group_vars/insacloud/
     │   ├── vars.yml                 variables en clair
     │   └── vault.yml                secrets chiffrés (ansible-vault)
     └── roles/
-        ├── security_hardening/      pare-feu UFW : SSH limité, 80/443, 8000-9000, deny par défaut
-        ├── docker/                  installe Docker Engine (dépôt officiel, amd64/arm64)
+        ├── security_hardening/      pare-feu UFW (ports selon le groupe), SSH limité
+        ├── controller_key/          compte de service et clé SSH de pilotage des workers
+        ├── docker/                  Docker Engine (workers, live-restore) ou client seul (contrôleur)
+        ├── tls_cert/                certificat auto-signé propre à chaque nœud
+        ├── worker/                  accès SSH restreint du contrôleur, groupe docker
+        ├── docker_images/           images des machines louées (filtrées par demo_mode)
         ├── reverse_proxy/           nginx : TLS 1.2/1.3, certificat, rate-limit /login
-        └── webapp/                  Python/Flask/Gunicorn (127.0.0.1), code, images, systemd, secrets
+        └── webapp/                  Flask/Gunicorn, Faucheur, watchdog, secrets, liste des workers
 ```
 
 ## Démarrage rapide (poste de développement)
@@ -148,19 +164,21 @@ Le `Vagrantfile` est **multi-provider** — Vagrant prend le premier utilisable 
 | `virtualbox` | PC Windows / Linux, Mac Intel (repli) | VirtualBox |
 
 ```bash
-# 1. Créer la VM (Ubuntu 22.04, 192.168.56.10, 4 Go)
+# 1. Créer les 3 VM (controller .10, worker1 .11, worker2 .12)
 vagrant up                      # ou : vagrant up --provider=vmware_desktop
 
-# 2. Installer la collection Ansible requise (module ufw)
+# 2. Installer les collections Ansible requises (ufw, authorized_key)
 cd 3_ansible
 ansible-galaxy collection install -r requirements.yml
 
-# 3. Déployer (le mot de passe du Vault est demandé)
+# 3. Déployer les 3 nœuds (le mot de passe du Vault est demandé)
 ansible-playbook site.yml --ask-vault-pass
 
-# 4. Relancer pour constater l'idempotence : changed=0
+# 4. Relancer pour constater l'idempotence : changed=0 partout
 ansible-playbook site.yml --ask-vault-pass
 ```
+
+Mémoire : 2 Go pour le contrôleur, 3 Go par worker. Sur un poste limité, déployez un seul worker (`vagrant up controller worker1` et retirez `worker2` de l'inventaire) ou un seul hôte (groupe `[workers]` vide).
 
 Le site est alors sur **<https://192.168.56.10>** (nginx en TLS devant Gunicorn, 4 workers, confiné à `127.0.0.1`). Le certificat est auto-signé : acceptez l'avertissement du navigateur, ou générez-en un de confiance avec `mkcert` et remplacez `/etc/insacloud/tls/{cert,key}.pem`.
 
@@ -174,10 +192,14 @@ Le playbook :
 
 | Rôle | Tâches |
 |---|---|
-| `security_hardening` | installe UFW, politique `deny` entrant / `allow` sortant, SSH 22 en `limit` (anti-force-brute), 5000 (Gunicorn), plage 8000:9000 (machines louées), activation en dernier. Passe **avant** Docker car `ufw enable` recharge iptables |
+| `security_hardening` | installe UFW, politique `deny` entrant / `allow` sortant, SSH 22 en `limit` (anti-force-brute) — sauf depuis le contrôleur sur les workers —, puis 80/443 sur le contrôleur et 8000:9000 sur les workers ; activation en dernier. Passe **avant** Docker car `ufw enable` recharge iptables |
+| `controller_key` | compte de service `insacloud`, clé SSH ed25519 générée une seule fois, clé publique exportée pour les workers |
+| `tls_cert` | certificat ECDSA auto-signé par nœud (nginx sur le contrôleur ; terminal web et noVNC sur les workers) |
+| `worker` | utilisateur `insacloud` dans le groupe `docker`, clé du contrôleur en `authorized_keys` (sans agent ni redirection de ports), SSH par clé uniquement pour ce compte |
+| `docker_images` | copie de `1_docker/` et construction des images (filtrées par `demo_mode`) sur les workers |
 | `docker` | cache APT, pré-requis, clé GPG et dépôt officiel Docker (architecture détectée), `docker-ce`, service activé, `docker info` |
 | `reverse_proxy` | nginx + openssl, certificat ECDSA auto-signé (généré une fois, partagé avec les machines louées), site TLS 1.2/1.3 + HTTP/2, redirection 80→443, `limit_req` sur `/login`, `server_tokens off` |
-| `webapp` | Python 3 / pip / venv + Flask + **Gunicorn**, utilisateur système `insacloud` (groupe docker), copie du code et de `1_docker/`, fichier d'environnement secret (0600), unités systemd `insacloud-web` (Gunicorn) et `insacloud-faucheur`, build des images **seulement si absentes ou si les sources ont changé** (filtré par `demo_mode`), démarrage, vérification HTTP 200 |
+| `webapp` | Python 3 / venv + Flask + **Gunicorn**, configuration SSH du service (multiplexage), copie du code et des ressources statiques, fichier d'environnement secret (0600) avec la liste des workers, unités systemd `insacloud-web`, `insacloud-faucheur` et le **watchdog** (service + timer), démarrage, vérification HTTPS 200 |
 
 Commandes utiles sur la VM :
 
@@ -209,6 +231,19 @@ ansible-vault encrypt group_vars/insacloud/vault.yml
 Le Vault contient deux secrets : `vault_insacloud_secret_key` (sessions Flask) et `vault_insacloud_vault_key` (clé Fernet des mots de passe root). Chaîne d'injection : `vault.yml` → `vars.yml` (`insacloud_secret_key: "{{ vault_insacloud_secret_key }}"`, idem pour la clé Fernet) → template `insacloud.env.j2` → `/etc/insacloud/insacloud.env` (0600 root, tâche `no_log`) → `EnvironmentFile=` des unités systemd → variables `INSACLOUD_SECRET_KEY` / `INSACLOUD_VAULT_KEY` lues par Flask.
 
 Pour générer votre propre clé Fernet : `python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+
+### Conservation de l'état et watchdog
+
+- **Les machines louées survivent aux redémarrages.** Chaque conteneur est lancé avec `--restart=always` et le démon Docker des workers est configuré en `live-restore` : les conteneurs continuent de tourner pendant un redémarrage de Docker, et sont relancés après un redémarrage de la VM — **avec leurs données** (système de fichiers du conteneur conservé). Le Faucheur ne détruit que les machines réellement expirées.
+- **Watchdog** (`insacloud-watchdog.timer`, toutes les minutes) : vérifie nginx, la réponse HTTPS du site et le Faucheur, redémarre ce qui est tombé, et journalise les workers injoignables.
+
+```bash
+systemctl list-timers insacloud-watchdog.timer
+journalctl -t insacloud-watchdog -f          # décisions du watchdog
+systemctl status insacloud-web insacloud-faucheur
+```
+
+Vérifié sur un banc de test à 3 nœuds : redémarrage complet d'un worker → ses 2 machines reviennent seules avec leurs fichiers ; `systemctl stop nginx` → relancé par le watchdog en moins d'une minute ; worker éteint → site toujours disponible, incident journalisé, machines récupérées au retour du nœud.
 
 ## Utilisation
 
@@ -252,6 +287,8 @@ Toutes les options sont des variables d'environnement (définies par Ansible dan
 | `INSACLOUD_MAX_DURATION` | `120` | durée maximale (minutes) |
 | `INSACLOUD_CONTAINER_MEMORY` / `INSACLOUD_GUI_MEMORY` | `256m` / `1g` | mémoire des machines |
 | `INSACLOUD_IMAGE_<DISTRO>[_DESKTOP]` | `insacloud_<distro>[_desktop]:latest` | noms des images |
+| `INSACLOUD_WORKERS` | vide | nœuds Docker : `worker1=192.168.56.11,worker2=192.168.56.12` ; vide = Docker local |
+| `INSACLOUD_DOCKER_SSH_USER` | `insacloud` | compte utilisé par `docker -H ssh://…` sur les workers |
 | `INSACLOUD_AVAILABLE_IMAGES` | vide (tout) | images réellement construites ; l'interface masque les autres (mode démo) |
 | `INSACLOUD_HTTPS` / `INSACLOUD_BEHIND_PROXY` | `0` / `0` | site servi en TLS derrière nginx : cookies `Secure`, HSTS, en-têtes `X-Forwarded-*` |
 | `INSACLOUD_TLS_DIR` | vide | certificat monté dans les machines : terminal web et noVNC en HTTPS |

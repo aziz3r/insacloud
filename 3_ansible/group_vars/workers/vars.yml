@@ -1,0 +1,8 @@
+---
+# Pare-feu des workers : SSH (limité) + ports publiés des machines louées (SSH, terminal web, bureau).
+ufw_allowed_tcp_ports: []
+ufw_allowed_tcp_ranges:
+  - "{{ insacloud_port_min | default(8000) }}:{{ insacloud_port_max | default(9000) }}"
+# Le contrôleur pilote Docker par SSH : pas de limitation de débit pour lui
+ufw_ssh_allow_from:
+  - "{{ hostvars[groups['controllers'][0]]['node_ip'] | default(hostvars[groups['controllers'][0]]['ansible_host']) }}"

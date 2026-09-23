@@ -1,0 +1,27 @@
+---
+# =============================================================================
+#  roles/docker_images - Construction des images des machines louées
+#  Appliqué aux workers (ou au contrôleur s'il n'y a pas de worker).
+# =============================================================================
+insacloud_user: insacloud
+insacloud_root: /opt/insacloud
+insacloud_docker_dir: "{{ insacloud_root }}/docker"
+insacloud_src_docker: "{{ playbook_dir }}/../1_docker"
+
+# --- Mode démonstration : true = seule l'image Alpine (rapide) ; false = les 6 images
+demo_mode: true
+demo_images:
+  - insacloud_alpine
+
+# 6 images = 3 distributions × 2 modes. `desktop: true` ajoute --build-arg DESKTOP=1.
+insacloud_images:
+  - { name: insacloud_ubuntu,         dockerfile: Dockerfile,        desktop: false, env: UBUNTU }
+  - { name: insacloud_ubuntu_desktop, dockerfile: Dockerfile,        desktop: true,  env: UBUNTU_DESKTOP }
+  - { name: insacloud_debian,         dockerfile: debian.Dockerfile, desktop: false, env: DEBIAN }
+  - { name: insacloud_debian_desktop, dockerfile: debian.Dockerfile, desktop: true,  env: DEBIAN_DESKTOP }
+  - { name: insacloud_alpine,         dockerfile: alpine.Dockerfile, desktop: false, env: ALPINE }
+  - { name: insacloud_alpine_desktop, dockerfile: alpine.Dockerfile, desktop: true,  env: ALPINE_DESKTOP }
+
+insacloud_images_to_build: >-
+  {{ insacloud_images | selectattr('name', 'in', demo_images) | list
+     if demo_mode | bool else insacloud_images }}

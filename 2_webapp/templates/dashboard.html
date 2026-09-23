@@ -132,6 +132,7 @@
                       <span class="machine-sub">
                         <span><span class="dot {{ 'os-' ~ inst.os_type if inst.os_type in ['ubuntu','debian','alpine'] else 'os-other' }}"></span> {{ inst.os_label }}</span>
                         <span>{{ inst.mode_label }}</span>
+                        {% if workers|length > 1 %}<span title="Nœud qui héberge la machine">{{ inst.worker }} · {{ inst.worker_host }}</span>{% endif %}
                         <span class="mono">{{ inst.container_id }}</span>
                       </span>
                     </td>

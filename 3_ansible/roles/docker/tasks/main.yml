@@ -37,16 +37,34 @@
     state: present
     update_cache: true
 
+- name: Installer le client Docker seul (nœud contrôleur)
+  ansible.builtin.apt:
+    name: "{{ docker_cli_packages }}"
+    state: present
+  when: docker_cli_only | bool
+
 - name: Installer Docker Engine
   ansible.builtin.apt:
     name: "{{ docker_packages }}"
     state: present
+  when: not docker_cli_only | bool
+
+- name: Configurer le démon Docker (live-restore, rotation des logs)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ docker_daemon_config | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when: not docker_cli_only | bool
+  notify: Redémarrer docker
 
 - name: Activer et démarrer le service Docker
   ansible.builtin.systemd:
     name: docker
     enabled: true
     state: started
+  when: not docker_cli_only | bool
 
 - name: Ajouter les utilisateurs au groupe docker
   ansible.builtin.user:
@@ -54,13 +72,15 @@
     groups: docker
     append: true
   loop: "{{ docker_users }}"
+  when: not docker_cli_only | bool
 
 - name: Vérifier que le démon Docker répond
   ansible.builtin.command:
     cmd: docker info --format '{{ "{{" }}.ServerVersion{{ "}}" }}'
   register: docker_info
   changed_when: false
+  when: not docker_cli_only | bool
 
 - name: Afficher la version de Docker installée
   ansible.builtin.debug:
-    msg: "Docker Engine {{ docker_info.stdout }} opérationnel ({{ docker_arch }})"
+    msg: "{{ 'Client Docker installé (pilotage des workers par SSH)' if docker_cli_only | bool else 'Docker Engine ' ~ docker_info.stdout ~ ' opérationnel (' ~ docker_arch ~ ')' }}"

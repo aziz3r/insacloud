@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+[Unit]
+Description=InsaCloud - watchdog toutes les minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=insacloud-watchdog.service
+
+[Install]
+WantedBy=timers.target

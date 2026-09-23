@@ -1,43 +1,65 @@
 ---
 # =============================================================================
-#  site.yml - Point d'entrée du déploiement InsaCloud
+#  site.yml - Déploiement InsaCloud : 1 contrôleur + N workers
 # -----------------------------------------------------------------------------
-#  Ce playbook ne contient plus de tâches : il compose des RÔLES réutilisables.
-#
-#    roles/security_hardening : pare-feu UFW (SSH limité, 80/443, 8000-9000)
-#    roles/docker             : installe Docker Engine (dépôt officiel, idempotent)
-#    roles/reverse_proxy      : nginx en HTTPS (certificat, HSTS, rate-limit)
-#    roles/webapp             : Python + Flask + Gunicorn, code, images Docker,
-#                               services systemd (web + faucheur), secrets via Vault
+#  Rôles :
+#    security_hardening  pare-feu UFW (ports selon le groupe)          tous
+#    controller_key      compte de service + clé SSH de pilotage        contrôleur
+#    docker              Docker Engine (workers) / client seul (ctrl)   tous
+#    tls_cert            certificat auto-signé propre au nœud           tous
+#    worker              accès SSH restreint du contrôleur, groupe docker  workers
+#    docker_images       images des machines louées (demo_mode)        workers*
+#    reverse_proxy       nginx HTTPS devant Gunicorn                    contrôleur
+#    webapp              Flask/Gunicorn, Faucheur, watchdog, secrets     contrôleur
+#  * sans worker dans l'inventaire, les images sont construites sur le
+#    contrôleur et les conteneurs y tournent (mode mono-hôte).
 #
 #  Pré-requis : ansible-galaxy collection install -r requirements.yml
-#
-#  Variables : group_vars/insacloud/vars.yml   (claires)
-#              group_vars/insacloud/vault.yml  (chiffrées avec ansible-vault)
-#
-#  Lancement :
-#    ansible-playbook site.yml --ask-vault-pass
-#  Simulation :
-#    ansible-playbook site.yml --ask-vault-pass --check --diff
-#  Un seul rôle :
-#    ansible-playbook site.yml --ask-vault-pass --tags webapp
+#  Lancement :  ansible-playbook site.yml --ask-vault-pass
 # =============================================================================
 
-- name: Déployer la plateforme InsaCloud
+- name: 1. Durcissement de tous les nœuds (UFW)
   hosts: insacloud
   become: true
-
   roles:
-    # 1. Pare-feu d'abord : `ufw enable` recharge iptables, il doit passer
-    #    avant que Docker n'installe ses propres chaînes.
     - role: security_hardening
       tags: [security]
-    # 2. Moteur de conteneurs
+
+- name: 2. Contrôleur — compte de service et clé SSH de pilotage
+  hosts: controllers
+  become: true
+  roles:
+    - role: controller_key
+      tags: [controller, workers]
+
+- name: 3. Workers — Docker, certificat, accès du contrôleur, images
+  hosts: workers
+  become: true
+  roles:
     - role: docker
       tags: [docker]
-    # 3. Frontal TLS : nginx + certificat (partagé avec les machines louées)
+    - role: tls_cert
+      tags: [tls]
+    - role: worker
+      tags: [workers]
+    - role: docker_images
+      tags: [images]
+
+- name: 4. Contrôleur — client Docker, certificat, nginx, application
+  hosts: controllers
+  become: true
+  vars:
+    single_host: "{{ groups['workers'] | default([]) | length == 0 }}"
+  roles:
+    - role: docker
+      docker_cli_only: "{{ not single_host }}"
+      tags: [docker]
+    - role: docker_images
+      when: single_host
+      tags: [images]
+    - role: tls_cert
+      tags: [tls]
     - role: reverse_proxy
       tags: [proxy]
-    # 4. Application (Flask/Gunicorn sur 127.0.0.1, images, services, secrets)
     - role: webapp
       tags: [webapp]

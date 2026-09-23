@@ -51,6 +51,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import database as db
+import workers as wk
 
 # =============================================================================
 # Configuration
@@ -308,9 +309,9 @@ class DockerError(Exception):
     """Erreur renvoyée par la commande docker (message lisible pour l'utilisateur)."""
 
 
-def run_docker(*args, timeout: int = DOCKER_TIMEOUT) -> str:
-    """Exécute `docker <args>` et retourne stdout, ou lève DockerError."""
-    cmd = ["docker", *args]
+def run_docker(*args, worker: str = "local", timeout: int = DOCKER_TIMEOUT) -> str:
+    """Exécute `docker <args>` sur le nœud `worker` (local ou distant via SSH) et retourne stdout."""
+    cmd = [*wk.docker_command(worker), *args]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
@@ -344,7 +345,7 @@ def available_choices():
 
 def docker_run_container(port: int, name: str, root_password: str, os_type: str,
                          mode: str, term_port: int, gui_port: int = None,
-                         ssh_public_key: str = None) -> str:
+                         ssh_public_key: str = None, worker: str = "local") -> str:
     """
     Crée et démarre une machine louée. Retourne l'ID court du conteneur.
 
@@ -371,28 +372,28 @@ def docker_run_container(port: int, name: str, root_password: str, os_type: str,
     if spec["memory"]:
         args += ["--memory", spec["memory"]]
     args.append(image_for(os_type, mode))
-    return run_docker(*args)[:12]
+    return run_docker(*args, worker=worker)[:12]
 
 
-def docker_remove_container(container_id: str) -> None:
+def docker_remove_container(container_id: str, worker: str = "local") -> None:
     try:
-        run_docker("rm", "-f", container_id)
+        run_docker("rm", "-f", container_id, worker=worker)
     except DockerError as exc:
         if "No such container" in str(exc):
             return
         raise
 
 
-def docker_container_state(container_id: str) -> str:
+def docker_container_state(container_id: str, worker: str = "local") -> str:
     try:
-        return run_docker("inspect", "-f", "{{.State.Status}}", container_id, timeout=10)
+        return run_docker("inspect", "-f", "{{.State.Status}}", container_id, worker=worker, timeout=15)
     except DockerError:
         return "absent"
 
 
-def docker_rotate_password(container_id: str, new_password: str) -> None:
+def docker_rotate_password(container_id: str, new_password: str, worker: str = "local") -> None:
     """Rotation à chaud : SSH, terminal web et VNC prennent le nouveau mot de passe."""
-    run_docker("exec", container_id, "/usr/local/bin/entrypoint.sh", "setpass", new_password)
+    run_docker("exec", container_id, "/usr/local/bin/entrypoint.sh", "setpass", new_password, worker=worker)
 
 
 # =============================================================================
@@ -408,11 +409,16 @@ def port_is_free_on_host(port: int) -> bool:
             return False
 
 
-def choose_random_port(exclude: set = frozenset()) -> int:
+def choose_random_port(exclude: set = frozenset(), worker: str = "local") -> int:
+    """Port libre sur le nœud : non réservé en base, et (nœud local) réellement libre sur l'hôte."""
+    local = wk.worker_host(worker) is None
     for _ in range(100):
         port = random.randint(PORT_MIN, PORT_MAX)
-        if port not in exclude and not db.port_in_use(port) and port_is_free_on_host(port):
-            return port
+        if port in exclude or db.port_in_use(port, worker):
+            continue
+        if local and not port_is_free_on_host(port):
+            continue
+        return port
     raise DockerError("Aucun port libre disponible dans la plage configurée.")
 
 
@@ -599,12 +605,14 @@ def vault_lock():
 @login_required
 def dashboard():
     now = db.utc_now()
-    host = public_host()
     scheme = machine_scheme()
     vault_open = vault_remaining_seconds() > 0
     instances = []
     for row in db.get_user_instances(g.user["id"]):
         inst = dict(row)
+        # Les liens pointent vers le nœud qui héberge la machine (ou vers ce serveur en mode local)
+        host = wk.worker_host(inst["worker"]) or public_host()
+        inst["worker_host"] = host
         # Le mot de passe chiffré ne quitte jamais le serveur ; en clair seulement si le coffre est ouvert
         secret = decrypt_secret(inst.pop("root_password", "")) if (vault_open and row["status"] == db.STATUS_RUNNING) else None
         inst["root_password"] = secret
@@ -620,7 +628,7 @@ def dashboard():
         inst["expires_date_local"] = db.to_local(expires).strftime("%d/%m/%Y %H:%M")
         inst["created_at_local"] = db.to_local(created).strftime("%d/%m/%Y %H:%M")
         inst["ssh_command"] = f"ssh root@{host} -p {inst['port']}"
-        inst["docker_state"] = docker_container_state(inst["container_id"]) if is_running else "-"
+        inst["docker_state"] = docker_container_state(inst["container_id"], inst["worker"]) if is_running else "-"
         inst["os_label"] = DISTROS.get(inst["os_type"], {}).get("label", inst["os_type"])
         inst["mode_label"] = MODES.get(inst["mode"], {}).get("label", inst["mode"])
         inst["is_desktop"] = bool(inst["gui_port"])
@@ -647,7 +655,8 @@ def dashboard():
         modes=modes_ok,
         default_os=DEFAULT_OS if DEFAULT_OS in distros_ok else next(iter(distros_ok), DEFAULT_OS),
         default_mode=DEFAULT_MODE if DEFAULT_MODE in modes_ok else next(iter(modes_ok), DEFAULT_MODE),
-        ssh_host=host,
+        ssh_host=public_host(),
+        workers=wk.WORKERS,
         reveal=reveal,
         ssh_public_key=g.user["ssh_public_key"] or "",
         tls_machines=bool(TLS_DIR),
@@ -691,39 +700,52 @@ def create_instance():
               f"{MAX_INSTANCES_PER_USER} machines simultanément.", "error")
         return redirect(url_for("dashboard"))
 
-    try:
-        port = choose_random_port()
-        term_port = choose_random_port(exclude={port})
-        gui_port = choose_random_port(exclude={port, term_port}) if MODES[mode]["gui"] else None
-    except DockerError as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("dashboard"))
+    # Nœud le moins chargé
+    worker = wk.pick_worker(db.count_running_per_worker())
     name = f"{CONTAINER_PREFIX}{g.user['username']}_{secrets.token_hex(3)}"
     root_password = generate_password()
 
-    try:
-        container_id = docker_run_container(port, name, root_password, os_type, mode,
-                                            term_port, gui_port, g.user["ssh_public_key"])
-    except DockerError as exc:
-        log.error("Échec de création du conteneur pour '%s' : %s", g.user["username"], exc)
-        flash(f"Impossible de créer la machine : {exc}", "error")
+    # Sur un nœud distant on ne peut pas tester les ports : on retente si Docker signale un conflit
+    container_id = port = term_port = gui_port = None
+    last_error = None
+    for attempt in range(3):
+        try:
+            port = choose_random_port(worker=worker)
+            term_port = choose_random_port(exclude={port}, worker=worker)
+            gui_port = choose_random_port(exclude={port, term_port}, worker=worker) if MODES[mode]["gui"] else None
+            container_id = docker_run_container(port, name, root_password, os_type, mode,
+                                                term_port, gui_port, g.user["ssh_public_key"], worker)
+            break
+        except DockerError as exc:
+            last_error = exc
+            if "port is already allocated" in str(exc) or "address already in use" in str(exc).lower():
+                log.warning("Conflit de port sur %s, nouvelle tentative (%d/3)", worker, attempt + 1)
+                try:
+                    docker_remove_container(name, worker)   # conteneur créé mais non démarré
+                except DockerError:
+                    pass
+                continue
+            break
+    if container_id is None:
+        log.error("Échec de création du conteneur pour '%s' sur %s : %s", g.user["username"], worker, last_error)
+        flash(f"Impossible de créer la machine : {last_error}", "error")
         return redirect(url_for("dashboard"))
 
     try:
         db.create_instance(g.user["id"], container_id, name, port, minutes,
                            os_type, mode, term_port, gui_port,
-                           root_password_enc=encrypt_secret(root_password))
+                           root_password_enc=encrypt_secret(root_password), worker=worker)
     except Exception as exc:  # noqa: BLE001
         log.exception("Échec d'enregistrement en BDD, suppression du conteneur %s", container_id)
         try:
-            docker_remove_container(container_id)
+            docker_remove_container(container_id, worker)
         except DockerError:
             pass
         flash(f"Erreur interne lors de l'enregistrement : {exc}", "error")
         return redirect(url_for("dashboard"))
 
-    log.info("Machine créée : %s (%s/%s, id=%s, port=%s, %s min) pour '%s'",
-             name, os_type, mode, container_id, port, minutes, g.user["username"])
+    log.info("Machine créée : %s (%s/%s, id=%s, nœud=%s, port=%s, %s min) pour '%s'",
+             name, os_type, mode, container_id, worker, port, minutes, g.user["username"])
     reveal_secret(name, root_password, MODES[mode]["gui"])
     flash(f"Machine « {name} » ({DISTROS[os_type]['label']}, {MODES[mode]['label'].lower()}) "
           f"louée pour {minutes} minute(s).", "success")
@@ -742,7 +764,7 @@ def rotate_password(instance_id):
         return redirect(url_for("dashboard"))
     new_password = generate_password()
     try:
-        docker_rotate_password(inst["container_id"], new_password)
+        docker_rotate_password(inst["container_id"], new_password, inst["worker"])
     except DockerError as exc:
         log.error("Rotation impossible sur %s : %s", inst["container_name"], exc)
         flash(f"Impossible de changer le mot de passe : {exc}", "error")
@@ -763,7 +785,7 @@ def delete_instance(instance_id):
         flash("Cette machine n'est plus active.", "info")
         return redirect(url_for("dashboard"))
     try:
-        docker_remove_container(inst["container_id"])
+        docker_remove_container(inst["container_id"], inst["worker"])
     except DockerError as exc:
         log.error("Échec de suppression du conteneur %s : %s", inst["container_id"], exc)
         flash(f"Impossible de supprimer la machine : {exc}", "error")
@@ -825,6 +847,6 @@ if __name__ == "__main__":
             import faucheur
             faucheur.start_in_background()
             log.info("Faucheur démarré en thread d'arrière-plan.")
-    log.info("InsaCloud démarre sur http://%s:%s (distributions=%s, modes=%s, TLS machines=%s)",
-             host, port, ", ".join(DISTROS), ", ".join(MODES), bool(TLS_DIR))
+    log.info("InsaCloud démarre sur http://%s:%s (distributions=%s, modes=%s, TLS machines=%s, nœuds=%s)",
+             host, port, ", ".join(DISTROS), ", ".join(MODES), bool(TLS_DIR), ", ".join(wk.WORKERS))
     app.run(host=host, port=port, debug=debug)

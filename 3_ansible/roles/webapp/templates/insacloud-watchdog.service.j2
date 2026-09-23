@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+[Unit]
+Description=InsaCloud - watchdog (site, Faucheur, nginx, workers)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ insacloud_root }}/watchdog.sh

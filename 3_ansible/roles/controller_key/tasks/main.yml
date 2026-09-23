@@ -1,0 +1,49 @@
+---
+# roles/controller_key : compte de service du contrôleur + clé SSH de pilotage des workers.
+# Exécuté AVANT les workers pour qu'ils puissent autoriser cette clé.
+- name: Créer l'utilisateur système {{ insacloud_user }}
+  ansible.builtin.user:
+    name: "{{ insacloud_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ insacloud_root }}"
+    create_home: false
+
+- name: Créer {{ insacloud_root }} et son répertoire .ssh
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ insacloud_root }}", mode: "0755" }
+    - { path: "{{ insacloud_root }}/.ssh", mode: "0700" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Générer la clé SSH de pilotage des workers (une seule fois)
+  ansible.builtin.command:
+    cmd: ssh-keygen -q -t ed25519 -N "" -C "insacloud-controller" -f {{ insacloud_root }}/.ssh/id_ed25519
+    creates: "{{ insacloud_root }}/.ssh/id_ed25519"
+
+- name: Permissions de la clé SSH
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ insacloud_root }}/.ssh/id_ed25519", mode: "0600" }
+    - { path: "{{ insacloud_root }}/.ssh/id_ed25519.pub", mode: "0644" }
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Lire la clé publique
+  ansible.builtin.slurp:
+    src: "{{ insacloud_root }}/.ssh/id_ed25519.pub"
+  register: controller_pubkey_file
+
+- name: Exporter la clé publique pour les workers (hostvars du contrôleur)
+  ansible.builtin.set_fact:
+    insacloud_controller_pubkey: "{{ controller_pubkey_file.content | b64decode | trim }}"

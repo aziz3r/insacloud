@@ -1,0 +1,47 @@
+---
+# roles/docker_images : copie des Dockerfiles et build (seulement si nécessaire)
+- name: Créer le répertoire des sources Docker
+  ansible.builtin.file:
+    path: "{{ insacloud_docker_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Copier les sources Docker (Dockerfiles + entrypoint.sh)
+  ansible.builtin.copy:
+    src: "{{ insacloud_src_docker }}/"
+    dest: "{{ insacloud_docker_dir }}/"
+    owner: root
+    group: root
+    mode: "0644"
+  register: docker_sources
+
+- name: Afficher le mode de construction des images
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'MODE DÉMO : ' ~ (demo_images | join(', ')) if demo_mode | bool
+         else 'Mode complet : ' ~ (insacloud_images | length) ~ ' images' }}
+
+- name: Vérifier quelles images existent déjà
+  ansible.builtin.command:
+    cmd: "docker image inspect {{ item.name }}:latest"
+  loop: "{{ insacloud_images_to_build }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: image_check
+  failed_when: false
+  changed_when: false
+
+- name: Construire les images manquantes ou dont les sources ont changé (long la 1re fois)
+  ansible.builtin.command:
+    cmd: >-
+      docker build -t {{ item.name }}:latest
+      {{ '--build-arg DESKTOP=1' if item.desktop else '' }}
+      -f {{ insacloud_docker_dir }}/{{ item.dockerfile }}
+      {{ insacloud_docker_dir }}
+  loop: "{{ insacloud_images_to_build }}"
+  loop_control:
+    label: "{{ item.name }}"
+    index_var: idx
+  when: image_check.results[idx].rc != 0 or docker_sources.changed

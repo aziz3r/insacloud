@@ -25,6 +25,11 @@ insacloud_faucheur_interval: 10
 insacloud_container_memory: 256m
 insacloud_gui_memory: 1g            # machines "bureau graphique"
 
+# --- Nœuds Docker (workers) : "worker1=IP,worker2=IP" ; vide = Docker local ------
+# Calculé par le rôle depuis le groupe [workers] de l'inventaire (voir tasks).
+insacloud_workers_env: ""
+insacloud_docker_ssh_user: "{{ insacloud_user }}"
+
 # Clés secrètes : DOIVENT être fournies par le Vault (group_vars/insacloud/vault.yml)
 insacloud_secret_key: ""      # sessions Flask
 insacloud_vault_key: ""       # chiffrement des mots de passe root (clé Fernet)
@@ -53,6 +58,7 @@ webapp_files:
   - app.py
   - database.py
   - faucheur.py
+  - workers.py
   - templates/login.html
   - templates/dashboard.html
 

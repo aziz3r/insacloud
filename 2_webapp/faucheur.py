@@ -30,6 +30,7 @@ import threading
 import time
 
 import database as db
+import workers as wk
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -48,11 +49,11 @@ _stop_event = threading.Event()
 # -----------------------------------------------------------------------------
 # Wrapper Docker
 # -----------------------------------------------------------------------------
-def _docker(*args) -> subprocess.CompletedProcess:
-    """Exécute `docker <args>` sans lever d'exception (le code retour est vérifié par l'appelant)."""
+def _docker(*args, worker: str = "local") -> subprocess.CompletedProcess:
+    """Exécute `docker <args>` sur le nœud `worker` sans lever d'exception (code retour vérifié par l'appelant)."""
     try:
         return subprocess.run(
-            ["docker", *args],
+            [*wk.docker_command(worker), *args],
             capture_output=True, text=True, timeout=DOCKER_TIMEOUT,
         )
     except FileNotFoundError:
@@ -63,13 +64,13 @@ def _docker(*args) -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="docker indisponible")
 
 
-def remove_container(container_id: str) -> bool:
+def remove_container(container_id: str, worker: str = "local") -> bool:
     """
-    Supprime un conteneur de force (`docker rm -f`).
+    Supprime un conteneur de force (`docker rm -f`) sur son nœud.
     Retourne True si le conteneur est absent après l'opération
     (supprimé maintenant, ou déjà inexistant).
     """
-    res = _docker("rm", "-f", container_id)
+    res = _docker("rm", "-f", container_id, worker=worker)
     if res.returncode == 0:
         return True
     if "No such container" in res.stderr:
@@ -90,10 +91,10 @@ def reap_expired() -> int:
     expired = db.get_expired_instances()
     for inst in expired:
         log.info(
-            "Instance #%s expirée (user=%s, conteneur=%s, port=%s) -> destruction",
-            inst["id"], inst["username"], inst["container_name"], inst["port"],
+            "Instance #%s expirée (user=%s, conteneur=%s, nœud=%s, port=%s) -> destruction",
+            inst["id"], inst["username"], inst["container_name"], inst["worker"], inst["port"],
         )
-        if remove_container(inst["container_id"]):
+        if remove_container(inst["container_id"], inst["worker"]):
             db.set_instance_status(inst["id"], db.STATUS_EXPIRED)
             log.info("Instance #%s marquée 'expired'.", inst["id"])
         # Sinon, on réessaiera au prochain cycle.
@@ -102,42 +103,40 @@ def reap_expired() -> int:
 
 def reconcile() -> None:
     """
-    Remet Docker et la BDD en cohérence :
+    Remet Docker et la BDD en cohérence, nœud par nœud :
       - conteneur insacloud_* sans instance 'running' en BDD  -> docker rm -f
       - instance 'running' en BDD sans conteneur dans Docker  -> status 'stopped'
+    Un nœud injoignable est simplement ignoré (rien n'est modifié pour lui).
     """
-    res = _docker("ps", "-a", "--filter", f"name={CONTAINER_PREFIX}",
-                  "--format", "{{.ID}} {{.Names}}")
-    if res.returncode != 0:
-        return  # Docker indisponible : on ne touche à rien
+    all_active = db.get_active_instances()
+    for worker in wk.WORKERS:
+        res = _docker("ps", "-a", "--filter", f"name={CONTAINER_PREFIX}",
+                      "--format", "{{.ID}} {{.Names}}", worker=worker)
+        if res.returncode != 0:
+            log.warning("Nœud %s injoignable pour la réconciliation : %s", worker, res.stderr.strip()[:120])
+            continue
 
-    # Conteneurs réellement présents dans Docker : {id_court: nom}
-    present = {}
-    for line in res.stdout.splitlines():
-        parts = line.split(maxsplit=1)
-        if len(parts) == 2:
-            present[parts[0][:12]] = parts[1]
+        present = {}
+        for line in res.stdout.splitlines():
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                present[parts[0][:12]] = parts[1]
+        active = {inst["container_id"][:12]: inst for inst in all_active if inst["worker"] == worker}
 
-    # Instances que la BDD considère comme actives : {id_court: instance}
-    active = {inst["container_id"][:12]: inst for inst in db.get_active_instances()}
-
-    # 1) Orphelins Docker : présents mais inconnus de la BDD
-    for cid, name in present.items():
-        if cid not in active:
-            log.warning("Conteneur orphelin détecté : %s (%s) -> suppression", name, cid)
-            remove_container(cid)
-
-    # 2) Fantômes BDD : actifs en BDD mais disparus de Docker
-    for cid, inst in active.items():
-        if cid not in present:
-            log.warning("Instance #%s (%s) n'a plus de conteneur -> statut 'stopped'",
-                        inst["id"], inst["container_name"])
-            db.set_instance_status(inst["id"], db.STATUS_STOPPED)
+        for cid, name in present.items():
+            if cid not in active:
+                log.warning("[%s] Conteneur orphelin détecté : %s (%s) -> suppression", worker, name, cid)
+                remove_container(cid, worker)
+        for cid, inst in active.items():
+            if cid not in present:
+                log.warning("[%s] Instance #%s (%s) n'a plus de conteneur -> statut 'stopped'",
+                            worker, inst["id"], inst["container_name"])
+                db.set_instance_status(inst["id"], db.STATUS_STOPPED)
 
 
 def run_forever() -> None:
     """Boucle principale : tourne jusqu'à réception d'un signal d'arrêt."""
-    log.info("Faucheur démarré (intervalle = %ss, BDD = %s)", INTERVAL, db.DB_PATH)
+    log.info("Faucheur démarré (intervalle = %ss, BDD = %s, nœuds = %s)", INTERVAL, db.DB_PATH, ", ".join(wk.WORKERS))
     db.init_db()  # s'assure que le schéma existe même si Flask n'a pas encore tourné
     cycle = 0
     while not _stop_event.is_set():

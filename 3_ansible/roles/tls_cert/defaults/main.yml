@@ -1,0 +1,9 @@
+---
+# Certificat TLS auto-signé propre à chaque nœud (contrôleur : nginx ; workers : terminal web + noVNC).
+insacloud_tls_dir: /etc/insacloud/tls
+insacloud_tls_cert: "{{ insacloud_tls_dir }}/cert.pem"
+insacloud_tls_key: "{{ insacloud_tls_dir }}/key.pem"
+insacloud_tls_days: 825
+# Adresse publiée du nœud (par défaut celle de l'inventaire ; `node_ip` la surcharge)
+insacloud_node_ip: "{{ node_ip | default(ansible_host) | default(inventory_hostname) }}"
+insacloud_tls_subject_alt_names: "IP:{{ insacloud_node_ip }},DNS:{{ inventory_hostname }},DNS:localhost"
