@@ -9,20 +9,34 @@ Projet 3 du cours *Outils de déploiement de plateformes* — INSA, STI 4A (Dr. 
 
 ---
 
+## Démonstration
+
+**▶ [Voir la vidéo de démonstration (2 min 30)](docs/demo.mp4)** — parcours complet : création de compte, location d'une machine, terminal dans le navigateur, bureau graphique, prolongation et fin de location.
+
+| | |
+|---|---|
+| ![Connexion](docs/01-connexion.png) | ![Tableau de bord](docs/03-tableau-de-bord.png) |
+| **Connexion** — console sobre, identité INSA | **Tableau de bord** — location en trois choix |
+| ![Mot de passe](docs/05-mot-de-passe-unique.png) | ![Coffre](docs/06-coffre-ouvert.png) |
+| **Mot de passe affiché une seule fois** à la création | **Coffre** — réaffiché après re-authentification, 5 min |
+| ![Terminal web](docs/07-terminal-web.png) | ![Bureau XFCE](docs/09-bureau-applications.png) |
+| **Terminal dans le navigateur** — invite `login`, comme une console | **Bureau XFCE** dans le navigateur (noVNC), Firefox inclus |
+
 ## Sommaire
 
-1. [Fonctionnalités](#fonctionnalités)
-2. [Architecture](#architecture)
-3. [Arborescence](#arborescence)
-4. [Démarrage rapide (poste de développement)](#démarrage-rapide-poste-de-développement)
-5. [Déploiement de production (Vagrant + Ansible)](#déploiement-de-production-vagrant--ansible)
-6. [Utilisation](#utilisation)
-7. [Fonctionnement interne](#fonctionnement-interne)
-8. [Configuration](#configuration)
-9. [Sécurité](#sécurité)
-10. [Démonstrations pour la soutenance](#démonstrations-pour-la-soutenance)
-11. [Problèmes rencontrés et solutions](#problèmes-rencontrés-et-solutions)
-12. [Limites et pistes d'amélioration](#limites-et-pistes-damélioration)
+1. [Démonstration](#démonstration)
+2. [Fonctionnalités](#fonctionnalités)
+3. [Architecture](#architecture)
+4. [Arborescence](#arborescence)
+5. [Démarrage rapide (poste de développement)](#démarrage-rapide-poste-de-développement)
+6. [Déploiement de production (Vagrant + Ansible)](#déploiement-de-production-vagrant--ansible)
+7. [Utilisation](#utilisation)
+8. [Fonctionnement interne](#fonctionnement-interne)
+9. [Configuration](#configuration)
+10. [Sécurité](#sécurité)
+11. [Démonstrations pour la soutenance](#démonstrations-pour-la-soutenance)
+12. [Problèmes rencontrés et solutions](#problèmes-rencontrés-et-solutions)
+13. [Limites et pistes d'amélioration](#limites-et-pistes-damélioration)
 
 ---
 
