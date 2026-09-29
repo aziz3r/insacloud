@@ -1,0 +1,535 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.1cm,top=2cm,bottom=2cm]{geometry}
+\input{preambule}
+\usepackage{lastpage}
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancyhead[L]{\small\textcolor{gristexte}{Dossier technique --- InsaCloud}}
+\fancyhead[R]{\small\textcolor{gristexte}{STI 4A FISE}}
+\fancyfoot[C]{\small\thepage\ / \pageref{LastPage}}
+\setlength{\parskip}{3pt}\setlength{\parindent}{0pt}
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Dossier technique --- InsaCloud}\\[3pt]
+{\large Synthèse du cours, énoncé du projet 3 et analyse de conformité}\\[6pt]
+{\small Mohamed Aziz BAOUEB \quad\textbullet\quad STI 4A FISE \quad\textbullet\quad 2026/2027\\
+Outils de déploiement de plateformes --- Dr. Nadia FETTAH}
+\end{center}
+\rule{\linewidth}{0.8pt}
+
+\small
+\textit{Ce document accompagne le rapport officiel (limité à 8 pages par les modalités de validation).
+Il rassemble la synthèse des supports de cours, l'énoncé complet du projet 3 et une analyse de
+conformité exhaustive, élément par élément.}
+\normalsize
+
+\tableofcontents
+\clearpage
+
+%================================================================================
+\part*{Partie I --- Synthèse des supports de cours}
+\addcontentsline{toc}{section}{Partie I --- Synthèse des supports de cours}
+
+\section{Virtualisation, conteneurisation et Vagrant}
+
+\subsection{Du serveur physique à l'infrastructure virtualisée}
+Le modèle historique \og{}un serveur, une application\fg{} souffre de quatre défauts : taux d'utilisation
+des ressources très faible (10 à 15\%), coûts matériels et énergétiques élevés, souplesse quasi nulle
+(délais d'approvisionnement) et risque opérationnel direct (une panne interrompt le service).
+
+\textbf{Virtualisation} : technique permettant de faire fonctionner plusieurs systèmes logiques sur une
+même machine physique, isolés les uns des autres, tout en partageant les ressources matérielles.
+
+Le cours distingue cinq formes : matérielle (hyperviseur), système d'exploitation (conteneurs),
+stockage, réseau (VLAN, overlay, SDN) et applicative. Deux d'entre elles sont étudiées : machines
+virtuelles et conteneurs.
+
+\subsection{Machines virtuelles et hyperviseurs}
+Une \textbf{machine virtuelle} est l'émulation logicielle complète d'un ordinateur : OS invité propre,
+ressources virtuelles, applications. L'\textbf{hyperviseur} (VMM) crée et gère le cycle de vie des VM,
+alloue les ressources physiques, garantit l'isolation et traduit les instructions privilégiées.
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}[font=\scriptsize,
+  b/.style={draw=grisligne,fill=grisfond,rounded corners=2pt,minimum height=6mm,align=center}]
+% Type 1
+\node[b,minimum width=4.2cm] (m1) {Matériel physique};
+\node[b,minimum width=4.2cm,above=1mm of m1,fill=insared!10] (h1) {Hyperviseur type 1 (bare metal)};
+\node[b,minimum width=1.3cm,above=1mm of h1.north west,anchor=south west] (v1) {VM 1};
+\node[b,minimum width=1.3cm,right=1mm of v1] (v2) {VM 2};
+\node[b,minimum width=1.3cm,right=1mm of v2] (v3) {VM 3};
+\node[font=\scriptsize\bfseries,above=2mm of v2] {Type 1 : ESXi, KVM, Xen};
+% Type 2
+\node[b,minimum width=4.2cm,right=1.6cm of m1] (m2) {Matériel physique};
+\node[b,minimum width=4.2cm,above=1mm of m2] (o2) {OS hôte};
+\node[b,minimum width=4.2cm,above=1mm of o2,fill=insared!10] (h2) {Hyperviseur type 2};
+\node[b,minimum width=2cm,above=1mm of h2.north west,anchor=south west] (w1) {VM 1};
+\node[b,minimum width=2cm,right=1mm of w1] (w2) {VM 2};
+\node[font=\scriptsize\bfseries,above=2mm of $(w1)!0.5!(w2)$] {Type 2 : VirtualBox, Workstation};
+\end{tikzpicture}
+\caption{Les deux familles d'hyperviseurs. Le type 1 s'exécute sur le matériel (production), le type 2 au-dessus d'un OS hôte (développement, tests).}
+\end{figure}
+
+\textbf{Avantages} : isolation forte (noyau propre), OS invités hétérogènes, \emph{snapshots}, clonage,
+migration à chaud. \textbf{Limites} : empreinte disque et mémoire importante, démarrage lent, surcharge
+de virtualisation, densité limitée. Les extensions processeur Intel~VT-x et AMD-V permettent une
+exécution privilégiée directe, sans traduction logicielle coûteuse.
+
+\subsection{Conteneurs}
+Un \textbf{conteneur} est une unité logicielle isolée exécutée par le noyau de l'hôte, sans virtualisation
+matérielle ni OS invité. Deux mécanismes du noyau Linux le rendent possible :
+\begin{itemize}
+\item \textbf{namespaces} --- isolent la vue des processus, du réseau, des montages, des utilisateurs
+(PID, NET, MNT, UTS, IPC, USER, CGROUP) ;
+\item \textbf{cgroups} --- limitent, mesurent et isolent la consommation de ressources (CPU, mémoire,
+E/S, réseau).
+\end{itemize}
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Critère} & \textbf{Machine virtuelle} & \textbf{Conteneur}\\
+\midrule
+Isolation & Matériel/noyau (forte) & Processus (namespaces/cgroups)\\
+Noyau & Propre à chaque VM & Partagé avec l'hôte\\
+Taille type & Plusieurs Go & Quelques Mo à centaines de Mo\\
+Démarrage & Dizaines de secondes à minutes & Centaines de millisecondes\\
+Densité & Faible à moyenne & Élevée\\
+Cas d'usage & Isolation forte, OS hétérogènes & Microservices, CI/CD\\
+\bottomrule
+\end{tabular}
+\caption{Comparaison VM / conteneurs. \textit{Attention} : l'isolation est plus faible qu'une VM, une faille du noyau affecte tous les conteneurs d'un même hôte.}
+\end{table}
+
+\subsection{Docker}
+Docker suit une architecture client--serveur : le client \texttt{docker} dialogue avec le démon
+\texttt{dockerd} via une API REST ; \texttt{containerd} et \texttt{runc} assurent la gestion et
+l'exécution bas niveau (standard OCI) ; les images proviennent d'un registre (Docker Hub).
+
+\textbf{Images en couches.} Une image est une pile de couches immuables (image de base, dépendances,
+code, configuration). À l'exécution s'ajoute une couche inscriptible éphémère, gérée en
+\emph{copy-on-write} : les données y sont perdues à la suppression du conteneur, sauf usage de volumes.
+Les couches partagées ne sont stockées qu'une fois.
+
+\textbf{Instructions clés du Dockerfile} : \texttt{FROM} (image de base), \texttt{WORKDIR} (répertoire
+courant), \texttt{COPY}/\texttt{ADD} (copie de fichiers), \texttt{RUN} (commande de construction, nouvelle
+couche), \texttt{EXPOSE} (documente un port), \texttt{CMD}/\texttt{ENTRYPOINT} (commande de démarrage).
+
+\textbf{Cycle de vie} : \texttt{build} $\rightarrow$ \texttt{images} $\rightarrow$ \texttt{run}
+$\rightarrow$ \texttt{ps} $\rightarrow$ \texttt{logs} $\rightarrow$ \texttt{exec} $\rightarrow$
+\texttt{stop} $\rightarrow$ \texttt{rm}, complété par \texttt{pull}, \texttt{start} et \texttt{rmi}.
+
+\subsection{Docker Compose}
+Outil de définition et de gestion d'applications multi-conteneurs, décrites dans un fichier YAML
+\texttt{docker-compose.yml} : services, images, ports, réseaux, volumes et dépendances.
+Exemple du cours (API, base de données, cache) :
+
+\begin{lstlisting}[language=bash]
+services:
+  api:
+    build: ./api
+    ports: ["8080:5000"]
+    depends_on: [db, cache]
+  db:
+    image: postgres:16
+    volumes: ["donnees-db:/var/lib/postgresql/data"]
+  cache:
+    image: redis:7-alpine
+volumes:
+  donnees-db:
+\end{lstlisting}
+
+\subsection{Configuration des ressources}
+Plusieurs environnements partagent un socle matériel fini. Il faut garantir des performances
+prévisibles (éviter le \og{}bruyant voisin\fg{}), optimiser le taux d'utilisation et empêcher la
+monopolisation. Trois notions :
+\begin{itemize}
+\item \textbf{Réservation} (\emph{request}) : minimum garanti, même en forte contention ;
+\item \textbf{Limite} (\emph{limit}) : plafond maximal ;
+\item \textbf{Priorité relative} (\emph{shares}) : répartition en cas de contention, sans plafond strict.
+\end{itemize}
+\textit{Règle du cours} : toujours définir à la fois une réservation et une limite --- ni gaspillage,
+ni monopolisation. Les contrôleurs cgroups concernés sont \texttt{cpu/cpuset}, \texttt{memory},
+\texttt{blkio/io}, \texttt{pids} et \texttt{net\_cls}. Côté Docker :
+
+\begin{lstlisting}[language=bash]
+docker run -d --name app-limitee --cpus="1.5" --memory="512m" \
+  --memory-swap="1g" --memory-reservation="256m" --pids-limit=200 mon-app:1.0
+\end{lstlisting}
+
+\textbf{Attention à l'OOM Killer} : au dépassement de la limite dure, le noyau tue le processus
+principal. Il faut dimensionner avec une marge. La \textbf{supervision} se fait par \texttt{docker stats},
+\texttt{nproc}, \texttt{free -h}, \texttt{uptime}, \texttt{htop}. La \textbf{mise à l'échelle} est verticale
+(\emph{scale up}, plus de ressources) ou horizontale (\emph{scale out}, plus d'instances).
+La \textbf{surallocation} améliore le taux d'utilisation mais expose au swap et à l'OOM Killer.
+
+\subsection{Vagrant}
+\textbf{Vagrant} (HashiCorp) automatise, à partir d'un fichier déclaratif --- le \texttt{Vagrantfile} ---
+la création, la configuration et la destruction d'environnements reproductibles. Concepts :
+\textbf{Box} (image de base), \textbf{Provider} (moteur de virtualisation), \textbf{Provisioner}
+(Shell, Ansible, Puppet, Chef), \textbf{Vagrantfile} (Ruby), \textbf{synced folders}.
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}[font=\scriptsize,node distance=8mm,
+  b/.style={draw=grisligne,fill=grisfond,rounded corners=2pt,inner sep=4pt,minimum height=7mm}]
+\node[b] (vf) {Vagrantfile};
+\node[b,right=of vf,fill=insared!10] (mo) {Moteur Vagrant};
+\node[b,above right=3mm and 8mm of mo] (pr) {Provider (VirtualBox\dots{})};
+\node[b,below right=3mm and 8mm of mo] (pv) {Provisioner (Shell, Ansible)};
+\node[b,right=26mm of mo] (vm) {VM provisionnée};
+\draw[-{Stealth}] (vf) -- (mo);
+\draw[-{Stealth}] (mo) -- (pr); \draw[-{Stealth}] (mo) -- (pv);
+\draw[-{Stealth}] (pr) -- (vm); \draw[-{Stealth}] (pv) -- (vm);
+\end{tikzpicture}
+\caption{Architecture générale de Vagrant.}
+\end{figure}
+
+\textbf{Cycle de vie} : \texttt{init}, \texttt{up}, \texttt{ssh}, \texttt{halt}, \texttt{suspend/resume},
+\texttt{reload}, \texttt{destroy}. \textbf{Bonnes pratiques} : versionner le \texttt{Vagrantfile} avec le
+code, ne pas versionner \texttt{.vagrant/}, préférer le provisionnement déclaratif (Ansible) au Shell
+impératif, fixer la version de la box, combiner VM et Docker selon les besoins.
+
+%================================================================================
+\section{Gestion de configuration avec Ansible}
+
+\subsection{Pourquoi la gestion de configuration}
+Configurer manuellement des centaines de serveurs provoque la \textbf{dérive de configuration}, la
+\textbf{non-reproductibilité}, l'\textbf{absence de traçabilité} et l'\textbf{impossibilité de passer à
+l'échelle}. L'IaC décrit l'état désiré sous forme de code déclaratif, versionné et appliqué
+automatiquement. Deux paradigmes coexistent : \textbf{impératif} (suite d'actions) et \textbf{déclaratif}
+(état final souhaité) ; Ansible combine les deux, avec une syntaxe procédurale et des modules idempotents.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+\textbf{Critère} & \textbf{Ansible} & \textbf{Puppet} & \textbf{Chef} & \textbf{SaltStack}\\
+\midrule
+Architecture & Sans agent & Agent + maître & Agent + maître & Agent (minion)\\
+Langage & YAML & DSL Ruby & DSL Ruby & YAML / Python\\
+Transport & SSH / WinRM & HTTPS & HTTPS & ZeroMQ / SSH\\
+Apprentissage & Faible & Élevé & Élevé & Moyen\\
+Modèle & Push & Pull & Pull & Push / Pull\\
+\bottomrule
+\end{tabular}
+\caption{Panorama des outils. L'absence d'agent est l'atout majeur d'Ansible.}
+\end{table}
+
+\subsection{Architecture}
+Le \textbf{n\oe{}ud de contrôle} lit l'inventaire et les playbooks, résout variables et templates Jinja2,
+transfère les modules Python vers les cibles par SSH, puis collecte les résultats. Les \textbf{n\oe{}uds
+gérés} n'hébergent aucun démon : le module est copié, exécuté, puis supprimé.
+
+\begin{figure}[h]\centering
+\begin{tikzpicture}[font=\scriptsize,
+  b/.style={draw=grisligne,fill=grisfond,rounded corners=2pt,inner sep=4pt,minimum height=6mm,minimum width=2.2cm}]
+\node[b] (pb) {Playbooks};
+\node[b,below=1.5mm of pb] (inv) {Inventaire};
+\node[b,below=1.5mm of inv] (mod) {Modules};
+\node[draw=insared,fill=insared!8,rounded corners=3pt,right=8mm of inv,minimum width=2.4cm,minimum height=1.6cm,align=center] (cn) {N\oe{}ud\\de contrôle};
+\node[b,right=22mm of cn,yshift=9mm] (n1) {N\oe{}ud géré 1};
+\node[b,right=22mm of cn] (n2) {N\oe{}ud géré 2};
+\node[b,right=22mm of cn,yshift=-9mm] (n3) {N\oe{}ud géré 3};
+\draw[-{Stealth}] (pb.east) -- (cn.north west);
+\draw[-{Stealth}] (inv) -- (cn); \draw[-{Stealth}] (mod.east) -- (cn.south west);
+\draw[-{Stealth}] (cn) -- node[above,font=\tiny,pos=.5]{SSH} (n1);
+\draw[-{Stealth}] (cn) -- (n2); \draw[-{Stealth}] (cn) -- (n3);
+\end{tikzpicture}
+\caption{Architecture d'Ansible : modèle \emph{push}, sans agent permanent sur les cibles.}
+\end{figure}
+
+\textbf{Flux d'exécution} : lecture du playbook et résolution des variables $\rightarrow$ collecte des
+\emph{facts} $\rightarrow$ évaluation des conditions et boucles $\rightarrow$ transfert du module
+$\rightarrow$ exécution et vérification de l'état $\rightarrow$ retour JSON (\texttt{ok} / \texttt{changed}
+/ \texttt{failed}) et déclenchement éventuel des handlers.
+
+\subsection{Inventaire, commandes ad hoc et playbooks}
+L'inventaire (INI ou YAML) est la source de vérité : groupes, sous-groupes (\texttt{:children}), variables
+d'hôte et de groupe (\texttt{group\_vars/}, \texttt{host\_vars/}). Deux groupes spéciaux existent toujours :
+\texttt{all} et \texttt{ungrouped}. Un \textbf{inventaire dynamique} interroge une source externe
+(plugin \texttt{amazon.aws.aws\_ec2}, CMDB).
+
+Une \textbf{commande ad hoc} exécute une action ponctuelle sans playbook :
+\texttt{ansible all -i inventaire.ini -m ping}. Un \textbf{playbook} contient des \emph{plays}, chaque play
+associant un groupe d'hôtes à une liste ordonnée de \emph{tasks}. Les tâches s'exécutent
+séquentiellement, la stratégie par défaut \texttt{linear} attend tous les hôtes, les handlers s'exécutent
+une seule fois en fin de play, et un échec retire l'hôte du reste du play.
+
+\subsection{Idempotence et modules}
+Une opération est \textbf{idempotente} si son exécution répétée produit toujours le même état final.
+\texttt{state: present} l'est ; \texttt{echo ... >> fichier} via \texttt{shell} ne l'est pas.
+Le cours recommande : nommer chaque tâche, qualifier les modules (\texttt{ansible.builtin.apt}),
+préférer les modules dédiés à \texttt{command}/\texttt{shell}, découper en rôles, mettre les secrets
+dans Vault, valider avec \texttt{-{}-syntax-check} puis \texttt{-{}-check -{}-diff}.
+
+\textbf{copy vs template} : contenu identique partout $\rightarrow$ \texttt{copy} ; contenu variable selon
+l'hôte $\rightarrow$ \texttt{template} (Jinja2). \textbf{command / shell / raw} : \texttt{command} exécute
+sans shell, \texttt{shell} autorise les tubes, \texttt{raw} contourne Python ; aucun n'est idempotent par
+nature, d'où l'usage de \texttt{creates}, \texttt{removes} ou \texttt{changed\_when}.
+
+\subsection{Variables, facts, templates et handlers}
+Les variables proviennent de la ligne de commande, du playbook, de l'inventaire, de
+\texttt{group\_vars}/\texttt{host\_vars}, des rôles (\texttt{defaults/}, \texttt{vars/}) ou de
+\texttt{register}/\texttt{set\_fact}. La \textbf{précédence} va des \texttt{defaults} d'un rôle
+(la plus faible) aux variables \texttt{-e} en ligne de commande (la plus forte).
+
+Les \textbf{facts} sont découverts automatiquement (\texttt{gather\_facts}). \textbf{Jinja2} fournit
+\verb|{{ variable }}|, \verb|{% if %}|, \verb|{% for %}| et des filtres (\texttt{default}, \texttt{join},
+\texttt{to\_json}, \texttt{regex\_replace}). Un \textbf{handler} est une tâche notifiée, exécutée une seule
+fois en fin de play, uniquement si la tâche appelante retourne \texttt{changed}.
+
+\subsection{Rôles, Vault, tags et erreurs}
+Un \textbf{rôle} regroupe tâches, variables, templates, fichiers et handlers d'une responsabilité précise,
+selon l'arborescence \texttt{tasks/}, \texttt{handlers/}, \texttt{templates/}, \texttt{files/},
+\texttt{vars/}, \texttt{defaults/}, \texttt{meta/}. Un playbook orchestrateur (\texttt{site.yml}) les
+compose, éventuellement conditionnés par \texttt{group\_names}.
+
+\textbf{Ansible Vault} chiffre en AES256 fichiers ou variables sensibles
+(\texttt{create}, \texttt{edit}, \texttt{encrypt}, \texttt{encrypt\_string}, \texttt{view}). La convention
+du cours : la valeur chiffrée porte un préfixe \texttt{vault\_} et une variable en clair y fait référence.
+
+Les \textbf{tags} permettent une exécution sélective (\texttt{-{}-tags}, \texttt{-{}-skip-tags},
+\texttt{-{}-list-tags}). La \textbf{gestion des erreurs} repose sur \texttt{block}/\texttt{rescue}/\texttt{always},
+équivalent d'un \emph{try/catch/finally}.
+
+\subsection{Collections, performance et sécurité}
+Depuis Ansible 2.10, le c\oe{}ur \texttt{ansible-core} ne contient que \texttt{ansible.builtin.*} ; le reste
+est distribué en \textbf{collections} (\texttt{community.general}, \texttt{amazon.aws},
+\texttt{community.docker}\dots{}), déclarées dans \texttt{requirements.yml}.
+
+\textbf{Performance} : \texttt{forks}, \texttt{strategy: free}, \texttt{pipelining}, \texttt{async}/\texttt{poll}.
+\textbf{Sécurité} : clés SSH plutôt que mots de passe, moindre privilège, Vault pour tous les secrets,
+accès Git restreint, audit des collections tierces, \texttt{-{}-limit} lors des tests.
+
+\subsection{Étude de cas : architecture trois tiers}
+Le cours conclut sur le patron le plus courant en production : inventaire structuré en groupes
+(\texttt{loadbalancers}, \texttt{webservers}, \texttt{appservers}, \texttt{dbservers}), un rôle par
+responsabilité, et un playbook orchestrateur multi-plays respectant l'ordre métier (base de données,
+puis application, puis frontal).
+
+\clearpage
+%================================================================================
+\part*{Partie II --- L'énoncé du projet 3 et les attentes}
+\addcontentsline{toc}{section}{Partie II --- L'énoncé du projet 3 et les attentes}
+
+\section{Énoncé et besoin à couvrir}
+
+\textbf{Intitulé.} \og{}Développer une application web Flask permettant aux utilisateurs de louer et gérer
+via SSH des instances (conteneurs) hautement disponibles depuis un dashboard.\fg{}
+
+\textbf{Besoin auquel le projet répond.} \og{}Répondre au besoin d'un utilisateur de créer un compte, louer
+une VM/conteneur selon la distribution et la durée voulues, y accéder en SSH, avec haute disponibilité
+en cas de crash.\fg{}
+
+\textbf{Description détaillée.} L'énoncé précise six exigences :
+\begin{enumerate}
+\item une application web Flask permettant à un visiteur de se connecter à son compte ou d'en créer un ;
+\item une redirection vers un \emph{Dashboard} ;
+\item depuis lequel il peut louer un accès à des machines virtuelles (conteneurs), \textbf{de différentes
+distributions}, \textbf{pour une durée qu'il choisit} ;
+\item il accède à ses instances via cette même page ;
+\item \textbf{un accès SSH lui est donné lors de sa location} ;
+\item le service doit être \textbf{résilient} et fournir une \textbf{haute disponibilité en cas de crash ou
+de perte d'accès} à ses instances.
+\end{enumerate}
+
+\textbf{Quatre catégories de tâches} sont imposées : création de l'API web ; création de la partie Ansible
+(playbook, etc.) ; création de la base de données (locations, comptes, etc.) ; déploiement des VM
+(\texttt{docker compose}, etc.).
+
+\section{Modalités de validation}
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}p{3.2cm}p{11.5cm}@{}}
+\toprule
+\textbf{Élément} & \textbf{Attendu}\\
+\midrule
+Rapport écrit & PDF, \textbf{8 pages maximum}, déposé sur Celene avant la défense. Cinq sections :
+introduction (objectif et portée) ; aperçu de l'architecture (un paragraphe par décision
+architecturale) ; fonctionnalités (liste complète, captures d'écran, bonne explication) ;
+difficultés ; orientations futures.\\
+\addlinespace
+Défense finale & Discours d'introduction (contexte, objectifs, choix) puis démonstration pratique :
+provisionnement et déploiement automatisés \textbf{en direct}. Deux séances par groupe, les 12 et 13 octobre.\\
+\addlinespace
+Organisation & Groupes de 4 à 5 personnes, méthode de suivi par galon : réunion de lancement, deux points
+d'avancement, présentation finale. Gestion des tâches suggérée par \emph{user stories} et Trello.\\
+\bottomrule
+\end{tabular}
+\caption{Modalités de validation du cours.}
+\end{table}
+
+\textit{Remarque.} Le projet a été réalisé seul, alors qu'il est prévu pour un groupe de quatre à cinq
+personnes. Les quatre catégories de tâches ont donc été menées par le même auteur.
+
+\clearpage
+%================================================================================
+\part*{Partie III --- Ce qui a été réalisé et analyse de conformité}
+\addcontentsline{toc}{section}{Partie III --- Ce qui a été réalisé et analyse de conformité}
+
+\section{Conformité aux exigences de l'énoncé}
+
+\begin{longtable}{@{}p{4.6cm}p{8cm}p{2cm}@{}}
+\toprule
+\textbf{Exigence de l'énoncé} & \textbf{Ce qui a été réalisé} & \textbf{Verdict}\\
+\midrule
+\endhead
+Application web Flask, connexion ou création de compte &
+Flask servi par Gunicorn derrière nginx. Inscription et connexion, mots de passe hachés (PBKDF2 salé,
+Werkzeug), politique de mot de passe, verrouillage après cinq échecs, sessions signées. & \ok\\
+\addlinespace
+Redirection vers un \emph{Dashboard} &
+Redirection automatique après authentification ; console listant les machines, leur état Docker réel,
+le temps restant et les actions. & \ok\\
+\addlinespace
+Louer des conteneurs \textbf{de différentes distributions} &
+Trois distributions : Ubuntu 22.04, Debian 12, Alpine 3.20 --- chacune en deux variantes (terminal,
+bureau graphique), soit six images construites depuis trois \texttt{Dockerfile}. & \ok\\
+\addlinespace
+\textbf{Pour une durée choisie} &
+Durées prédéfinies (5, 10, 15, 30, 60 min) ou libre de 1 à 120 min ; prolongation possible ; compte à
+rebours affiché ; destruction automatique à l'expiration. & \ok\\
+\addlinespace
+Accès aux instances depuis la même page &
+Le tableau de bord liste les machines actives avec commande SSH, boutons \emph{Terminal} et
+\emph{Bureau}, prolongation, régénération du mot de passe et fin de location. & \ok\\
+\addlinespace
+\textbf{Accès SSH donné lors de la location} &
+Commande complète affichée (\texttt{ssh root@<hôte> -p <port>}), port aléatoire vérifié libre, mot de
+passe root tiré au sort affiché une fois, ou clé publique SSH de l'utilisateur injectée dans la machine. & \ok\\
+\addlinespace
+\textbf{Résilience et haute disponibilité en cas de crash} &
+Trois niveaux : \texttt{supervisord} en PID 1 relance les services internes ; \texttt{-{}-restart=always}
+relance le conteneur ; \texttt{live-restore} conserve les conteneurs pendant un redémarrage du démon.
+Un \emph{watchdog} systemd relance le site, le Faucheur et nginx. & \plus\\
+\addlinespace
+Tâche 1 --- API web &
+Application Flask complète : 11 routes, coffre à secrets, ordonnanceur, interface console
+(HTML + CSS + JavaScript sans framework). & \ok\\
+\addlinespace
+Tâche 2 --- Partie Ansible &
+Playbook de 4 plays et 8 rôles, inventaire à groupes, \texttt{group\_vars}, templates Jinja2, handlers,
+tags, Vault, collections. Idempotence vérifiée (\texttt{changed=0}). & \plus\\
+\addlinespace
+Tâche 3 --- Base de données &
+SQLite en mode WAL : tables \texttt{users}, \texttt{instances} (locations) et \texttt{login\_attempts},
+avec index et migrations automatiques. & \ok\\
+\addlinespace
+Tâche 4 --- Déploiement des VM (\texttt{docker compose}) &
+Les VM sont provisionnées par Vagrant ; les conteneurs sont créés par appels \texttt{docker run} depuis
+Flask (\texttt{subprocess}), ce qui permet le choix dynamique d'image, de ports et de durcissement par
+location. \textbf{Docker Compose n'est pas utilisé}, alors que l'énoncé le cite en exemple. & \partiel\\
+\bottomrule
+\end{longtable}
+
+\section{Couverture des notions du cours}
+
+\begin{longtable}{@{}p{4.3cm}p{8.4cm}p{1.9cm}@{}}
+\toprule
+\textbf{Notion du cours} & \textbf{Mise en \oe{}uvre dans le projet} & \textbf{Verdict}\\
+\midrule
+\endhead
+\multicolumn{3}{@{}l}{\textbf{Cours 1 --- Virtualisation, conteneurs, Vagrant}}\\
+\midrule
+Virtualisation par VM & Trois VM Ubuntu 22.04 décrites dans le \texttt{Vagrantfile}. & \ok\\
+Virtualisation par conteneurs & Six images Docker, isolation par namespaces et cgroups. & \ok\\
+Dockerfile &
+Trois \texttt{Dockerfile} utilisant \texttt{FROM}, \texttt{ARG}, \texttt{ENV}, \texttt{RUN}, \texttt{COPY},
+\texttt{EXPOSE}, \texttt{CMD}, avec construction conditionnelle (\texttt{-{}-build-arg DESKTOP=1}). & \ok\\
+Commandes Docker & \texttt{build}, \texttt{run}, \texttt{ps}, \texttt{inspect}, \texttt{exec}, \texttt{rm}, \texttt{images} utilisées par l'application et le Faucheur. & \ok\\
+Docker Compose & Non utilisé : la création des conteneurs est dynamique, par \texttt{docker run}. & \absent\\
+Limites de ressources & \texttt{-{}-memory}, \texttt{-{}-cpus}, \texttt{-{}-pids-limit}, \texttt{-{}-shm-size} appliqués à chaque conteneur. & \ok\\
+Réservation de ressources & \texttt{-{}-memory-reservation} non utilisé, alors que le cours recommande de toujours définir réservation \emph{et} limite. & \absent\\
+Supervision (\texttt{docker stats}) & L'état des conteneurs est relevé par \texttt{docker inspect} ; aucune métrique de consommation n'est collectée. & \partiel\\
+Mise à l'échelle & Horizontale au niveau du parc : ajout d'un worker dans l'inventaire, répartition automatique. & \ok\\
+Vagrant : box, provider, provisioner & Box \texttt{bento/ubuntu-22.04}, quatre providers (VMware, Parallels, QEMU, VirtualBox), provisioner Shell. & \ok\\
+Vagrant multi-machines & Trois machines définies (\texttt{controller}, \texttt{worker1}, \texttt{worker2}). & \ok\\
+Réseau privé et IP fixe & \texttt{private\_network} en 192.168.56.10 / .11 / .12. & \ok\\
+Configuration des ressources VM & \texttt{memory} et \texttt{cpus} définis par machine et par provider. & \ok\\
+Provisioner Ansible déclaratif & Le bloc \texttt{config.vm.provision "ansible"} est présent mais commenté : le playbook est lancé à la main. & \partiel\\
+\texttt{.vagrant/} non versionné & Exclu par \texttt{.gitignore}. & \ok\\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Cours 2 --- Ansible}}\\
+\midrule
+Inventaire, groupes, \texttt{:children} & \texttt{[controllers]}, \texttt{[workers]}, \texttt{[insacloud:children]}. & \ok\\
+\texttt{group\_vars} & Trois répertoires : \texttt{insacloud}, \texttt{controllers}, \texttt{workers}. & \ok\\
+\texttt{ansible.cfg} & Inventaire, \texttt{roles\_path}, \texttt{forks}, \texttt{host\_key\_checking}, élévation de privilèges. & \ok\\
+Commandes ad hoc & \texttt{ansible insacloud -m ping} utilisé pour valider la connectivité. & \ok\\
+Playbooks multi-plays & Quatre plays successifs : durcissement, clé du contrôleur, workers, contrôleur. & \ok\\
+Modules dédiés & 21 modules distincts, tous qualifiés (\texttt{ansible.builtin.*}, \texttt{ansible.posix.*}, \texttt{community.general.*}). & \plus\\
+Idempotence & Second passage : \texttt{changed=0} sur les trois n\oe{}uds (mesuré). & \ok\\
+Variables et facts & \texttt{defaults}, \texttt{group\_vars}, \texttt{register}, \texttt{set\_fact}, facts \texttt{ansible\_architecture} et \texttt{ansible\_distribution\_release}. & \ok\\
+Templates Jinja2 & Cinq templates avec conditions, boucles et filtres (\texttt{to\_nice\_json}, \texttt{join}, \texttt{default}). & \ok\\
+Handlers & Six handlers (\texttt{daemon-reload}, redémarrage des services, rechargement de nginx et sshd). & \ok\\
+Conditions et boucles & 15 \texttt{when}, 14 \texttt{loop} avec \texttt{loop\_control} et \texttt{index\_var}. & \ok\\
+Rôles & Huit rôles avec \texttt{defaults}, \texttt{tasks}, \texttt{handlers}, \texttt{templates}. & \ok\\
+\texttt{meta/main.yml} (dépendances) & Absent : l'ordre est assuré par l'ordonnancement des plays. & \partiel\\
+Ansible Vault & \texttt{vault.yml} chiffré AES256, convention \texttt{vault\_*} exactement comme le cours, deux secrets. & \ok\\
+Tags & 11 tags (\texttt{security}, \texttt{docker}, \texttt{tls}, \texttt{workers}, \texttt{images}, \texttt{proxy}, \texttt{webapp}\dots{}). & \ok\\
+Gestion des erreurs \texttt{block/rescue} & Non utilisée ; seuls \texttt{failed\_when} et \texttt{changed\_when} sont employés. & \absent\\
+Collections & \texttt{requirements.yml} : \texttt{community.general} et \texttt{ansible.posix}. & \ok\\
+Inventaire dynamique & Non mis en \oe{}uvre (inventaire statique). & \absent\\
+Performance (\texttt{forks}, \texttt{pipelining}, \texttt{async}) & \texttt{forks} défini ; \texttt{pipelining} et \texttt{async} non utilisés. & \partiel\\
+Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pour les secrets, \texttt{-{}-limit} utilisé en test. & \ok\\
+Étude de cas trois tiers & Même patron appliqué : inventaire en groupes, un rôle par responsabilité, playbook orchestrateur respectant l'ordre métier. & \ok\\
+\midrule
+\multicolumn{3}{@{}l}{\textbf{Cours 3 --- DevSecOps (notions abordées en cours)}}\\
+\midrule
+Gestion des secrets & Ansible Vault, chiffrement Fernet en base, fichier d'environnement \texttt{0600}, secret effacé de l'environnement du PID 1. & \plus\\
+Sécurité des conteneurs & \texttt{-{}-cap-drop ALL} et capacités minimales, \texttt{no-new-privileges}, limites PID et CPU, TLS jusqu'aux machines. & \plus\\
+Pipeline CI/CD, SAST, SCA, DAST & Non mis en \oe{}uvre. & \absent\\
+Kubernetes & Hors périmètre du projet 3. & ---\\
+\bottomrule
+\end{longtable}
+
+\section{Éléments réalisés au-delà de l'énoncé}
+\begin{itemize}
+\item \textbf{Architecture distribuée} contrôleur + deux workers avec ordonnancement sur le n\oe{}ud le
+moins chargé, alors que l'énoncé n'imposait qu'un hôte.
+\item \textbf{Deux modes d'accès supplémentaires} : terminal web et bureau graphique complet dans le
+navigateur, en plus du SSH demandé.
+\item \textbf{Conservation de l'état} : \texttt{live-restore} et relance automatique, vérifiés par
+redémarrage complet d'un worker.
+\item \textbf{Watchdog} systemd d'auto-réparation du service.
+\item \textbf{Durcissement applicatif} : CSRF, anti-force-brute, CSP stricte sans ressource externe,
+HTTPS de bout en bout, coffre à secrets chiffré.
+\item \textbf{Chaîne de démonstration} : vidéo du parcours complet et captures d'écran versionnées.
+\end{itemize}
+
+\section{Plan d'action recommandé avant la défense}
+
+\begin{table}[h]\centering\small
+\begin{tabular}{@{}clp{8.4cm}l@{}}
+\toprule
+\textbf{\#} & \textbf{Action} & \textbf{Justification} & \textbf{Effort}\\
+\midrule
+1 & Ajouter un \texttt{docker-compose.yml} & Seul point de l'énoncé non couvert ; le cours y consacre cinq
+pages. Peut servir à décrire la pile du contrôleur (nginx + application) ou un gabarit de machine louée. & 1--2 h\\
+2 & Ajouter \texttt{-{}-memory-reservation} & Le cours insiste : toujours réservation \emph{et} limite. & 10 min\\
+3 & Activer le provisioner Ansible dans le \texttt{Vagrantfile} & Rend la démonstration \og{}en direct\fg{}
+entièrement automatique, comme demandé à la défense. & 15 min\\
+4 & Introduire \texttt{block}/\texttt{rescue}/\texttt{always} & Section entière du cours non illustrée ;
+pertinent sur la construction d'images et le démarrage des services. & 30 min\\
+5 & Ajouter \texttt{meta/main.yml} aux rôles & Déclare explicitement les dépendances entre rôles. & 20 min\\
+6 & Collecter \texttt{docker stats} & Complète le volet supervision des ressources. & 1 h\\
+7 & Esquisser une chaîne CI (analyse statique, audit des images) & Rattache le projet au volet DevSecOps
+du cours. & 1--2 h\\
+8 & Répéter la démonstration \texttt{vagrant up} + \texttt{ansible-playbook} & La défense exige un
+provisionnement en direct : vérifier le temps total et prévoir le mode démonstration. & 1 h\\
+\bottomrule
+\end{tabular}
+\caption{Actions classées par priorité décroissante.}
+\end{table}
+
+\section*{Conclusion}
+\addcontentsline{toc}{section}{Conclusion}
+Les six exigences fonctionnelles de l'énoncé sont satisfaites, trois d'entre elles au-delà de ce qui
+était demandé (haute disponibilité, partie Ansible, modes d'accès). Les quatre catégories de tâches
+imposées sont toutes couvertes ; la seule réserve porte sur le déploiement des machines, réalisé par
+\texttt{docker run} plutôt que par \texttt{docker compose}. Sur les notions de cours, la couverture est
+large --- 21 modules Ansible, rôles, Vault, tags, handlers, templates, idempotence démontrée --- avec
+quatre absences identifiées : Docker Compose, \texttt{block}/\texttt{rescue}, inventaire dynamique et
+chaîne CI/CD. Le plan d'action ci-dessus permet de lever les deux premières en moins de deux heures.
+
+\end{document}

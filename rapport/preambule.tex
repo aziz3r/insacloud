@@ -1,0 +1,41 @@
+% Préambule commun aux deux documents
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{lmodern}
+\usepackage{graphicx,xcolor,booktabs,array,tabularx,longtable}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,calc,fit,backgrounds,decorations.pathreplacing}
+\usepackage{fancyhdr,enumitem,microtype}
+\usepackage[colorlinks=true,linkcolor=insared,urlcolor=insared,citecolor=insared]{hyperref}
+\usepackage{caption}
+\usepackage{listings}
+
+\definecolor{insared}{RGB}{200,16,46}
+\definecolor{grisfond}{RGB}{247,248,250}
+\definecolor{grisligne}{RGB}{216,220,226}
+\definecolor{gristexte}{RGB}{91,97,107}
+\definecolor{vertok}{RGB}{26,127,75}
+\definecolor{orangepartiel}{RGB}{178,106,5}
+\definecolor{rougeko}{RGB}{198,40,40}
+
+\captionsetup{font=small,labelfont={bf,color=insared}}
+\setlist[itemize]{leftmargin=1.2em,itemsep=1pt,topsep=2pt,parsep=0pt}
+\setlist[enumerate]{leftmargin=1.4em,itemsep=1pt,topsep=2pt,parsep=0pt}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  backgroundcolor=\color{grisfond},
+  frame=single, rulecolor=\color{grisligne},
+  breaklines=true, showstringspaces=false,
+  keywordstyle=\color{insared}\bfseries,
+  commentstyle=\color{gristexte}\itshape,
+  numberstyle=\tiny\color{gristexte},
+  xleftmargin=4pt, framexleftmargin=4pt, aboveskip=6pt, belowskip=6pt,
+  literate={é}{{\'e}}1 {è}{{\`e}}1 {à}{{\`a}}1 {ç}{{\c c}}1 {ê}{{\^e}}1 {û}{{\^u}}1 {î}{{\^i}}1 {ô}{{\^o}}1 {É}{{\'E}}1 {—}{{---}}1 {’}{{'}}1 {«}{{<<}}1 {»}{{>>}}1 {·}{{\textperiodcentered}}1
+}
+
+% Marqueurs de conformité
+\newcommand{\ok}{\textcolor{vertok}{\textbf{Conforme}}}
+\newcommand{\partiel}{\textcolor{orangepartiel}{\textbf{Partiel}}}
+\newcommand{\absent}{\textcolor{rougeko}{\textbf{Absent}}}
+\newcommand{\plus}{\textcolor{insared}{\textbf{Au-delà}}}
