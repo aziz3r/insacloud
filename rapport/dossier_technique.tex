@@ -447,7 +447,7 @@ Vagrant : box, provider, provisioner & Box \texttt{bento/ubuntu-22.04}, quatre p
 Vagrant multi-machines & Trois machines définies (\texttt{controller}, \texttt{worker1}, \texttt{worker2}). & \ok\\
 Réseau privé et IP fixe & \texttt{private\_network} en 192.168.56.10 / .11 / .12. & \ok\\
 Configuration des ressources VM & \texttt{memory} et \texttt{cpus} définis par machine et par provider. & \ok\\
-Provisioner Ansible déclaratif & Le bloc \texttt{config.vm.provision "ansible"} est présent mais commenté : le playbook est lancé à la main. & \partiel\\
+Provisioner Ansible déclaratif & Absent du \texttt{Vagrantfile} : seul un provisioner Shell prépare Python, le playbook est ensuite lancé à la main. Le cours recommande le provisionnement déclaratif. & \absent\\
 \texttt{.vagrant/} non versionné & Exclu par \texttt{.gitignore}. & \ok\\
 \midrule
 \multicolumn{3}{@{}l}{\textbf{Cours 2 --- Ansible}}\\
