@@ -43,7 +43,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import database as db
-import docker_ops as docker
 import services
 import workers as wk
 from api import api as api_blueprint
@@ -51,11 +50,11 @@ from config import (BEHIND_PROXY, COMMON_PASSWORDS, DEFAULT_MODE, DEFAULT_OS,
                     DURATION_CHOICES, EMAIL_RE, EXTEND_CHOICES, HTTPS,
                     LOGIN_MAX_FAILURES_IP, LOGIN_MAX_FAILURES_USER,
                     LOGIN_WINDOW_MINUTES, MAX_DURATION_MINUTES,
-                    MAX_INSTANCES_PER_USER, MIN_DURATION_MINUTES, MODES,
+                    MAX_INSTANCES_PER_USER, MODES,
                     PASSWORD_MIN_LENGTH, SSH_HOST_OVERRIDE, SSH_PUBKEY_RE,
                     TLS_DIR, USERNAME_RE, VAULT_WINDOW_MINUTES, get_config)
-from crypto import decrypt_secret, encrypt_secret, load_secret_key
-from docker_ops import DockerError, docker_container_state, generate_password
+from crypto import decrypt_secret, load_secret_key
+from docker_ops import docker_container_state
 
 # =============================================================================
 # Configuration

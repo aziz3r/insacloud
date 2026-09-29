@@ -1,0 +1,212 @@
+# =============================================================================
+#  docker-compose.yml - Pile complète InsaCloud
+# -----------------------------------------------------------------------------
+#  Un seul fichier décrit toute la plateforme, comme le demande le cahier des
+#  charges : l'application Flask, sa base de données, et les images des machines
+#  que les utilisateurs louent.
+#
+#      docker compose up -d                  lance la plateforme (web + db)
+#      docker compose --profile build build  construit les six images louables
+#      docker compose --profile demo up -d   ajoute une machine de démonstration
+#      docker compose ps / logs -f web / down
+#
+#  Après démarrage : http://127.0.0.1:8088
+#
+#  Les secrets viennent d'un fichier .env, jamais du dépôt : copiez
+#  .env.example en .env et remplissez-le avant le premier lancement.
+# =============================================================================
+
+name: insacloud
+
+# --- Réglages communs aux services applicatifs -------------------------------
+x-application: &application
+  build:
+    context: ./2_webapp
+    dockerfile: Dockerfile
+  image: insacloud_web:latest
+  restart: unless-stopped
+  environment:
+    INSACLOUD_ENV: production
+    # Identité du déploiement : cette pile ne touche qu'aux machines
+    # portant ce nom de cluster, et laisse celles des autres tranquilles.
+    INSACLOUD_CLUSTER: ${INSACLOUD_CLUSTER:-compose}
+    # postgresql+psycopg : le pilote psycopg 3, épinglé dans requirements.txt.
+    # Écrit sur une seule ligne : une coupure insérerait une espace dans le
+    # message du « :? », donc dans la chaîne de connexion.
+    DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-insacloud}:${POSTGRES_PASSWORD:?manquant}@db:5432/${POSTGRES_DB:-insacloud}"
+    INSACLOUD_SECRET_KEY: ${INSACLOUD_SECRET_KEY:?définissez INSACLOUD_SECRET_KEY dans .env}
+    INSACLOUD_VAULT_KEY: ${INSACLOUD_VAULT_KEY:?définissez INSACLOUD_VAULT_KEY dans .env}
+    INSACLOUD_AGENT_TOKEN: ${INSACLOUD_AGENT_TOKEN:-}
+    INSACLOUD_WORKERS: ${INSACLOUD_WORKERS:-}
+    INSACLOUD_MAX_INSTANCES: ${INSACLOUD_MAX_INSTANCES:-3}
+    INSACLOUD_PORT_MIN: ${INSACLOUD_PORT_MIN:-8000}
+    INSACLOUD_PORT_MAX: ${INSACLOUD_PORT_MAX:-9000}
+    INSACLOUD_HEARTBEAT_TIMEOUT: ${INSACLOUD_HEARTBEAT_TIMEOUT:-90}
+  depends_on:
+    db:
+      condition: service_healthy
+  networks: [insacloud]
+  security_opt: [no-new-privileges:true]
+
+services:
+
+  # ---------------------------------------------------------------------------
+  #  Base de données
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: insacloud-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-insacloud}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définissez POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: ${POSTGRES_DB:-insacloud}
+      # Vérifications d'intégrité complètes : une base de location ne doit pas
+      # perdre d'écriture sur une coupure.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - donnees_postgres:/var/lib/postgresql/data
+    # Le port n'est PAS publié : seuls les services du réseau interne y accèdent.
+    networks: [insacloud]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-insacloud} -d ${POSTGRES_DB:-insacloud}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { memory: 512M }
+        reservations: { memory: 256M }
+
+  # ---------------------------------------------------------------------------
+  #  Application web
+  # ---------------------------------------------------------------------------
+  web:
+    <<: *application
+    container_name: insacloud-web
+    ports:
+      - "${INSACLOUD_BIND:-127.0.0.1}:${INSACLOUD_HTTP_PORT:-8088}:5000"
+    volumes:
+      # L'application crée les machines louées en appelant le démon Docker.
+      # En production le contrôleur pilote des workers distants par SSH
+      # (INSACLOUD_WORKERS) et cette ligne devient inutile ; en pile locale,
+      # elle est nécessaire — et donne au conteneur un pouvoir équivalent à
+      # root sur l'hôte. À n'utiliser que sur une machine de développement.
+      - /var/run/docker.sock:/var/run/docker.sock
+    # Le conteneur tourne sans privilège (uid 10001). Pour atteindre la socket
+    # il lui faut le groupe qui la possède, et non le compte root : voir
+    # DOCKER_GID dans .env.example pour relever sa valeur sur votre machine.
+    group_add:
+      - "${DOCKER_GID:-999}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { memory: 512M }
+        reservations: { memory: 256M }
+
+  # ---------------------------------------------------------------------------
+  #  Faucheur : détruit les machines expirées, reprend celles d'un worker tombé
+  # ---------------------------------------------------------------------------
+  faucheur:
+    <<: *application
+    container_name: insacloud-faucheur
+    command: ["python", "faucheur.py"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:-999}"
+    depends_on:
+      db:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits: { memory: 256M }
+        reservations: { memory: 128M }
+
+  # ---------------------------------------------------------------------------
+  #  Images des machines louées (profil « build » : construction seule)
+  # ---------------------------------------------------------------------------
+  image-ubuntu:
+    profiles: ["build"]
+    image: insacloud_ubuntu:latest
+    build: { context: ./1_docker, dockerfile: Dockerfile }
+
+  image-ubuntu-desktop:
+    profiles: ["build"]
+    image: insacloud_ubuntu_desktop:latest
+    build:
+      context: ./1_docker
+      dockerfile: Dockerfile
+      args: { DESKTOP: "1" }
+
+  image-debian:
+    profiles: ["build"]
+    image: insacloud_debian:latest
+    build: { context: ./1_docker, dockerfile: debian.Dockerfile }
+
+  image-debian-desktop:
+    profiles: ["build"]
+    image: insacloud_debian_desktop:latest
+    build:
+      context: ./1_docker
+      dockerfile: debian.Dockerfile
+      args: { DESKTOP: "1" }
+
+  image-alpine:
+    profiles: ["build"]
+    image: insacloud_alpine:latest
+    build: { context: ./1_docker, dockerfile: alpine.Dockerfile }
+
+  image-alpine-desktop:
+    profiles: ["build"]
+    image: insacloud_alpine_desktop:latest
+    build:
+      context: ./1_docker
+      dockerfile: alpine.Dockerfile
+      args: { DESKTOP: "1" }
+
+  # ---------------------------------------------------------------------------
+  #  Machine de démonstration (profil « demo »)
+  #  Reproduit exactement ce que la plateforme crée : mêmes limites, mêmes
+  #  capacités abandonnées, même politique de redémarrage.
+  # ---------------------------------------------------------------------------
+  machine-demo:
+    profiles: ["demo"]
+    image: insacloud_alpine:latest
+    container_name: insacloud_demo
+    # Même label que les machines créées par la plateforme : la démonstration
+    # est donc soumise aux mêmes règles, Faucheur compris.
+    labels:
+      insacloud.role: rented-machine
+    restart: always
+    environment:
+      # Vide : l'entrypoint tire alors un mot de passe au hasard et l'affiche
+      # dans le journal (docker compose logs machine-demo).
+      ROOT_PASSWORD: "${ROOT_PASSWORD:-}"
+    ports:
+      - "${SSH_PORT:-8022}:22"
+      - "${TERM_PORT:-8081}:7681"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETGID, SETUID,
+              SYS_CHROOT, NET_BIND_SERVICE, KILL, AUDIT_WRITE]
+    deploy:
+      resources:
+        limits:       { cpus: "1", memory: 256M, pids: 512 }
+        reservations: { memory: 128M }
+
+networks:
+  insacloud:
+    driver: bridge
+
+volumes:
+  donnees_postgres:

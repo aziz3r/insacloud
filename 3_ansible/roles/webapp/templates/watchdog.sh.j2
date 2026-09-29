@@ -25,8 +25,10 @@ restart_if_down insacloud-faucheur "systemctl is-active --quiet insacloud-fauche
 # journalisée pour détecter une saturation (cours : « détecter rapidement une surcharge »).
 supervise_ressources() {   # $1 = nom du nœud, $2 = préfixe de commande docker
     local stats
-    stats=$($2 stats --no-stream --format '{{ "{{" }}.Name{{ "}}" }} {{ "{{" }}.CPUPerc{{ "}}" }} {{ "{{" }}.MemUsage{{ "}}" }}' 2>/dev/null \
-            | grep '^insacloud_' || true)
+    # Les machines louées portent le label insacloud.role=rented-machine ;
+    # les conteneurs de la plateforme elle-même ne doivent pas être comptés.
+    stats=$($2 stats --no-stream --format '{{ "{{" }}.Name{{ "}}" }} {{ "{{" }}.CPUPerc{{ "}}" }} {{ "{{" }}.MemUsage{{ "}}" }}' \
+            $($2 ps -q --filter label=insacloud.role=rented-machine 2>/dev/null) 2>/dev/null || true)
     [ -z "$stats" ] && return 0
     logger -t "$TAG" "ressources[$1] $(echo "$stats" | tr '\n' ';')"
     echo "$stats" | while read -r nom cpu mem _; do

@@ -9,7 +9,9 @@ anti-force-brute, coffre à secrets et cloisonnement entre comptes.
 import re
 
 import app as insacloud
+import crypto
 import database as db
+import docker_ops
 from conftest import CSRF, GOOD_PASSWORD, inscrire, pose_csrf
 
 
@@ -47,14 +49,14 @@ def test_mot_de_passe_jamais_stocke_en_clair(client):
 
 # --- Chiffrement des mots de passe des machines (au repos) -------------------
 def test_chiffrement_reversible_et_illisible():
-    chiffre = insacloud.encrypt_secret("motdepasse-machine")
+    chiffre = crypto.encrypt_secret("motdepasse-machine")
     assert "motdepasse-machine" not in chiffre
-    assert insacloud.decrypt_secret(chiffre) == "motdepasse-machine"
+    assert crypto.decrypt_secret(chiffre) == "motdepasse-machine"
 
 
 def test_dechiffrement_d_un_jeton_invalide_ne_leve_pas():
-    assert insacloud.decrypt_secret("jeton-corrompu") is None
-    assert insacloud.decrypt_secret("") is None
+    assert crypto.decrypt_secret("jeton-corrompu") is None
+    assert crypto.decrypt_secret("") is None
 
 
 # --- CSRF --------------------------------------------------------------------
@@ -185,7 +187,7 @@ def test_mot_de_passe_machine_masque_tant_que_le_coffre_est_ferme(connecte, monk
     secret = "MotDePasseMachine123"
     identifiant = db.create_instance(utilisateur["id"], "abc123456789", "insacloud_etudiant_1",
                                      8001, 60, "ubuntu", "terminal", 8101, gui_port=None, worker="local")
-    db.set_instance_password(identifiant, insacloud.encrypt_secret(secret))
+    db.set_instance_password(identifiant, crypto.encrypt_secret(secret))
 
     page = connecte.get("/dashboard").get_data(as_text=True)
     assert secret not in page
@@ -240,7 +242,7 @@ def test_cle_publique_ssh_validee():
 
 def test_generation_de_mot_de_passe_solide():
     """Tirage uniforme dans un alphabet sans caractères ambigus, 16 caractères."""
-    mots = [insacloud.generate_password() for _ in range(200)]
+    mots = [docker_ops.generate_password() for _ in range(200)]
     assert len(set(mots)) == 200, "deux mots de passe identiques révéleraient un générateur faible"
     assert all(len(m) == 16 for m in mots)
     assert not any(set(m) & set("0O1lI") for m in mots), "caractères ambigus exclus"
@@ -251,4 +253,4 @@ def test_generation_de_mot_de_passe_solide():
 
 
 def test_longueur_du_mot_de_passe_parametrable():
-    assert len(insacloud.generate_password(24)) == 24
+    assert len(docker_ops.generate_password(24)) == 24

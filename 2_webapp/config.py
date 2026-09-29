@@ -63,6 +63,10 @@ CONTAINER_CPUS = os.environ.get("INSACLOUD_CONTAINER_CPUS", "1")
 CONTAINER_PIDS_LIMIT = os.environ.get("INSACLOUD_CONTAINER_PIDS", "512")
 TERM_CONTAINER_PORT = 7681   # ttyd dans toutes les images
 GUI_CONTAINER_PORT = 6080    # noVNC dans les images "bureau"
+# Identité du déploiement. Deux plateformes InsaCloud peuvent partager le même
+# démon Docker (un poste de développement et une pile compose, par exemple) :
+# chacune n'a le droit de toucher qu'aux machines portant SON nom de cluster.
+CLUSTER = os.environ.get("INSACLOUD_CLUSTER", "default")
 CONTAINER_PREFIX = "insacloud_"
 DOCKER_TIMEOUT = int(os.environ.get("INSACLOUD_DOCKER_TIMEOUT", "60"))
 

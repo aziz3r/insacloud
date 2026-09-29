@@ -18,15 +18,33 @@ import string
 import subprocess  # nosec B404 - le sujet impose de piloter Docker par la CLI
 
 import workers as wk
-from config import (AVAILABLE_IMAGES, CONTAINER_CPUS, CONTAINER_PIDS_LIMIT,
-                    CONTAINER_PREFIX, DOCKER_TIMEOUT, GUI_CONTAINER_PORT, MODES,
-                    PORT_MAX, PORT_MIN, TERM_CONTAINER_PORT, TLS_DIR)
+from config import (AVAILABLE_IMAGES, CLUSTER, CONTAINER_CPUS,
+                    CONTAINER_PIDS_LIMIT, CONTAINER_PREFIX, DOCKER_TIMEOUT,
+                    GUI_CONTAINER_PORT, MODES, PORT_MAX, PORT_MIN,
+                    TERM_CONTAINER_PORT, TLS_DIR)
 
 log = logging.getLogger("insacloud.docker")
 
 # Durcissement des conteneurs loués : capacités minimales pour sshd / supervisord,
 # pas d'escalade de privilèges, limites de processus et de CPU.
+# Label apposé à TOUTE machine louée. C'est lui, et non le nom du conteneur,
+# qui identifie ce que la plateforme a le droit de détruire : un préfixe de nom
+# est trop facile à percuter — les conteneurs de la pile elle-même s'appellent
+# insacloud-web, insacloud-db, insacloud-faucheur.
+MACHINE_LABEL = "insacloud.role"
+MACHINE_LABEL_VALUE = "rented-machine"
+CLUSTER_LABEL = "insacloud.cluster"
+
+# Les deux filtres sont combinés : une machine doit être une machine louée ET
+# appartenir à CE déploiement. Sans le second, le Faucheur d'une plateforme
+# détruirait les machines d'une autre tournant sur le même démon.
+MACHINE_FILTERS = [f"label={MACHINE_LABEL}={MACHINE_LABEL_VALUE}",
+                   f"label={CLUSTER_LABEL}={CLUSTER}"]
+MACHINE_FILTER = MACHINE_FILTERS[0]        # conservé pour compatibilité
+
 CONTAINER_HARDENING = [
+    "--label", f"{MACHINE_LABEL}={MACHINE_LABEL_VALUE}",
+    "--label", f"{CLUSTER_LABEL}={CLUSTER}",
     "--cap-drop", "ALL",
     "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
     "--cap-add", "FSETID", "--cap-add", "SETGID", "--cap-add", "SETUID",

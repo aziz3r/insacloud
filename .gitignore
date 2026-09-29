@@ -33,3 +33,6 @@ rapport/*.aux
 rapport/*.out
 rapport/*.toc
 rapport/*.synctex.gz
+
+# Secrets de la pile compose (voir .env.example)
+.env

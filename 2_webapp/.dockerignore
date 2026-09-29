@@ -1,0 +1,14 @@
+# Rien de tout cela n'a sa place dans l'image
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+tests/
+*.db
+*.db-wal
+*.db-shm
+.secret_key
+.vault_key
+.coverage
+coverage.xml

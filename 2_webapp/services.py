@@ -180,6 +180,8 @@ def _creer_conteneur(nom: str, mot_de_passe: str, os_type: str, mode: str,
 
 
 def _supprimer_sans_bruit(identifiant: str, noeud: str) -> None:
+    """Supprime sans propager d'erreur : chemin de nettoyage après un échec."""
+    log.info("Nettoyage après échec : suppression de %s sur %s", identifiant, noeud)
     try:
         docker.docker_remove_container(identifiant, noeud)
     except docker.DockerError:

@@ -43,6 +43,23 @@ HEARTBEAT_TIMEOUT = int(os.environ.get("INSACLOUD_HEARTBEAT_TIMEOUT", "90"))
 
 LOCAL_WORKER = "local"     # nœud fictif du mode mono-hôte
 
+def url_sans_secret(url: str = None) -> str:
+    """
+    Chaîne de connexion débarrassée de son mot de passe, pour les journaux.
+
+    Une URL PostgreSQL contient le mot de passe en clair ; la journaliser telle
+    quelle le déposerait dans journald, dans les journaux de conteneur et dans
+    toute remontée d'erreur.
+    """
+    url = url or DATABASE_URL
+    if "://" not in url or "@" not in url:
+        return url
+    schema, reste = url.split("://", 1)
+    identifiants, hote = reste.rsplit("@", 1)
+    utilisateur = identifiants.split(":", 1)[0]
+    return f"{schema}://{utilisateur}:***@{hote}"
+
+
 engine = create_engine(
     DATABASE_URL,
     future=True,
@@ -388,7 +405,7 @@ def create_instance(user_id: int, container_id: str, container_name: str,
                     port: int, duration_minutes: int,
                     os_type: str = "ubuntu", mode: str = "terminal",
                     term_port: int = None, gui_port: int = None,
-                    root_password_enc: str = "",
+                    root_password_enc: str = "",  # nosec B107 - jeton chiffré, pas un mot de passe
                     worker: str = LOCAL_WORKER) -> int:
     """
     Enregistre une instance ET sa location, en une transaction.

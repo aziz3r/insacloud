@@ -28,7 +28,10 @@ import sys
 import threading
 
 import database as db
+import services
 import workers as wk
+from docker_ops import MACHINE_FILTERS
+from config import AUTO_RECOVERY
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -69,6 +72,9 @@ def remove_container(container_id: str, worker: str = "local") -> bool:
     Retourne True si le conteneur est absent après l'opération
     (supprimé maintenant, ou déjà inexistant).
     """
+    # Journalisée systématiquement : c'est la seule trace qu'une machine a
+    # été détruite, et elle doit pouvoir être retrouvée après coup.
+    log.info("Destruction du conteneur %s sur %s", container_id, worker)
     res = _docker("rm", "-f", container_id, worker=worker)
     if res.returncode == 0:
         return True
@@ -109,7 +115,13 @@ def reconcile() -> None:
     """
     all_active = db.get_active_instances()
     for worker in wk.WORKERS:
-        res = _docker("ps", "-a", "--filter", f"name={CONTAINER_PREFIX}",
+        # Filtre par LABEL, jamais par nom : les conteneurs de la plateforme
+        # (insacloud-web, insacloud-db, insacloud-faucheur) ne doivent jamais
+        # être pris pour des machines louées et détruits comme orphelins.
+        filtres = []
+        for filtre in MACHINE_FILTERS:
+            filtres += ["--filter", filtre]
+        res = _docker("ps", "-a", *filtres,
                       "--format", "{{.ID}} {{.Names}}", worker=worker)
         if res.returncode != 0:
             log.warning("Nœud %s injoignable pour la réconciliation : %s", worker, res.stderr.strip()[:120])
@@ -133,9 +145,65 @@ def reconcile() -> None:
                 db.set_instance_status(inst["id"], db.STATUS_STOPPED)
 
 
+def battre_pour_le_noeud_local() -> None:
+    """
+    En mode mono-hôte, le Faucheur tient lieu d'agent pour le nœud « local ».
+
+    Sans cela, ce nœud fictif — qui n'héberge aucun agent puisqu'il EST le
+    contrôleur — finirait par expirer faute de battement de cœur : ses machines
+    seraient déclarées arrêtées, puis supprimées comme orphelines à la
+    réconciliation suivante. Le battement n'est envoyé que si le démon Docker
+    local répond vraiment : c'est une vérification, pas une formalité.
+    """
+    if wk.WORKERS != {db.LOCAL_WORKER: None}:
+        return                                  # de vrais workers, avec leurs agents
+    if db.get_worker_by_hostname(db.LOCAL_WORKER) is None:
+        return                                  # aucune machine louée pour l'instant
+    res = _docker("info", "--format", "{{.ServerVersion}}", worker=db.LOCAL_WORKER)
+    if res.returncode == 0:
+        db.worker_heartbeat(db.LOCAL_WORKER)
+    else:
+        log.error("Le démon Docker local ne répond pas : %s", res.stderr.strip()[:120])
+
+
+def surveiller_workers() -> int:
+    """
+    Détecte les workers muets et remet leurs machines en service ailleurs.
+
+    Le mécanisme complet, tel que le cahier des charges le décrit :
+        worker1 en panne -> OFFLINE -> recherche d'un worker disponible
+        -> recréation du conteneur sur worker2 -> instance mise à jour
+
+    Retourne le nombre d'instances effectivement reprises.
+    """
+    bascules = db.mark_stale_workers_offline()
+    if not bascules:
+        return 0
+
+    reprises = 0
+    for hostname in bascules:
+        instances = db.get_instances_on_worker(hostname, actives_seulement=True)
+        log.error("Worker %s ne répond plus (aucun battement de cœur) : "
+                  "%d machine(s) à reprendre.", hostname, len(instances))
+        if not instances:
+            continue
+        if not AUTO_RECOVERY:
+            log.warning("Reprise automatique désactivée : les machines de %s "
+                        "restent marquées actives.", hostname)
+            continue
+        for nom, resultat in services.reprendre_worker(hostname):
+            if resultat.ok:
+                reprises += 1
+                log.warning("Machine %s reprise : %s", nom, resultat.message)
+            else:
+                log.error("Reprise impossible pour %s : %s", nom, resultat.message)
+    return reprises
+
+
 def run_forever() -> None:
     """Boucle principale : tourne jusqu'à réception d'un signal d'arrêt."""
-    log.info("Faucheur démarré (intervalle = %ss, BDD = %s, nœuds = %s)", INTERVAL, db.DB_PATH, ", ".join(wk.WORKERS))
+    log.info("Faucheur démarré (intervalle = %ss, base = %s, reprise auto = %s)",
+             INTERVAL, db.url_sans_secret(), AUTO_RECOVERY)
     db.init_db()  # s'assure que le schéma existe même si Flask n'a pas encore tourné
     cycle = 0
     while not _stop_event.is_set():
@@ -144,6 +212,13 @@ def run_forever() -> None:
             n = reap_expired()
             if n:
                 log.info("%d instance(s) fauchée(s) ce cycle.", n)
+            # La surveillance du parc tourne à chaque cycle : une panne de
+            # worker doit être vue en quelques secondes, pas à la prochaine
+            # réconciliation.
+            battre_pour_le_noeud_local()
+            reprises = surveiller_workers()
+            if reprises:
+                log.warning("%d machine(s) reprises sur un autre nœud.", reprises)
             if cycle % RECONCILE_EVERY == 0:
                 reconcile()
         except Exception:  # noqa: BLE001 - le démon ne doit jamais mourir
