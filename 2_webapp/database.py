@@ -1,53 +1,82 @@
 """
-database.py - Couche d'accès à la base de données SQLite d'InsaCloud.
+database.py - Accès aux données InsaCloud (SQLAlchemy).
 
-Ce module est partagé par le serveur web (app.py) et par le Faucheur
-(faucheur.py). Il contient :
-  - l'initialisation du schéma (tables `users` et `instances`) ;
-  - des fonctions d'accès simples (CRUD) pour ne jamais écrire de SQL
-    directement dans les routes Flask.
+Le schéma vit dans models.py ; ce module expose les opérations métier et rend
+des dictionnaires simples, pour que l'application et le Faucheur n'aient pas à
+manipuler de sessions ORM.
 
-Conventions :
-  - Toutes les dates sont stockées en UTC au format "YYYY-MM-DD HH:MM:SS",
-    ce qui est exactement le format renvoyé par datetime('now') de SQLite.
-    On peut donc comparer les dates directement en SQL.
-  - Statuts possibles d'une instance :
-        running  -> conteneur en vie, location en cours
-        expired  -> durée dépassée, conteneur supprimé par le Faucheur
-        stopped  -> arrêtée volontairement par l'utilisateur (ou disparue)
+Moteur : SQLite par défaut (fichier unique, aucun service à installer), ou tout
+autre moteur via DATABASE_URL — PostgreSQL en particulier, que le fichier
+docker-compose.yml démarre à côté de l'application.
+
+Concurrence : Flask (4 workers Gunicorn), le Faucheur et l'agent des workers
+écrivent dans la même base. En SQLite, le mode WAL autorise des lectures
+pendant une écriture ; c'est ce qui rend cette cohabitation possible.
 """
 
 import os
-import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-# -----------------------------------------------------------------------------
-# Configuration
-# -----------------------------------------------------------------------------
+from sqlalchemy import create_engine, delete, event, func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session, sessionmaker
+
+from models import (DISTRIBUTION_ACTIVE, INSTANCE_EXPIRED, INSTANCE_RUNNING,
+                    INSTANCE_STOPPED, RENTAL_ACTIVE, RENTAL_EXPIRED,
+                    RENTAL_STOPPED, WORKER_AVAILABLE, WORKER_BUSY,
+                    WORKER_OFFLINE, Base, Distribution, Instance, LoginAttempt,
+                    Rental, User, Worker, utc_now)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Chemin du fichier SQLite (surchargeable par variable d'environnement)
+# Chemin SQLite historique, conservé pour compatibilité ; DATABASE_URL a priorité.
 DB_PATH = os.environ.get("INSACLOUD_DB", os.path.join(BASE_DIR, "insacloud.db"))
+DATABASE_URL = os.environ.get("DATABASE_URL") or f"sqlite:///{DB_PATH}"
 
-# Format de date compatible avec datetime('now') de SQLite
-DATE_FMT = "%Y-%m-%d %H:%M:%S"
+# Statuts exposés tels quels au reste de l'application
+STATUS_RUNNING = INSTANCE_RUNNING
+STATUS_EXPIRED = INSTANCE_EXPIRED
+STATUS_STOPPED = INSTANCE_STOPPED
 
-STATUS_RUNNING = "running"
-STATUS_EXPIRED = "expired"
-STATUS_STOPPED = "stopped"
+# Un worker sans battement de cœur depuis ce délai est déclaré hors ligne.
+HEARTBEAT_TIMEOUT = int(os.environ.get("INSACLOUD_HEARTBEAT_TIMEOUT", "90"))
+
+LOCAL_WORKER = "local"     # nœud fictif du mode mono-hôte
+
+engine = create_engine(
+    DATABASE_URL,
+    future=True,
+    pool_pre_ping=True,
+    connect_args={"timeout": 15, "check_same_thread": False}
+    if DATABASE_URL.startswith("sqlite") else {},
+)
 
 
-# -----------------------------------------------------------------------------
-# Utilitaires temps
-# -----------------------------------------------------------------------------
-def utc_now() -> datetime:
-    """Retourne l'heure courante en UTC (datetime naïf, sans tzinfo)."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+@event.listens_for(engine, "connect")
+def _configurer_sqlite(dbapi_connection, _record):
+    """WAL + clés étrangères : sans cela SQLite ignore silencieusement les FK."""
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+    curseur = dbapi_connection.cursor()
+    curseur.execute("PRAGMA journal_mode=WAL")
+    curseur.execute("PRAGMA foreign_keys=ON")
+    curseur.execute("PRAGMA busy_timeout=15000")
+    curseur.close()
 
 
-def parse_utc(value: str) -> datetime:
-    """Convertit une chaîne de la BDD ("YYYY-MM-DD HH:MM:SS") en datetime UTC."""
-    return datetime.strptime(value, DATE_FMT)
+SessionLocal = sessionmaker(bind=engine, future=True, expire_on_commit=False)
+
+
+# =============================================================================
+#  Dates
+# =============================================================================
+def parse_utc(value):
+    """Accepte une chaîne SQLite ou un datetime, retourne toujours un datetime naïf UTC."""
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None) if value.tzinfo else value
+    if value is None:
+        return None
+    return datetime.strptime(str(value)[:19], "%Y-%m-%d %H:%M:%S")
 
 
 def to_local(value: datetime) -> datetime:
@@ -55,333 +84,499 @@ def to_local(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc).astimezone()
 
 
-# -----------------------------------------------------------------------------
-# Connexion
-# -----------------------------------------------------------------------------
-def get_connection() -> sqlite3.Connection:
-    """
-    Ouvre une connexion SQLite.
-
-    - row_factory = sqlite3.Row : les lignes sont accessibles par nom de colonne.
-    - timeout = 10 s : attend si l'autre processus (Faucheur / Flask) écrit.
-    - journal_mode = WAL : permet des lectures concurrentes pendant une écriture,
-      indispensable car deux processus distincts utilisent le même fichier.
-    """
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    return conn
-
-
-# -----------------------------------------------------------------------------
-# Initialisation du schéma
-# -----------------------------------------------------------------------------
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    username       TEXT    NOT NULL UNIQUE,
-    password_hash  TEXT    NOT NULL,           -- PBKDF2-SHA256 salé (werkzeug)
-    ssh_public_key TEXT,                       -- clé publique SSH optionnelle
-    created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-
--- Journal des tentatives de connexion : limitation anti-force-brute + audit
-CREATE TABLE IF NOT EXISTS login_attempts (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    username   TEXT    NOT NULL,
-    ip         TEXT    NOT NULL,
-    success    INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts (username, created_at);
-CREATE INDEX IF NOT EXISTS idx_login_attempts_ip   ON login_attempts (ip, created_at);
-
-CREATE TABLE IF NOT EXISTS instances (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    container_id   TEXT    NOT NULL,           -- ID court Docker (12 caractères)
-    container_name TEXT    NOT NULL,           -- nom lisible : insacloud_<user>_<rand>
-    port           INTEGER NOT NULL,           -- port hôte redirigé vers le 22 du conteneur
-    root_password  TEXT    NOT NULL DEFAULT '', -- CHIFFRÉ (Fernet, clé hors base) ; '' = indisponible
-    os_type        TEXT    NOT NULL DEFAULT 'ubuntu',   -- distribution : ubuntu | debian | alpine
-    worker         TEXT    NOT NULL DEFAULT 'local',    -- nœud Docker qui héberge le conteneur
-    mode           TEXT    NOT NULL DEFAULT 'terminal', -- terminal | desktop
-    term_port      INTEGER,                   -- port hôte du terminal web (ttyd)
-    gui_port       INTEGER,                   -- port hôte du bureau graphique (noVNC), NULL en mode terminal
-    created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
-    expires_at     TEXT    NOT NULL,           -- date de fin de location (UTC)
-    status         TEXT    NOT NULL DEFAULT 'running',
-    terminated_at  TEXT                        -- date de destruction effective
-);
-
--- Index utilisé en boucle par le Faucheur : "status = running AND expires_at <= now"
-CREATE INDEX IF NOT EXISTS idx_instances_status_expires
-    ON instances (status, expires_at);
-"""
+# =============================================================================
+#  Distributions livrées avec la plateforme
+# =============================================================================
+DISTRIBUTIONS_PAR_DEFAUT = [
+    {"name": "ubuntu", "docker_image": "insacloud_ubuntu", "version": "22.04",
+     "label": "Ubuntu 22.04", "hint": "La plus répandue, outils familiers"},
+    {"name": "debian", "docker_image": "insacloud_debian", "version": "12",
+     "label": "Debian 12", "hint": "Stable et sobre, base de nombreux serveurs"},
+    {"name": "alpine", "docker_image": "insacloud_alpine", "version": "3.20",
+     "label": "Alpine Linux 3.20", "hint": "Ultra-légère, démarre instantanément"},
+]
 
 
 def init_db() -> None:
-    """Crée les tables si elles n'existent pas (opération idempotente)."""
-    with get_connection() as conn:
-        conn.executescript(SCHEMA)
-        # Migration douce : ajoute os_type aux bases créées avant le multi-OS
-        columns = {row["name"] for row in conn.execute("PRAGMA table_info(instances)")}
-        if "os_type" not in columns:
-            conn.execute("ALTER TABLE instances ADD COLUMN os_type TEXT NOT NULL DEFAULT 'ubuntu'")
-        if "gui_port" not in columns:
-            conn.execute("ALTER TABLE instances ADD COLUMN gui_port INTEGER")
-        if "mode" not in columns:
-            conn.execute("ALTER TABLE instances ADD COLUMN mode TEXT NOT NULL DEFAULT 'terminal'")
-        if "term_port" not in columns:
-            conn.execute("ALTER TABLE instances ADD COLUMN term_port INTEGER")
-        if "worker" not in columns:
-            conn.execute("ALTER TABLE instances ADD COLUMN worker TEXT NOT NULL DEFAULT 'local'")
-        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
-        if "ssh_public_key" not in user_columns:
-            conn.execute("ALTER TABLE users ADD COLUMN ssh_public_key TEXT")
-        # Sécurité : purge des mots de passe root que les anciennes versions stockaient EN CLAIR
-        # (les valeurs chiffrées commencent par "gAAAA", préfixe des jetons Fernet)
-        conn.execute("UPDATE instances SET root_password = '' "
-                     "WHERE root_password != '' AND root_password NOT LIKE 'gAAAA%'")
+    """Crée le schéma s'il manque et garnit le catalogue des distributions."""
+    Base.metadata.create_all(engine)
+    with SessionLocal() as session:
+        for donnees in DISTRIBUTIONS_PAR_DEFAUT:
+            existante = session.scalar(
+                select(Distribution).where(Distribution.name == donnees["name"]))
+            if existante is None:
+                session.add(Distribution(status=DISTRIBUTION_ACTIVE, **donnees))
+        session.commit()
 
 
-# -----------------------------------------------------------------------------
-# Utilisateurs
-# -----------------------------------------------------------------------------
-def create_user(username: str, password_hash: str):
-    """
-    Crée un utilisateur. Retourne son id, ou None si le nom existe déjà.
-    """
-    try:
-        with get_connection() as conn:
-            cur = conn.execute(
-                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                (username, password_hash),
-            )
-            return cur.lastrowid
-    except sqlite3.IntegrityError:
+# =============================================================================
+#  Utilisateurs
+# =============================================================================
+def _en_dict(objet, extra: dict = None) -> dict:
+    """Transforme une ligne ORM en dictionnaire simple (clés = colonnes)."""
+    if objet is None:
         return None
+    resultat = {c.name: getattr(objet, c.name) for c in objet.__table__.columns}
+    if extra:
+        resultat.update(extra)
+    return resultat
+
+
+def create_user(username: str, password_hash: str, email: str = None):
+    """Crée un utilisateur. Retourne son id, ou None si l'identifiant existe déjà."""
+    with SessionLocal() as session:
+        try:
+            utilisateur = User(username=username, password_hash=password_hash,
+                               email=email or None)
+            session.add(utilisateur)
+            session.commit()
+            return utilisateur.id
+        except IntegrityError:
+            session.rollback()
+            return None
 
 
 def get_user_by_username(username: str):
-    with get_connection() as conn:
-        return conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
+    with SessionLocal() as session:
+        return _en_dict(session.scalar(select(User).where(User.username == username)))
 
 
 def get_user_by_id(user_id: int):
-    with get_connection() as conn:
-        return conn.execute(
-            "SELECT * FROM users WHERE id = ?", (user_id,)
-        ).fetchone()
+    with SessionLocal() as session:
+        return _en_dict(session.get(User, user_id))
 
 
 def set_user_ssh_key(user_id: int, public_key: str) -> None:
-    """Enregistre (ou efface si chaîne vide) la clé publique SSH de l'utilisateur."""
-    with get_connection() as conn:
-        conn.execute(
-            "UPDATE users SET ssh_public_key = ? WHERE id = ?",
-            (public_key or None, user_id),
-        )
+    with SessionLocal() as session:
+        session.execute(update(User).where(User.id == user_id)
+                        .values(ssh_public_key=public_key or None))
+        session.commit()
 
 
-# -----------------------------------------------------------------------------
-# Tentatives de connexion (anti-force-brute)
-# -----------------------------------------------------------------------------
+def set_user_email(user_id: int, email: str) -> None:
+    with SessionLocal() as session:
+        session.execute(update(User).where(User.id == user_id)
+                        .values(email=email or None))
+        session.commit()
+
+
+# =============================================================================
+#  Tentatives de connexion (anti-force-brute)
+# =============================================================================
 def record_login_attempt(username: str, ip: str, success: bool) -> None:
-    with get_connection() as conn:
-        conn.execute(
-            "INSERT INTO login_attempts (username, ip, success) VALUES (?, ?, ?)",
-            (username[:64], ip[:64], 1 if success else 0),
-        )
+    with SessionLocal() as session:
+        session.add(LoginAttempt(username=username[:32], ip=ip[:45], success=bool(success)))
+        session.commit()
 
 
 def count_recent_failures(minutes: int, username: str = None, ip: str = None) -> int:
-    """
-    Nombre d'échecs récents pour un compte et/ou une adresse IP.
-
-    La requête est écrite en dur et ne varie pas selon les arguments : les
-    critères optionnels sont neutralisés directement en SQL (`? IS NULL OR …`).
-    Aucune portion de requête n'est construite par concaténation, ce qui écarte
-    par construction toute injection SQL.
-    """
-    with get_connection() as conn:
-        row = conn.execute(
-            """
-            SELECT COUNT(*) AS n FROM login_attempts
-             WHERE success = 0
-               AND created_at >= datetime('now', ?)
-               AND (? IS NULL OR username = ?)
-               AND (? IS NULL OR ip = ?)
-            """,
-            (f"-{int(minutes)} minutes", username, username, ip, ip),
-        ).fetchone()
-        return row["n"]
+    """Échecs récents pour un compte et/ou une adresse IP, sur une fenêtre glissante."""
+    depuis = utc_now() - timedelta(minutes=int(minutes))
+    requete = select(func.count()).select_from(LoginAttempt).where(
+        LoginAttempt.success.is_(False), LoginAttempt.created_at >= depuis)
+    if username is not None:
+        requete = requete.where(LoginAttempt.username == username)
+    if ip is not None:
+        requete = requete.where(LoginAttempt.ip == ip)
+    with SessionLocal() as session:
+        return session.scalar(requete) or 0
 
 
 def purge_login_attempts(hours: int = 24) -> None:
-    """Supprime les entrées plus anciennes que `hours` (rétention courte)."""
-    with get_connection() as conn:
-        conn.execute("DELETE FROM login_attempts WHERE created_at < datetime('now', ?)",
-                     (f"-{int(hours)} hours",))
+    with SessionLocal() as session:
+        session.execute(delete(LoginAttempt).where(
+            LoginAttempt.created_at < utc_now() - timedelta(hours=int(hours))))
+        session.commit()
 
 
-# -----------------------------------------------------------------------------
-# Instances (machines louées)
-# -----------------------------------------------------------------------------
+# =============================================================================
+#  Workers : enregistrement, battement de cœur, états
+# =============================================================================
+def register_worker(hostname: str, ip: str, cpu: int = None, memory: int = None,
+                    capacity: int = None) -> dict:
+    """
+    Enregistre un worker, ou met à jour sa fiche s'il revient après une panne.
+    Appelé par worker_agent.py sur POST /workers/register.
+    """
+    with SessionLocal() as session:
+        worker = session.scalar(select(Worker).where(Worker.hostname == hostname))
+        if worker is None:
+            worker = Worker(hostname=hostname, ip=ip)
+            session.add(worker)
+        worker.ip = ip
+        worker.cpu = cpu
+        worker.memory = memory
+        # Capacité : une machine « terminal » consomme 256 Mio, on garde 1 Gio au système.
+        worker.capacity = capacity or (max(1, (memory - 1024) // 256) if memory else 10)
+        worker.status = WORKER_AVAILABLE
+        worker.last_heartbeat = utc_now()
+        session.commit()
+        return _en_dict(worker)
+
+
+def worker_heartbeat(hostname: str, status: str = None) -> bool:
+    """Enregistre un battement de cœur. Retourne False si le worker est inconnu."""
+    with SessionLocal() as session:
+        worker = session.scalar(select(Worker).where(Worker.hostname == hostname))
+        if worker is None:
+            return False
+        worker.last_heartbeat = utc_now()
+        if worker.status == WORKER_OFFLINE:
+            worker.status = WORKER_AVAILABLE      # le nœud est revenu
+        if status in (WORKER_AVAILABLE, WORKER_BUSY):
+            worker.status = status
+        session.commit()
+        return True
+
+
+def get_workers() -> list:
+    """Tous les workers, avec leur charge courante."""
+    with SessionLocal() as session:
+        workers = session.scalars(select(Worker).order_by(Worker.hostname)).all()
+        charges = dict(session.execute(
+            select(Instance.worker_id, func.count())
+            .where(Instance.status == INSTANCE_RUNNING)
+            .group_by(Instance.worker_id)).all())
+        return [_en_dict(w, {
+            "running_instances": charges.get(w.id, 0),
+            "reachable": w.est_joignable(HEARTBEAT_TIMEOUT),
+        }) for w in workers]
+
+
+def get_worker(worker_id: int) -> dict:
+    with SessionLocal() as session:
+        worker = session.get(Worker, worker_id)
+        if worker is None:
+            return None
+        charge = session.scalar(
+            select(func.count()).select_from(Instance)
+            .where(Instance.worker_id == worker_id,
+                   Instance.status == INSTANCE_RUNNING)) or 0
+        return _en_dict(worker, {"running_instances": charge,
+                                 "reachable": worker.est_joignable(HEARTBEAT_TIMEOUT)})
+
+
+def get_worker_by_hostname(hostname: str) -> dict:
+    with SessionLocal() as session:
+        return _en_dict(session.scalar(select(Worker).where(Worker.hostname == hostname)))
+
+
+def set_worker_status(hostname: str, status: str) -> None:
+    with SessionLocal() as session:
+        session.execute(update(Worker).where(Worker.hostname == hostname).values(status=status))
+        session.commit()
+
+
+def mark_stale_workers_offline(timeout_seconds: int = None) -> list:
+    """
+    Passe OFFLINE tout worker muet depuis trop longtemps.
+    Retourne les noms des workers qui viennent de basculer — c'est le signal
+    qui déclenche la reprise des instances (haute disponibilité).
+    """
+    timeout = timeout_seconds or HEARTBEAT_TIMEOUT
+    limite = utc_now() - timedelta(seconds=timeout)
+    bascules = []
+    with SessionLocal() as session:
+        for worker in session.scalars(select(Worker).where(Worker.status != WORKER_OFFLINE)):
+            if worker.last_heartbeat is None or worker.last_heartbeat < limite:
+                worker.status = WORKER_OFFLINE
+                bascules.append(worker.hostname)
+        session.commit()
+    return bascules
+
+
+def ensure_worker(hostname: str, ip: str = None) -> int:
+    """
+    Retourne l'id du worker, en le créant si besoin. Sert au mode mono-hôte
+    (« local ») et aux workers déclarés par configuration plutôt que par agent.
+    """
+    with SessionLocal() as session:
+        worker = session.scalar(select(Worker).where(Worker.hostname == hostname))
+        if worker is None:
+            worker = Worker(hostname=hostname, ip=ip or "127.0.0.1",
+                            status=WORKER_AVAILABLE, last_heartbeat=utc_now())
+            session.add(worker)
+            session.commit()
+        elif ip and worker.ip != ip:
+            worker.ip = ip
+            session.commit()
+        return worker.id
+
+
+def select_available_worker(prefer: list = None) -> dict:
+    """
+    Choisit le worker le moins chargé parmi ceux qui sont joignables et n'ont
+    pas atteint leur capacité. Retourne None si aucun n'est disponible.
+    """
+    candidats = [w for w in get_workers()
+                 if w["status"] != WORKER_OFFLINE and w["reachable"]
+                 and w["running_instances"] < w["capacity"]]
+    if prefer:
+        filtres = [w for w in candidats if w["hostname"] in prefer]
+        candidats = filtres or candidats
+    if not candidats:
+        return None
+    return min(candidats, key=lambda w: (w["running_instances"], w["hostname"]))
+
+
+# =============================================================================
+#  Distributions
+# =============================================================================
+def get_distributions(actives_seulement: bool = True) -> list:
+    requete = select(Distribution).order_by(Distribution.id)
+    if actives_seulement:
+        requete = requete.where(Distribution.status == DISTRIBUTION_ACTIVE)
+    with SessionLocal() as session:
+        return [_en_dict(d) for d in session.scalars(requete)]
+
+
+def get_distribution_by_name(name: str) -> dict:
+    with SessionLocal() as session:
+        return _en_dict(session.scalar(select(Distribution).where(Distribution.name == name)))
+
+
+def set_distribution_status(name: str, status: str) -> None:
+    with SessionLocal() as session:
+        session.execute(update(Distribution).where(Distribution.name == name)
+                        .values(status=status))
+        session.commit()
+
+
+# =============================================================================
+#  Instances et locations
+# =============================================================================
+def _instance_en_dict(instance: Instance, rental: Rental, worker: Worker,
+                      distribution: Distribution, username: str = None) -> dict:
+    """
+    Vue « à plat » d'une location, telle que l'application et les gabarits
+    l'attendent : l'instance, sa location et les noms du worker et de la distro.
+    """
+    donnees = _en_dict(instance)
+    donnees.update({
+        "port": instance.ssh_port,                 # nom historique côté interface
+        "worker": worker.hostname if worker else None,
+        "worker_ip": worker.ip if worker else None,
+        "os_type": distribution.name if distribution else None,
+        "distribution_label": distribution.label if distribution else None,
+        "rental_id": rental.id if rental else None,
+        "user_id": rental.user_id if rental else None,
+        "start_time": rental.start_time if rental else None,
+        "expires_at": rental.end_time if rental else None,
+        "rental_status": rental.status if rental else None,
+    })
+    if username is not None:
+        donnees["username"] = username
+    return donnees
+
+
+def _charger(session: Session, requete) -> list:
+    """Exécute une requête jointe instance/location/worker/distribution."""
+    lignes = session.execute(requete).all()
+    return [_instance_en_dict(i, r, w, d, u) for i, r, w, d, u in lignes]
+
+
+_REQUETE_BASE = (
+    select(Instance, Rental, Worker, Distribution, User.username)
+    .join(Rental, Rental.instance_id == Instance.id)
+    .join(Worker, Worker.id == Instance.worker_id)
+    .join(Distribution, Distribution.id == Instance.distribution_id)
+    .join(User, User.id == Rental.user_id)
+)
+
+
 def create_instance(user_id: int, container_id: str, container_name: str,
                     port: int, duration_minutes: int,
                     os_type: str = "ubuntu", mode: str = "terminal",
                     term_port: int = None, gui_port: int = None,
-                    root_password_enc: str = "",  # nosec B107 - jeton chiffré, pas un mot de passe
-                    worker: str = "local") -> int:
+                    root_password_enc: str = "",
+                    worker: str = LOCAL_WORKER) -> int:
     """
-    Enregistre une nouvelle location. La date d'expiration est calculée
-    côté SQLite à partir de l'heure courante UTC : now + N minutes.
-    `root_password_enc` est le mot de passe root CHIFFRÉ par l'application
-    (jamais en clair en base).
+    Enregistre une instance ET sa location, en une transaction.
+    Retourne l'id de l'instance.
     """
-    with get_connection() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO instances
-                (user_id, container_id, container_name, port, root_password,
-                 os_type, mode, term_port, gui_port, worker, expires_at)
-            VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
-            """,
-            (user_id, container_id, container_name, port, root_password_enc or "",
-             os_type, mode, term_port, gui_port, worker,
-             # Format signé : "+60 minutes" ou "-5 minutes". Un "+" écrit en dur
-             # devant une valeur négative donnerait "+-5 minutes", que SQLite
-             # rejette en renvoyant NULL (violation de la contrainte NOT NULL).
-             f"{int(duration_minutes):+d} minutes"),
+    with SessionLocal() as session:
+        distribution = session.scalar(select(Distribution).where(Distribution.name == os_type))
+        if distribution is None:
+            raise ValueError(f"Distribution inconnue : {os_type}")
+        noeud = session.scalar(select(Worker).where(Worker.hostname == worker))
+        if noeud is None:
+            session.add(Worker(hostname=worker, ip="127.0.0.1",
+                               status=WORKER_AVAILABLE, last_heartbeat=utc_now()))
+            session.commit()
+            noeud = session.scalar(select(Worker).where(Worker.hostname == worker))
+
+        instance = Instance(
+            container_id=container_id, container_name=container_name,
+            worker_id=noeud.id, distribution_id=distribution.id,
+            ssh_port=port, mode=mode, term_port=term_port, gui_port=gui_port,
+            root_password=root_password_enc or None, status=INSTANCE_RUNNING,
         )
-        return cur.lastrowid
+        session.add(instance)
+        session.flush()                      # obtient instance.id sans valider
+
+        debut = utc_now()
+        session.add(Rental(user_id=user_id, instance_id=instance.id,
+                           start_time=debut,
+                           end_time=debut + timedelta(minutes=int(duration_minutes)),
+                           status=RENTAL_ACTIVE))
+        session.commit()
+        return instance.id
 
 
 def set_instance_password(instance_id: int, root_password_enc: str) -> None:
-    """Met à jour le mot de passe root chiffré après une rotation."""
-    with get_connection() as conn:
-        conn.execute("UPDATE instances SET root_password = ? WHERE id = ?",
-                     (root_password_enc, instance_id))
+    with SessionLocal() as session:
+        session.execute(update(Instance).where(Instance.id == instance_id)
+                        .values(root_password=root_password_enc))
+        session.commit()
 
 
 def get_instance(instance_id: int, user_id: int = None):
-    """
-    Récupère une instance par id. Si user_id est fourni, on vérifie aussi
-    qu'elle appartient bien à cet utilisateur (protection d'accès).
-    """
-    with get_connection() as conn:
-        if user_id is None:
-            return conn.execute(
-                "SELECT * FROM instances WHERE id = ?", (instance_id,)
-            ).fetchone()
-        return conn.execute(
-            "SELECT * FROM instances WHERE id = ? AND user_id = ?",
-            (instance_id, user_id),
-        ).fetchone()
+    """Une instance par id ; avec user_id, vérifie aussi qu'elle lui appartient."""
+    requete = _REQUETE_BASE.where(Instance.id == instance_id)
+    if user_id is not None:
+        requete = requete.where(Rental.user_id == user_id)
+    with SessionLocal() as session:
+        resultats = _charger(session, requete)
+        return resultats[0] if resultats else None
 
 
-def get_user_instances(user_id: int):
-    """Toutes les instances d'un utilisateur (actives d'abord, puis les plus récentes)."""
-    with get_connection() as conn:
-        return conn.execute(
-            """
-            SELECT * FROM instances
-            WHERE user_id = ?
-            ORDER BY (status = 'running') DESC, created_at DESC
-            """,
-            (user_id,),
-        ).fetchall()
+def get_user_instances(user_id: int) -> list:
+    """Toutes les locations d'un utilisateur : actives d'abord, puis les plus récentes."""
+    requete = (_REQUETE_BASE.where(Rental.user_id == user_id)
+               .order_by((Instance.status == INSTANCE_RUNNING).desc(),
+                         Instance.created_at.desc()))
+    with SessionLocal() as session:
+        return _charger(session, requete)
 
 
 def count_active_instances(user_id: int) -> int:
-    """Nombre de machines actuellement louées par l'utilisateur (quota)."""
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) AS n FROM instances WHERE user_id = ? AND status = 'running'",
-            (user_id,),
-        ).fetchone()
-        return row["n"]
+    with SessionLocal() as session:
+        return session.scalar(
+            select(func.count()).select_from(Instance)
+            .join(Rental, Rental.instance_id == Instance.id)
+            .where(Rental.user_id == user_id, Instance.status == INSTANCE_RUNNING)) or 0
 
 
-def get_active_instances():
-    """Toutes les instances en cours (tous utilisateurs confondus)."""
-    with get_connection() as conn:
-        return conn.execute(
-            "SELECT * FROM instances WHERE status = 'running'"
-        ).fetchall()
+def get_active_instances() -> list:
+    with SessionLocal() as session:
+        return _charger(session, _REQUETE_BASE.where(Instance.status == INSTANCE_RUNNING))
 
 
-def get_expired_instances():
-    """
-    Instances en cours dont la date de fin est dépassée.
-    C'est LA requête exécutée en boucle par le Faucheur.
-    """
-    with get_connection() as conn:
-        return conn.execute(
-            """
-            SELECT instances.*, users.username
-            FROM instances
-            JOIN users ON users.id = instances.user_id
-            WHERE instances.status = 'running'
-              AND instances.expires_at <= datetime('now')
-            """
-        ).fetchall()
+def get_expired_instances() -> list:
+    """Instances en cours dont la location est échue : la requête du Faucheur."""
+    requete = _REQUETE_BASE.where(Instance.status == INSTANCE_RUNNING,
+                                  Rental.end_time <= utc_now())
+    with SessionLocal() as session:
+        return _charger(session, requete)
 
 
-def port_in_use(port: int, worker: str = "local") -> bool:
-    """Vrai si une instance active de ce nœud occupe déjà ce port hôte (SSH, terminal web ou bureau)."""
-    with get_connection() as conn:
-        row = conn.execute(
-            """SELECT 1 FROM instances
-               WHERE worker = ? AND (port = ? OR term_port = ? OR gui_port = ?) AND status = 'running' LIMIT 1""",
-            (worker, port, port, port),
-        ).fetchone()
-        return row is not None
+def get_instances_on_worker(hostname: str, actives_seulement: bool = True) -> list:
+    """Instances hébergées par un worker donné (sert à la reprise après panne)."""
+    requete = _REQUETE_BASE.where(Worker.hostname == hostname)
+    if actives_seulement:
+        requete = requete.where(Instance.status == INSTANCE_RUNNING)
+    with SessionLocal() as session:
+        return _charger(session, requete)
+
+
+def port_in_use(port: int, worker: str = LOCAL_WORKER) -> bool:
+    """Vrai si une instance active de ce nœud occupe déjà ce port hôte."""
+    with SessionLocal() as session:
+        noeud = session.scalar(select(Worker).where(Worker.hostname == worker))
+        if noeud is None:
+            return False
+        trouve = session.scalar(
+            select(Instance.id).where(
+                Instance.worker_id == noeud.id,
+                Instance.status == INSTANCE_RUNNING,
+                (Instance.ssh_port == port) | (Instance.term_port == port)
+                | (Instance.gui_port == port)).limit(1))
+        return trouve is not None
 
 
 def count_running_per_worker() -> dict:
     """{nom_du_worker: nombre de machines actives} — sert à répartir la charge."""
-    with get_connection() as conn:
-        rows = conn.execute(
-            "SELECT worker, COUNT(*) AS n FROM instances WHERE status = 'running' GROUP BY worker"
-        ).fetchall()
-        return {row["worker"]: row["n"] for row in rows}
+    with SessionLocal() as session:
+        lignes = session.execute(
+            select(Worker.hostname, func.count(Instance.id))
+            .join(Instance, (Instance.worker_id == Worker.id)
+                  & (Instance.status == INSTANCE_RUNNING), isouter=True)
+            .group_by(Worker.hostname)).all()
+        return {nom: n for nom, n in lignes}
 
 
 def set_instance_status(instance_id: int, status: str) -> None:
-    """Change le statut d'une instance et horodate sa fin de vie."""
-    with get_connection() as conn:
-        conn.execute(
-            """
-            UPDATE instances
-            SET status = ?, terminated_at = datetime('now')
-            WHERE id = ?
-            """,
-            (status, instance_id),
-        )
+    """Change le statut d'une instance et met sa location en cohérence."""
+    correspondance = {INSTANCE_EXPIRED: RENTAL_EXPIRED, INSTANCE_STOPPED: RENTAL_STOPPED,
+                      INSTANCE_RUNNING: RENTAL_ACTIVE}
+    with SessionLocal() as session:
+        instance = session.get(Instance, instance_id)
+        if instance is None:
+            return
+        instance.status = status
+        instance.terminated_at = utc_now() if status != INSTANCE_RUNNING else None
+        location = session.scalar(select(Rental).where(Rental.instance_id == instance_id))
+        if location is not None:
+            location.status = correspondance.get(status, location.status)
+        session.commit()
+
+
+def move_instance(instance_id: int, container_id: str, worker_hostname: str,
+                  ssh_port: int, term_port: int = None, gui_port: int = None) -> None:
+    """
+    Rattache une instance à un autre worker après l'avoir recréée.
+    La location n'est pas touchée : l'utilisateur garde sa durée.
+    """
+    with SessionLocal() as session:
+        noeud = session.scalar(select(Worker).where(Worker.hostname == worker_hostname))
+        if noeud is None:
+            raise ValueError(f"Worker inconnu : {worker_hostname}")
+        instance = session.get(Instance, instance_id)
+        if instance is None:
+            return
+        instance.container_id = container_id
+        instance.worker_id = noeud.id
+        instance.ssh_port = ssh_port
+        instance.term_port = term_port
+        instance.gui_port = gui_port
+        instance.status = INSTANCE_RUNNING
+        instance.terminated_at = None
+        instance.migrations = (instance.migrations or 0) + 1
+        session.commit()
 
 
 def extend_instance(instance_id: int, minutes: int) -> None:
-    """Prolonge la location de N minutes (à partir de la date de fin actuelle)."""
-    with get_connection() as conn:
-        conn.execute(
-            """
-            UPDATE instances
-            SET expires_at = datetime(expires_at, ?)
-            WHERE id = ? AND status = 'running'
-            """,
-            (f"+{int(minutes)} minutes", instance_id),
-        )
+    """Prolonge la location de N minutes à partir de sa date de fin actuelle."""
+    with SessionLocal() as session:
+        location = session.scalar(select(Rental).where(Rental.instance_id == instance_id))
+        if location is None or location.status != RENTAL_ACTIVE:
+            return
+        location.end_time = location.end_time + timedelta(minutes=int(minutes))
+        session.commit()
 
 
-# -----------------------------------------------------------------------------
-# Exécution directe : `python3 database.py` crée simplement la base.
-# -----------------------------------------------------------------------------
+def get_statistics() -> dict:
+    """Chiffres du tableau de supervision : parc, locations, utilisateurs."""
+    with SessionLocal() as session:
+        workers = session.scalars(select(Worker)).all()
+        return {
+            "users": session.scalar(select(func.count()).select_from(User)) or 0,
+            "workers_total": len(workers),
+            "workers_available": sum(1 for w in workers if w.status == WORKER_AVAILABLE),
+            "workers_offline": sum(1 for w in workers if w.status == WORKER_OFFLINE),
+            "instances_running": session.scalar(
+                select(func.count()).select_from(Instance)
+                .where(Instance.status == INSTANCE_RUNNING)) or 0,
+            "instances_total": session.scalar(select(func.count()).select_from(Instance)) or 0,
+            "rentals_active": session.scalar(
+                select(func.count()).select_from(Rental)
+                .where(Rental.status == RENTAL_ACTIVE)) or 0,
+            "distributions": session.scalar(
+                select(func.count()).select_from(Distribution)
+                .where(Distribution.status == DISTRIBUTION_ACTIVE)) or 0,
+        }
+
+
 if __name__ == "__main__":
     init_db()
-    print(f"Base de données initialisée : {DB_PATH}")
+    print(f"Base de données initialisée : {DATABASE_URL}")

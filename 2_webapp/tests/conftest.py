@@ -37,11 +37,22 @@ GOOD_PASSWORD = "Tr0ub4dour-Insa!"
 
 @pytest.fixture(autouse=True)
 def base_vierge():
-    """Chaque test part d'une base vide : aucun test n'hérite de l'état d'un autre."""
+    """
+    Chaque test part d'une base vide : aucun test n'hérite de l'état d'un autre.
+
+    Le moteur SQLAlchemy est fermé avant d'effacer le fichier : sans cela, les
+    connexions du pool continueraient de pointer sur l'ancien fichier effacé.
+    """
+    db.engine.dispose()
     try:
         os.remove(db.DB_PATH)
     except FileNotFoundError:
         pass
+    for suffixe in ("-wal", "-shm"):
+        try:
+            os.remove(db.DB_PATH + suffixe)
+        except FileNotFoundError:
+            pass
     db.init_db()
     yield
 

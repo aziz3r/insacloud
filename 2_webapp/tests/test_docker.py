@@ -10,8 +10,10 @@ que la commande imposée par le sujet est bien respectée :
 
 import pytest
 
-import app as insacloud
+import config
+import docker_ops as docker
 import workers as wk
+from app import parse_int
 
 
 @pytest.fixture
@@ -24,7 +26,7 @@ def commande(monkeypatch):
         captures["worker"] = worker
         return "0123456789abcdef0123"
 
-    monkeypatch.setattr(insacloud, "run_docker", espion)
+    monkeypatch.setattr(docker, "run_docker", espion)
     return captures
 
 
@@ -32,7 +34,7 @@ def lancer(commande, **kwargs):
     parametres = dict(port=8042, name="insacloud_etudiant_1", root_password="Secret123456",
                       os_type="ubuntu", mode="terminal", term_port=8142)
     parametres.update(kwargs)
-    identifiant = insacloud.docker_run_container(**parametres)
+    identifiant = docker.docker_run_container(**parametres)
     return commande["args"], identifiant
 
 
@@ -52,21 +54,21 @@ def test_identifiant_court_retourne(commande):
 
 def test_terminal_web_publie(commande):
     args, _ = lancer(commande)
-    assert f"8142:{insacloud.TERM_CONTAINER_PORT}" in args
+    assert f"8142:{config.TERM_CONTAINER_PORT}" in args
 
 
 # --- Limites de ressources : réservation ET limite --------------------------
 def test_mode_terminal_reserve_et_limite_la_memoire(commande):
     args, _ = lancer(commande, mode="terminal")
-    assert args[args.index("--memory") + 1] == insacloud.CONTAINER_MEMORY
-    assert args[args.index("--memory-reservation") + 1] == insacloud.CONTAINER_RESERVATION
+    assert args[args.index("--memory") + 1] == config.CONTAINER_MEMORY
+    assert args[args.index("--memory-reservation") + 1] == config.CONTAINER_RESERVATION
 
 
 def test_mode_bureau_reserve_davantage(commande):
     args, _ = lancer(commande, mode="desktop", gui_port=8242)
-    assert args[args.index("--memory") + 1] == insacloud.GUI_CONTAINER_MEMORY
-    assert args[args.index("--memory-reservation") + 1] == insacloud.GUI_CONTAINER_RESERVATION
-    assert f"8242:{insacloud.GUI_CONTAINER_PORT}" in args
+    assert args[args.index("--memory") + 1] == config.GUI_CONTAINER_MEMORY
+    assert args[args.index("--memory-reservation") + 1] == config.GUI_CONTAINER_RESERVATION
+    assert f"8242:{config.GUI_CONTAINER_PORT}" in args
     assert "--shm-size" in args, "le bureau graphique a besoin de mémoire partagée"
 
 
@@ -76,14 +78,14 @@ def test_reservation_inferieure_a_la_limite():
         unites = {"m": 1024 ** 2, "g": 1024 ** 3}
         return int(valeur[:-1]) * unites[valeur[-1].lower()]
 
-    for mode in insacloud.MODES.values():
+    for mode in config.MODES.values():
         assert en_octets(mode["reservation"]) < en_octets(mode["memory"])
 
 
 def test_limites_cpu_et_processus(commande):
     args, _ = lancer(commande)
-    assert args[args.index("--cpus") + 1] == insacloud.CONTAINER_CPUS
-    assert args[args.index("--pids-limit") + 1] == insacloud.CONTAINER_PIDS_LIMIT
+    assert args[args.index("--cpus") + 1] == config.CONTAINER_CPUS
+    assert args[args.index("--pids-limit") + 1] == config.CONTAINER_PIDS_LIMIT
 
 
 # --- Durcissement ------------------------------------------------------------
@@ -158,4 +160,4 @@ def test_repartition_sur_le_noeud_le_moins_charge(monkeypatch):
     ("30", 30), ("", 0), (None, 0), ("abc", 0), ("-5", -5), ("1e9", 0),
 ])
 def test_conversion_entiere_tolerante(entree, attendu):
-    assert insacloud.parse_int(entree) == attendu
+    assert parse_int(entree) == attendu
