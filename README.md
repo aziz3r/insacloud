@@ -185,7 +185,7 @@ cd ..
 cd 2_webapp && ./run_local.sh
 ```
 
-Puis <http://localhost:5055> : créez un compte et louez votre première machine.
+Puis <http://127.0.0.1:5055> : créez un compte et louez votre première machine.
 
 <details>
 <summary>Construire les six images (dont les bureaux graphiques)</summary>

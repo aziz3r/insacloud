@@ -11,5 +11,7 @@ fi
 export INSACLOUD_PORT="${INSACLOUD_PORT:-5055}"     # 5000 est pris par AirPlay sur macOS
 export INSACLOUD_EMBED_FAUCHEUR=1                   # Faucheur en thread (pas de systemd ici)
 export INSACLOUD_FAUCHEUR_INTERVAL=5
-echo "InsaCloud : http://localhost:${INSACLOUD_PORT}"
+# 127.0.0.1 plutôt que localhost : ce dernier peut résoudre en ::1 alors que
+# l'application écoute en IPv4, ce qui donne un refus de connexion trompeur.
+echo "InsaCloud : http://127.0.0.1:${INSACLOUD_PORT}"
 exec .venv/bin/python app.py
