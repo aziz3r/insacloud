@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="900" height="300" role="img" aria-label="Cycle de vie d une machine">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7d8590"/></marker><marker id="arrowD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7d8590"/></marker></defs>
+<rect width="900" height="300" rx="12" fill="#0d1117"/>
+<text x="28" y="40" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="14" font-weight="600" fill="#e6edf3">Cycle de vie d'une machine louée</text>
+<rect x="28" y="66" width="152" height="128" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<circle cx="50" cy="90" r="11" fill="#2b141a" stroke="#ff6b81" stroke-width="1.2"/>
+<text x="50" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#ff6b81" text-anchor="middle">1</text>
+<text x="70" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#e6edf3">Choix</text>
+<text x="44" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">distribution</text>
+<text x="44" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">terminal ou bureau</text>
+<text x="44" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">durée 1-120 min</text>
+<path d="M 183 130 L 197 130" fill="none" stroke="#7d8590" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="200" y="66" width="152" height="128" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<circle cx="222" cy="90" r="11" fill="#2b141a" stroke="#ff6b81" stroke-width="1.2"/>
+<text x="222" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#ff6b81" text-anchor="middle">2</text>
+<text x="242" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#e6edf3">Placement</text>
+<text x="216" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">worker le moins</text>
+<text x="216" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">chargé</text>
+<text x="216" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">ports libres</text>
+<path d="M 355 130 L 369 130" fill="none" stroke="#7d8590" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="372" y="66" width="152" height="128" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<circle cx="394" cy="90" r="11" fill="#2b141a" stroke="#ff6b81" stroke-width="1.2"/>
+<text x="394" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#ff6b81" text-anchor="middle">3</text>
+<text x="414" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#e6edf3">Démarrage</text>
+<text x="388" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">docker run -d</text>
+<text x="388" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">--restart=always</text>
+<text x="388" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">supervisord PID 1</text>
+<path d="M 527 130 L 541 130" fill="none" stroke="#7d8590" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="544" y="66" width="152" height="128" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<circle cx="566" cy="90" r="11" fill="#2b141a" stroke="#ff6b81" stroke-width="1.2"/>
+<text x="566" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#ff6b81" text-anchor="middle">4</text>
+<text x="586" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#e6edf3">Accès</text>
+<text x="560" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">SSH par clé ou</text>
+<text x="560" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">mot de passe</text>
+<text x="560" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">terminal · bureau</text>
+<path d="M 699 130 L 713 130" fill="none" stroke="#7d8590" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="716" y="66" width="152" height="128" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<circle cx="738" cy="90" r="11" fill="#2b141a" stroke="#ff6b81" stroke-width="1.2"/>
+<text x="738" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#ff6b81" text-anchor="middle">5</text>
+<text x="758" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#e6edf3">Expiration</text>
+<text x="732" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">le Faucheur lance</text>
+<text x="732" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">docker rm -f</text>
+<text x="732" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#9aa4b1">+ réconciliation</text>
+<rect x="28" y="212" width="844" height="64" rx="9" fill="#11161d" stroke="#30363d" stroke-width="1"/>
+<text x="44" y="234" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="600" fill="#e6edf3">Tout au long du cycle</text>
+<text x="44" y="252" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" fill="#9aa4b1">Mot de passe affiché une seule fois, puis conservé chiffré (Fernet) et réaffiché après re-authentification.</text>
+<text x="44" y="268" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" fill="#9aa4b1">Un service qui tombe est relancé par supervisord ; un worker qui redémarre retrouve ses machines et leurs données.</text>
+</svg>
