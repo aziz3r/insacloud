@@ -50,9 +50,13 @@
   become: true
   vars:
     single_host: "{{ groups['workers'] | default([]) | length == 0 }}"
+    # Défini ici (et non en paramètre de rôle) : un rôle appelé avec des
+    # paramètres différents n'est pas dédoublonné par Ansible, et `docker` est
+    # aussi tiré comme dépendance par `docker_images`. Une variable de play
+    # s'applique aux deux appels, qui sont donc fusionnés en une exécution.
+    docker_cli_only: "{{ not single_host }}"
   roles:
     - role: docker
-      docker_cli_only: "{{ not single_host }}"
       tags: [docker]
     - role: docker_images
       when: single_host

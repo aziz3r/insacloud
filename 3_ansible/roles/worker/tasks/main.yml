@@ -6,7 +6,7 @@
     fail_msg: "Clé publique du contrôleur absente : le play 'Contrôleur : clé SSH' doit s'exécuter avant."
     quiet: true
 
-- name: Créer l'utilisateur de pilotage {{ insacloud_user }} (groupe docker)
+- name: "Créer l'utilisateur de pilotage, membre du groupe docker : {{ insacloud_user }}"
   ansible.builtin.user:
     name: "{{ insacloud_user }}"
     system: true

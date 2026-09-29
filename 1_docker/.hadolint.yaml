@@ -1,0 +1,26 @@
+# =============================================================================
+#  .hadolint.yaml - Analyse statique des Dockerfiles InsaCloud
+# -----------------------------------------------------------------------------
+#  Le seuil est fixé à « warning » : tout avertissement fait échouer la CI.
+#  Trois règles sont écartées, chacune avec sa raison.
+# =============================================================================
+
+failure-threshold: warning
+
+ignored:
+  # DL3008 / DL3018 - « épingler la version de chaque paquet »
+  #   Les dépôts Debian, Ubuntu et Alpine ne conservent pas les anciennes
+  #   versions : une image épinglée cesse de se construire dès la première mise
+  #   à jour du dépôt. C'est la version de la DISTRIBUTION qui est épinglée ici
+  #   (ubuntu:22.04, debian:12-slim, alpine:3.20), ce qui fixe déjà l'ensemble
+  #   des paquets disponibles. La reproductibilité est donc assurée au niveau
+  #   de l'image de base, seul niveau stable dans le temps.
+  - DL3008
+  - DL3018
+
+  # DL3059 - « regrouper les RUN consécutifs »
+  #   Les RUN sont séparés volontairement : chaque étape (socle, SSH, terminal
+  #   web, bureau) forme une couche distincte, ce qui rend le cache de
+  #   construction utile pendant le développement et le Dockerfile lisible.
+  #   Le gain de taille serait marginal, les couches étant déjà nettoyées.
+  - DL3059

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 app.py - Serveur web Flask d'InsaCloud (mini-fournisseur de Cloud).
 
@@ -34,12 +33,11 @@ import hashlib
 import hmac
 import logging
 import os
-import random
 import re
 import secrets
 import socket
 import string
-import subprocess
+import subprocess  # nosec B404 - le sujet impose de piloter Docker par la CLI
 import sys
 import time
 from datetime import timedelta
@@ -85,6 +83,10 @@ COMMON_PASSWORDS = {"password", "motdepasse", "123456789", "1234567890", "azerty
 # Mémoire / ressources des machines louées
 CONTAINER_MEMORY = os.environ.get("INSACLOUD_CONTAINER_MEMORY", "256m")
 GUI_CONTAINER_MEMORY = os.environ.get("INSACLOUD_GUI_MEMORY", "1g")
+# Réservation : minimum garanti en cas de contention. Le cours impose de définir
+# toujours une réservation ET une limite (ni gaspillage, ni monopolisation).
+CONTAINER_RESERVATION = os.environ.get("INSACLOUD_CONTAINER_RESERVATION", "128m")
+GUI_CONTAINER_RESERVATION = os.environ.get("INSACLOUD_GUI_RESERVATION", "512m")
 CONTAINER_CPUS = os.environ.get("INSACLOUD_CONTAINER_CPUS", "1")
 CONTAINER_PIDS_LIMIT = os.environ.get("INSACLOUD_CONTAINER_PIDS", "512")
 TERM_CONTAINER_PORT = 7681   # ttyd dans toutes les images
@@ -117,9 +119,9 @@ DISTROS = {
 # Modes : chaque distribution existe en version terminal ou bureau graphique
 MODES = {
     "terminal": {"label": "Terminal", "hint": "SSH + terminal dans le navigateur",
-                 "gui": False, "memory": CONTAINER_MEMORY},
+                 "gui": False, "memory": CONTAINER_MEMORY, "reservation": CONTAINER_RESERVATION},
     "desktop":  {"label": "Bureau graphique", "hint": "XFCE et Firefox dans le navigateur, + SSH",
-                 "gui": True, "memory": GUI_CONTAINER_MEMORY},
+                 "gui": True, "memory": GUI_CONTAINER_MEMORY, "reservation": GUI_CONTAINER_RESERVATION},
 }
 DEFAULT_OS = "ubuntu"
 DEFAULT_MODE = "terminal"
@@ -155,7 +157,7 @@ def load_secret_key() -> str:
         return key
     path = os.path.join(BASE_DIR, ".secret_key")
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             key = f.read().strip()
             if key:
                 return key
@@ -175,7 +177,7 @@ def load_or_create_key(env_name: str, filename: str, generate) -> str:
         return key
     path = os.path.join(BASE_DIR, filename)
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             key = f.read().strip()
             if key:
                 return key
@@ -313,11 +315,16 @@ def run_docker(*args, worker: str = "local", timeout: int = DOCKER_TIMEOUT) -> s
     """Exécute `docker <args>` sur le nœud `worker` (local ou distant via SSH) et retourne stdout."""
     cmd = [*wk.docker_command(worker), *args]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-    except FileNotFoundError:
-        raise DockerError("La commande 'docker' est introuvable sur le serveur.")
-    except subprocess.TimeoutExpired:
-        raise DockerError("Docker n'a pas répondu dans le délai imparti.")
+        # Appel sans shell : les arguments sont passés en liste, donc jamais
+        # ré-interprétés par un interpréteur de commandes. Les seules valeurs
+        # d'origine utilisateur (durée, distribution, mode) sont validées en amont.
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)  # nosec B603  # noqa: S603
+    except FileNotFoundError as erreur:
+        # « from » conserve la cause d'origine dans la trace : indispensable
+        # pour distinguer une vraie panne d'une erreur dans le traitement.
+        raise DockerError("La commande 'docker' est introuvable sur le serveur.") from erreur
+    except subprocess.TimeoutExpired as erreur:
+        raise DockerError("Docker n'a pas répondu dans le délai imparti.") from erreur
     if res.returncode != 0:
         message = res.stderr.strip() or f"docker {args[0]} a échoué (code {res.returncode})"
         raise DockerError(message)
@@ -370,7 +377,9 @@ def docker_run_container(port: int, name: str, root_password: str, os_type: str,
     if spec["gui"] and gui_port:
         args += ["-p", f"{gui_port}:{GUI_CONTAINER_PORT}", "--shm-size", "512m"]
     if spec["memory"]:
-        args += ["--memory", spec["memory"]]
+        # Le cours impose de définir réservation ET limite : la réservation est
+        # le minimum garanti en cas de contention, la limite le plafond dur.
+        args += ["--memory", spec["memory"], "--memory-reservation", spec["reservation"]]
     args.append(image_for(os_type, mode))
     return run_docker(*args, worker=worker)[:12]
 
@@ -403,7 +412,10 @@ def port_is_free_on_host(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            sock.bind(("0.0.0.0", port))
+            # Simple sonde : on vérifie que le port est libre sur toutes les
+            # interfaces, puis la socket est refermée immédiatement. Aucun
+            # service n'est mis en écoute ici.
+            sock.bind(("0.0.0.0", port))  # nosec B104  # noqa: S104
             return True
         except OSError:
             return False
@@ -413,7 +425,9 @@ def choose_random_port(exclude: set = frozenset(), worker: str = "local") -> int
     """Port libre sur le nœud : non réservé en base, et (nœud local) réellement libre sur l'hôte."""
     local = wk.worker_host(worker) is None
     for _ in range(100):
-        port = random.randint(PORT_MIN, PORT_MAX)
+        # secrets (CSPRNG) plutôt que random : un port prévisible faciliterait
+        # le balayage ciblé des machines fraîchement louées.
+        port = PORT_MIN + secrets.randbelow(PORT_MAX - PORT_MIN + 1)
         if port in exclude or db.port_in_use(port, worker):
             continue
         if local and not port_is_free_on_host(port):
@@ -839,7 +853,9 @@ def not_found(_error):
 db.init_db()
 
 if __name__ == "__main__":
-    host = os.environ.get("INSACLOUD_HOST", "0.0.0.0")
+    # Serveur de développement : écoute locale par défaut. En production,
+    # Gunicorn est lancé par systemd et nginx assure seul l'exposition TLS.
+    host = os.environ.get("INSACLOUD_HOST", "127.0.0.1")
     port = int(os.environ.get("INSACLOUD_PORT", "5000"))
     debug = os.environ.get("INSACLOUD_DEBUG", "0") == "1"
     if os.environ.get("INSACLOUD_EMBED_FAUCHEUR", "0") == "1":

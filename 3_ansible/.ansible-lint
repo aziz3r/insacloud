@@ -1,0 +1,31 @@
+# =============================================================================
+#  .ansible-lint - Réglages de l'analyse statique des rôles InsaCloud
+# -----------------------------------------------------------------------------
+#  Deux règles seulement sont écartées, chacune pour une raison précise. Toutes
+#  les autres sont respectées : le dépôt passe `ansible-lint` sans remarque.
+# =============================================================================
+
+exclude_paths:
+  - .vagrant/
+  - ../2_webapp/.venv/
+
+skip_list:
+  # ---------------------------------------------------------------------------
+  # var-naming[no-role-prefix]
+  #   La règle voudrait préfixer chaque variable par le nom de son rôle
+  #   (webapp_user, worker_user, docker_images_user...). Or ces variables sont
+  #   justement PARTAGÉES entre les rôles : `insacloud_user`, `insacloud_root`
+  #   ou `insacloud_images` désignent le même objet pour tout le projet, et
+  #   sont définis une seule fois dans group_vars. Les renommer par rôle
+  #   créerait autant de copies qu'il y a de rôles, exactement ce que la mise
+  #   en commun cherche à éviter. Le préfixe retenu est donc celui du projet.
+  - var-naming[no-role-prefix]
+
+  # ---------------------------------------------------------------------------
+  # args[module]
+  #   Règle expérimentale : elle valide les valeurs des arguments de module
+  #   sans évaluer les modèles Jinja. `policy: "{{ ufw_default_incoming }}"`
+  #   est donc signalé comme invalide alors que la variable vaut « deny ».
+  #   Rendre la valeur littérale supprimerait la possibilité de configurer la
+  #   politique par défaut depuis l'inventaire.
+  - args[module]

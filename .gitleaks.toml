@@ -1,0 +1,36 @@
+# =============================================================================
+#  .gitleaks.toml - Recherche de secrets commis par erreur
+# -----------------------------------------------------------------------------
+#  Les règles par défaut de gitleaks (clés AWS, jetons GitHub, clés privées,
+#  chaînes de connexion, entropie élevée...) sont conservées intégralement.
+#  Seules sont autorisées ci-dessous les valeurs dont on peut démontrer
+#  qu'elles ne sont pas des secrets réels.
+# =============================================================================
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Valeurs non secrètes du dépôt"
+
+paths = [
+  # Coffre Ansible : contenu chiffré en AES256, c'est précisément sa raison
+  # d'être d'être versionné. Son entropie déclenche sinon la règle générique.
+  '''3_ansible/group_vars/insacloud/vault\.yml''',
+
+  # Suite de tests : identifiants et clés factices, créés et détruits à chaque
+  # exécution, jamais utilisés pour se connecter à quoi que ce soit.
+  '''2_webapp/tests/.*''',
+
+  # Rapports et captures : les mots de passe qui y figurent sont ceux de
+  # machines de démonstration détruites depuis.
+  '''rapport/.*''',
+  '''docs/.*''',
+]
+
+regexes = [
+  # Mot de passe de démonstration cité dans la documentation et l'ancien
+  # historique des Dockerfiles. Il n'ouvre l'accès à aucun système : les
+  # machines reçoivent aujourd'hui un mot de passe tiré au hasard au lancement.
+  '''insacloud''',
+]

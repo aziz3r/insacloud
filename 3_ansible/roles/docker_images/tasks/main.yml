@@ -33,15 +33,88 @@
   failed_when: false
   changed_when: false
 
-- name: Construire les images manquantes ou dont les sources ont changé (long la 1re fois)
-  ansible.builtin.command:
-    cmd: >-
-      docker build -t {{ item.name }}:latest
-      {{ '--build-arg DESKTOP=1' if item.desktop else '' }}
-      -f {{ insacloud_docker_dir }}/{{ item.dockerfile }}
-      {{ insacloud_docker_dir }}
-  loop: "{{ insacloud_images_to_build }}"
-  loop_control:
-    label: "{{ item.name }}"
-    index_var: idx
-  when: image_check.results[idx].rc != 0 or docker_sources.changed
+# La construction d'images est l'étape la plus fragile (réseau, dépôts distants) :
+# elle est encadrée par block/rescue/always pour diagnostiquer proprement un échec
+# plutôt que d'interrompre le déploiement sur une erreur brute.
+- name: Construction des images des machines louées
+  block:
+
+    - name: Construire les images manquantes ou dont les sources ont changé (long la 1re fois)
+      ansible.builtin.command:
+        cmd: >-
+          docker build -t {{ item.name }}:latest
+          {{ '--build-arg DESKTOP=1' if item.desktop else '' }}
+          -f {{ insacloud_docker_dir }}/{{ item.dockerfile }}
+          {{ insacloud_docker_dir }}
+      loop: "{{ insacloud_images_to_build }}"
+      loop_control:
+        label: "{{ item.name }}"
+        index_var: idx
+      when: image_check.results[idx].rc != 0 or docker_sources.changed
+      # La tâche ne s'exécute que si l'image manque ou si ses sources ont changé :
+      # quand elle s'exécute, elle produit bien une nouvelle image, donc « changed ».
+      # Sur un déploiement déjà à jour, le `when` l'écarte et le compte reste à 0.
+      changed_when: true
+      register: build_result
+
+  rescue:
+
+    # Le journal complet du démon est trop volumineux pour être lisible dans la
+    # sortie d'Ansible : on ne garde que les deux dernières lignes d'erreur, et
+    # `cut` borne leur longueur. Le message de `docker build` reste l'information
+    # principale ; le journal ne sert qu'à révéler une panne côté démon.
+    - name: Extraire les dernières erreurs du démon Docker
+      ansible.builtin.shell:
+        # pipefail : sans lui, seul le code de `cut` compterait et une panne de
+        # journalctl passerait inaperçue. `grep` renvoie 1 quand il n'y a aucune
+        # erreur, cas normal neutralisé par `failed_when: false` ci-dessous.
+        cmd: >-
+          set -o pipefail &&
+          journalctl -u docker --no-pager -n 200
+          | grep -i 'level=error' | tail -2 | cut -c1-120
+        executable: /bin/bash      # pipefail n'existe pas dans dash (/bin/sh sur Ubuntu)
+      register: docker_journal
+      changed_when: false
+      failed_when: false
+
+    - name: Relever l'espace disque disponible
+      ansible.builtin.command:
+        cmd: df -h {{ insacloud_docker_dir }}
+      register: espace_disque
+      changed_when: false
+      failed_when: false
+
+    - name: Signaler l'échec de construction avec son contexte
+      ansible.builtin.fail:
+        msg: |-
+          Échec de construction d'une image sur {{ inventory_hostname }}.
+          Image concernée : {{ (build_result.results | default([])
+                                | selectattr('failed', 'defined')
+                                | selectattr('failed')
+                                | map(attribute='item.name')
+                                | list | first) | default('inconnue') }}
+          Message de docker build :
+            {{ (build_result.results | default([])
+                | selectattr('failed', 'defined') | selectattr('failed')
+                | map(attribute='stderr_lines') | list | first
+                | default(['(non disponible)']))[-1] }}
+          Erreurs du démon Docker :
+            {{ docker_journal.stdout_lines | default([]) | join(' // ')
+               | default('(aucune)', true) }}
+          Espace disque :
+            {{ (espace_disque.stdout_lines | default(['(inconnu)']))[-1] }}
+          Causes fréquentes : dépôt de paquets injoignable, espace disque
+          insuffisant, ou pilote de stockage incompatible.
+
+  always:
+
+    - name: Inventorier les images présentes sur le nœud
+      ansible.builtin.command:
+        cmd: docker images --filter reference=insacloud_* --format '{{ "{{" }}.Repository{{ "}}" }}:{{ "{{" }}.Tag{{ "}}" }} ({{ "{{" }}.Size{{ "}}" }})'
+      register: images_presentes
+      changed_when: false
+      failed_when: false
+
+    - name: Afficher l'inventaire des images
+      ansible.builtin.debug:
+        msg: "{{ images_presentes.stdout_lines | default(['aucune image']) }}"

@@ -20,3 +20,44 @@ insacloud_max_duration: 120
 
 # Soutenance : true = seule l'image Alpine est construite (rapide). false = les 6 images.
 demo_mode: true
+
+# --- Catalogue des images des machines louées --------------------------------
+# Défini ici, et non dans les rôles : `docker_images` (qui les construit) et
+# `webapp` (qui les déclare à l'application) doivent voir exactement la même
+# liste. Une seule source de vérité, donc aucune dérive possible entre les deux.
+# 6 images = 3 distributions x 2 modes. `desktop: true` ajoute --build-arg DESKTOP=1.
+# `env` = suffixe de la variable INSACLOUD_IMAGE_<env> lue par app.py.
+insacloud_images:
+  - name: insacloud_ubuntu
+    dockerfile: Dockerfile
+    desktop: false
+    env: UBUNTU
+  - name: insacloud_ubuntu_desktop
+    dockerfile: Dockerfile
+    desktop: true
+    env: UBUNTU_DESKTOP
+  - name: insacloud_debian
+    dockerfile: debian.Dockerfile
+    desktop: false
+    env: DEBIAN
+  - name: insacloud_debian_desktop
+    dockerfile: debian.Dockerfile
+    desktop: true
+    env: DEBIAN_DESKTOP
+  - name: insacloud_alpine
+    dockerfile: alpine.Dockerfile
+    desktop: false
+    env: ALPINE
+  - name: insacloud_alpine_desktop
+    dockerfile: alpine.Dockerfile
+    desktop: true
+    env: ALPINE_DESKTOP
+
+# Images réellement construites : toutes, ou la seule Alpine en mode démo.
+demo_images:
+  - insacloud_alpine
+
+# Liste effectivement construite et déclarée à l'application, selon demo_mode.
+insacloud_images_to_build: >-
+  {{ insacloud_images | selectattr('name', 'in', demo_images) | list
+     if demo_mode | bool else insacloud_images }}

@@ -18,7 +18,13 @@
 # =============================================================================
 set -e
 
-: "${ROOT_PASSWORD:=insacloud}"
+# Mot de passe root : fourni par la plateforme (-e ROOT_PASSWORD=...). S'il
+# manque, on en tire un au hasard plutôt que de retomber sur une valeur connue :
+# un mot de passe par défaut serait le même sur toutes les machines louées.
+if [ -z "${ROOT_PASSWORD:-}" ]; then
+    ROOT_PASSWORD="$(tr -dc 'A-Za-z2-9' < /dev/urandom | head -c 16)"
+    echo "[insacloud] Aucun ROOT_PASSWORD fourni : mot de passe root tiré au hasard = ${ROOT_PASSWORD}"
+fi
 : "${INSACLOUD_MODE:=terminal}"
 : "${VNC_RESOLUTION:=1280x800}"
 : "${SSH_PUBKEY:=}"

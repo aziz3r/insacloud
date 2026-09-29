@@ -1,0 +1,49 @@
+# =============================================================================
+#  pyproject.toml - Configuration de l'outillage qualité et sécurité d'InsaCloud
+# -----------------------------------------------------------------------------
+#  Un seul fichier décrit les réglages de pytest, ruff (lint) et bandit (SAST),
+#  pour que la commande lancée par l'intégration continue soit exactement celle
+#  que l'on peut rejouer sur son poste.
+# =============================================================================
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"
+# Les tests remplacent Docker par des fonctions espions : aucun conteneur réel,
+# aucune connexion réseau. Ils tournent donc sur n'importe quel agent de CI.
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 110
+# Ubuntu 22.04 (box Vagrant) fournit Python 3.10 : ruff ne doit pas proposer
+# de tournures plus récentes, elles casseraient le déploiement réel.
+target-version = "py310"
+exclude = [".venv", "__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # erreurs de style (pycodestyle)
+    "F",    # erreurs réelles : variables et imports inutilisés, noms inconnus
+    "W",    # avertissements
+    "B",    # pièges classiques de Python (flake8-bugbear)
+    "S",    # motifs dangereux pour la sécurité (flake8-bandit)
+    "UP",   # tournures obsolètes
+]
+ignore = [
+    "E501",  # longueur de ligne : déjà bornée par line-length, les commentaires pédagogiques peuvent dépasser
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Les tests manipulent volontairement des mots de passe factices et des
+# assertions : les règles correspondantes n'y ont pas de sens.
+"tests/*" = ["S101", "S105", "S106", "S108"]
+
+[tool.bandit]
+exclude_dirs = [".venv", "tests", "__pycache__"]
+# Aucune règle n'est désactivée globalement : les rares cas légitimes sont
+# annotés « # nosec <règle> » à la ligne concernée, avec leur justification.
+
+[tool.coverage.run]
+source = ["."]
+omit = [".venv/*", "tests/*"]

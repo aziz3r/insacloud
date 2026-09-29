@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 faucheur.py - Le Faucheur : démon de nettoyage des machines expirées.
 
@@ -24,10 +23,9 @@ Deux modes d'exécution :
 import logging
 import os
 import signal
-import subprocess
+import subprocess  # nosec B404 - le sujet impose de piloter Docker par la CLI
 import sys
 import threading
-import time
 
 import database as db
 import workers as wk
@@ -52,7 +50,8 @@ _stop_event = threading.Event()
 def _docker(*args, worker: str = "local") -> subprocess.CompletedProcess:
     """Exécute `docker <args>` sur le nœud `worker` sans lever d'exception (code retour vérifié par l'appelant)."""
     try:
-        return subprocess.run(
+        # Appel sans shell, arguments en liste : aucune interpolation possible.
+        return subprocess.run(  # nosec B603  # noqa: S603
             [*wk.docker_command(worker), *args],
             capture_output=True, text=True, timeout=DOCKER_TIMEOUT,
         )

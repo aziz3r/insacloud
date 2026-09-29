@@ -21,13 +21,37 @@ restart_if_down nginx              "systemctl is-active --quiet nginx"
 restart_if_down insacloud-web      "curl -fsk -o /dev/null --max-time 10 https://127.0.0.1/login"
 restart_if_down insacloud-faucheur "systemctl is-active --quiet insacloud-faucheur"
 
+# Supervision des ressources : consommation CPU/mémoire des machines louées,
+# journalisée pour détecter une saturation (cours : « détecter rapidement une surcharge »).
+supervise_ressources() {   # $1 = nom du nœud, $2 = préfixe de commande docker
+    local stats
+    stats=$($2 stats --no-stream --format '{{ "{{" }}.Name{{ "}}" }} {{ "{{" }}.CPUPerc{{ "}}" }} {{ "{{" }}.MemUsage{{ "}}" }}' 2>/dev/null \
+            | grep '^insacloud_' || true)
+    [ -z "$stats" ] && return 0
+    logger -t "$TAG" "ressources[$1] $(echo "$stats" | tr '\n' ';')"
+    echo "$stats" | while read -r nom cpu mem _; do
+        cpu_entier=${cpu%%.*}; cpu_entier=${cpu_entier%\%}
+        if [ "${cpu_entier:-0}" -ge 90 ] 2>/dev/null; then
+            logger -t "$TAG" "ALERTE charge CPU $cpu sur $nom ($1)"
+        fi
+    done
+}
+
 # Workers : un nœud injoignable est signalé (ses conteneurs redémarrent seuls grâce à --restart=always)
 IFS=',' read -ra WORKERS <<< "${INSACLOUD_WORKERS:-}"
 for entry in "${WORKERS[@]}"; do
     [ -z "$entry" ] && continue
     name="${entry%%=*}"; host="${entry#*=}"
-    if ! runuser -u {{ insacloud_user }} -- docker -H "ssh://${INSACLOUD_DOCKER_SSH_USER:-{{ insacloud_user }}}@${host}" info >/dev/null 2>&1; then
+    docker_cmd="docker -H ssh://${INSACLOUD_DOCKER_SSH_USER:-{{ insacloud_user }}}@${host}"
+    if ! runuser -u {{ insacloud_user }} -- $docker_cmd info >/dev/null 2>&1; then
         logger -t "$TAG" "worker ${name} (${host}) injoignable"
+    else
+        supervise_ressources "$name" "runuser -u {{ insacloud_user }} -- $docker_cmd"
     fi
 done
+
+# Mode mono-hôte : les conteneurs tournent sur ce serveur
+if [ -z "${INSACLOUD_WORKERS:-}" ] && command -v docker >/dev/null 2>&1; then
+    supervise_ressources "local" "docker"
+fi
 exit 0

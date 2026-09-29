@@ -1,0 +1,17 @@
+# =============================================================================
+#  requirements.txt - Dépendances de production de l'application InsaCloud
+# -----------------------------------------------------------------------------
+#  Versions épinglées : le déploiement est reproductible et l'analyse de
+#  composition logicielle (pip-audit, étape « SCA » de la CI) sait exactement
+#  quelles versions auditer. Mettre à jour = modifier ce fichier, pas le serveur.
+#  Installation : pip install -r requirements.txt
+# =============================================================================
+Flask==3.1.3            # micro-framework web (routes, sessions, templates)
+Werkzeug==3.1.8         # couche WSGI de Flask (hachage des mots de passe, ProxyFix)
+Jinja2==3.1.6           # moteur de templates (échappement HTML automatique)
+itsdangerous==2.2.0     # signature cryptographique des cookies de session
+click==8.5.0            # interface en ligne de commande de Flask
+blinker==1.9.0          # signaux Flask
+MarkupSafe==3.0.3       # échappement sûr des chaînes dans les templates
+cryptography==50.0.1    # chiffrement Fernet des mots de passe root stockés
+gunicorn==23.0.0        # serveur WSGI de production (4 workers derrière nginx)

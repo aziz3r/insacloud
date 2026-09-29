@@ -1,0 +1,12 @@
+# =============================================================================
+#  requirements-dev.txt - Outillage de qualité et de sécurité (CI uniquement)
+# -----------------------------------------------------------------------------
+#  Jamais installé sur le serveur de production : ces paquets ne servent qu'aux
+#  étapes d'intégration continue (.github/workflows/ci.yml) et au poste de dev.
+# =============================================================================
+-r requirements.txt
+pytest==9.0.2           # exécution des tests unitaires et d'intégration
+pytest-cov==7.0.0       # mesure de la couverture de code
+ruff==0.15.4            # analyse statique de style et d'erreurs (lint)
+bandit[toml]==1.9.2     # SAST : recherche de motifs dangereux dans le code Python
+pip-audit==2.9.0        # SCA : CVE connues sur les dépendances épinglées

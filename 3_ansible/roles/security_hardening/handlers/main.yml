@@ -1,5 +1,7 @@
 ---
 # Handler : recharger UFW si une règle a été modifiée après activation
 - name: Recharger ufw
-  ansible.builtin.command:
-    cmd: ufw reload
+  # Le module dédié plutôt que `command: ufw reload` : Ansible connaît alors
+  # l'état obtenu et ne signale « changed » que si le rechargement a eu lieu.
+  community.general.ufw:
+    state: reloaded

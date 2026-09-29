@@ -39,3 +39,9 @@
 \newcommand{\partiel}{\textcolor{orangepartiel}{\textbf{Partiel}}}
 \newcommand{\absent}{\textcolor{rougeko}{\textbf{Absent}}}
 \newcommand{\plus}{\textcolor{insared}{\textbf{Au-delà}}}
+
+% Les paragraphes techniques enchaînent de longues suites en \texttt{} que TeX
+% ne peut pas couper : sans marge de man\oe{}uvre, elles débordent dans la marge.
+% \emergencystretch autorise un dernier passage plus souple sur ces lignes-là.
+\emergencystretch=2em
+\hbadness=4000        % ne pas signaler les lignes simplement peu denses

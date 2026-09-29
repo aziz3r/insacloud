@@ -1,0 +1,87 @@
+# =============================================================================
+#  docker-compose.yml - Images des machines louées par InsaCloud
+# -----------------------------------------------------------------------------
+#  Trois distributions x deux modes d'accès = six images, décrites ici de façon
+#  déclarative plutôt que par une boucle de `docker build`.
+#
+#    docker compose build              # construit les six images
+#    docker compose build alpine       # une seule (mode démonstration)
+#
+#  Lancer une machine de démonstration (profil "demo", non démarré par défaut) :
+#    ROOT_PASSWORD=Secret1234 docker compose --profile demo up -d machine-demo
+#    docker compose --profile demo down
+#
+#  En production, l'application Flask crée les conteneurs à la demande avec
+#  `docker run` : chaque location a ses propres ports aléatoires, son mot de
+#  passe et son nœud d'exécution, ce qu'un fichier statique ne peut pas décrire.
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------- Ubuntu
+  ubuntu:
+    build: { context: ., dockerfile: Dockerfile }
+    image: insacloud_ubuntu:latest
+    profiles: ["build"]
+
+  ubuntu-desktop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: { DESKTOP: "1" }
+    image: insacloud_ubuntu_desktop:latest
+    profiles: ["build"]
+
+  # ---------------------------------------------------------------- Debian
+  debian:
+    build: { context: ., dockerfile: debian.Dockerfile }
+    image: insacloud_debian:latest
+    profiles: ["build"]
+
+  debian-desktop:
+    build:
+      context: .
+      dockerfile: debian.Dockerfile
+      args: { DESKTOP: "1" }
+    image: insacloud_debian_desktop:latest
+    profiles: ["build"]
+
+  # ---------------------------------------------------------------- Alpine
+  alpine:
+    build: { context: ., dockerfile: alpine.Dockerfile }
+    image: insacloud_alpine:latest
+    profiles: ["build"]
+
+  alpine-desktop:
+    build:
+      context: .
+      dockerfile: alpine.Dockerfile
+      args: { DESKTOP: "1" }
+    image: insacloud_alpine_desktop:latest
+    profiles: ["build"]
+
+  # ------------------------------------------------- Machine de démonstration
+  # Reproduit exactement ce que l'application fait à chaque location :
+  # ports publiés, mot de passe injecté, durcissement et limites de ressources.
+  machine-demo:
+    image: insacloud_alpine:latest
+    container_name: insacloud_demo
+    profiles: ["demo"]
+    restart: always                       # haute disponibilité
+    environment:
+      # Vide si non fourni : l'entrypoint tire alors un mot de passe au hasard
+      # et l'affiche dans le journal (docker compose logs machine-demo).
+      ROOT_PASSWORD: "${ROOT_PASSWORD:-}"
+    ports:
+      - "${SSH_PORT:-8022}:22"            # SSH
+      - "${TERM_PORT:-8081}:7681"         # terminal web
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, FSETID, SETGID, SETUID,
+              SYS_CHROOT, NET_BIND_SERVICE, KILL, AUDIT_WRITE]
+    deploy:
+      resources:
+        # Le cours impose de définir limite ET réservation
+        limits:       { cpus: "1", memory: 256M, pids: 512 }   # plafonds
+        reservations: { memory: 128M }                          # minimum garanti

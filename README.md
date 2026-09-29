@@ -15,6 +15,15 @@
   <img src="https://img.shields.io/badge/nginx-TLS_1.3-009639?logo=nginx&logoColor=white" alt="nginx">
 </p>
 
+<p align="center">
+  <a href="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml">
+    <img src="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml/badge.svg" alt="Intégration continue">
+  </a>
+  <img src="https://img.shields.io/badge/tests-67-success" alt="67 tests">
+  <img src="https://img.shields.io/badge/SAST%20·%20SCA%20·%20DAST-vert-success" alt="Analyses de sécurité">
+  <img src="https://img.shields.io/badge/ansible--lint-production-success" alt="ansible-lint profil production">
+</p>
+
 ---
 
 ## La démo en 2 minutes
@@ -126,6 +135,39 @@ Côté site : jetons CSRF sur tous les formulaires, verrouillage après cinq éc
 Le playbook est **idempotent** — second passage : `changed=0` sur les trois nœuds — et un mode démonstration ne construit que l'image la plus légère pour un déploiement en quelques minutes.
 </details>
 
+## Ce qui empêche le projet de se dégrader
+
+Un projet d'école finit souvent par ne plus marcher que sur la machine de son auteur. Ici, chaque
+envoi de code déclenche huit vérifications indépendantes, toutes reproductibles en local :
+
+| Vérification | Outil | Ce qu'elle attrape |
+|---|---|---|
+| Style et erreurs réelles | `ruff` | imports morts, noms inconnus, motifs douteux |
+| Tests | `pytest` — **67 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur |
+| SAST | `bandit` | injection, secrets en dur, appels système risqués |
+| SCA | `pip-audit` | CVE connues des dépendances épinglées |
+| Fuite de secrets | `gitleaks` | clés et jetons commis par erreur, **y compris dans l'historique** |
+| DAST | `tests/dast.sh` + `nuclei` | l'application **en fonctionnement** : en-têtes, pages protégées, CSRF, cookies |
+| Infrastructure | `ansible-lint`, `hadolint` | rôles Ansible (profil `production`) et Dockerfiles |
+| Image | `Trivy` | CVE des paquets présents dans l'image publiée |
+
+Les tests ne lancent aucun conteneur : `run_docker` est remplacé par une fonction espion, ce qui
+permet de vérifier que la commande imposée par l'énoncé — `docker run -d --restart=always -p <port>:22` —
+est bien celle qui part, sur un agent d'intégration qui n'a même pas Docker.
+
+Deux défauts réels ont été trouvés par cette chaîne, pas par la relecture : un mot de passe par défaut
+inscrit dans les images (visible par `docker inspect`), et une durée négative qui faisait échouer une
+insertion en base. Les deux sont corrigés, et chacun a son garde-fou : une étape de la chaîne
+inspecte l'image publiée, un test couvre la durée négative.
+
+```bash
+cd 2_webapp
+pip install -r requirements-dev.txt
+pytest                       # 67 tests
+ruff check . && bandit -c pyproject.toml -r .
+./tests/dast.sh http://127.0.0.1:5000    # application démarrée à côté
+```
+
 ## Essayer en local
 
 Il faut Python 3.10+ et un Docker (Docker Desktop, ou `brew install colima docker && colima start`).
@@ -134,6 +176,7 @@ Il faut Python 3.10+ et un Docker (Docker Desktop, ou `brew install colima docke
 git clone https://github.com/aziz3r/insacloud.git && cd insacloud
 
 # Les images des machines (la version terminal suffit pour essayer)
+# Variante déclarative : docker compose --profile build build
 cd 1_docker
 docker build -t insacloud_alpine:latest -f alpine.Dockerfile .
 cd ..
@@ -167,6 +210,16 @@ ansible-playbook site.yml --ask-vault-pass          # déploie les trois nœuds
 ansible-playbook site.yml --ask-vault-pass          # à nouveau : changed=0
 ```
 
+`vagrant up` suffit en réalité : le `Vagrantfile` enchaîne lui-même le playbook une fois la dernière
+VM créée. Les commandes ci-dessus servent à rejouer le déploiement sans recréer les machines.
+
+Le chemin de la clé SSH dépend du provider de virtualisation. Plutôt que de l'écrire en dur, un
+inventaire dynamique le demande à Vagrant — le même dépôt fonctionne alors sur les quatre providers :
+
+```bash
+ansible-playbook -i inventaire_vagrant.py site.yml --ask-vault-pass
+```
+
 Le site est alors sur **https://192.168.56.10** (certificat auto-signé). Pour construire les six images sur les workers : `-e demo_mode=false`.
 
 <details>
@@ -189,11 +242,14 @@ Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansi
 ## Structure du dépôt
 
 ```
-1_docker/        3 Dockerfiles + un script d'entrée commun (SSH, terminal web, bureau)
+1_docker/        3 Dockerfiles + script d'entrée commun, docker-compose.yml
 2_webapp/        Flask : location, coffre, ordonnancement, Faucheur, interface
-3_ansible/       8 rôles, inventaire à 3 nœuds, Vault
+  └── tests/     67 tests + contrôles dynamiques sur l'application en marche
+3_ansible/       8 rôles, inventaires statique et dynamique, Vault
+.github/         chaîne d'intégration continue (8 travaux)
 Vagrantfile      controller 192.168.56.10 · worker1 .11 · worker2 .12
 docs/            vidéo de démonstration, captures, schémas
+rapport/         rapport de projet et dossier technique (LaTeX + PDF)
 ```
 
 ## Choses apprises en chemin

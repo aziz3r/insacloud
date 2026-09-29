@@ -14,8 +14,8 @@ ARG DESKTOP=""
 LABEL maintainer="InsaCloud - Projet INSA STI 4A" \
       description="Machine Alpine louable (SSH + terminal web, option bureau XFCE)"
 
-ENV ROOT_PASSWORD=insacloud \
-    INSACLOUD_MODE=${DESKTOP:+desktop}
+# Pas de ROOT_PASSWORD dans l'image : voir le commentaire du Dockerfile Ubuntu.
+ENV INSACLOUD_MODE=${DESKTOP:+desktop}
 
 # 1. Socle commun (apk = gestionnaire de paquets d'Alpine ; --no-cache = image légère)
 RUN apk add --no-cache openssh supervisor ttyd bash curl nano htop

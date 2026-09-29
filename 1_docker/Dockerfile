@@ -23,8 +23,11 @@ ARG DESKTOP=""
 LABEL maintainer="InsaCloud - Projet INSA STI 4A" \
       description="Machine Ubuntu louable (SSH + terminal web, option bureau XFCE)"
 
+# ROOT_PASSWORD n'est VOLONTAIREMENT pas défini ici : une valeur inscrite dans
+# l'image serait lisible par `docker inspect` et identique sur toutes les
+# machines. La plateforme l'injecte au lancement (-e ROOT_PASSWORD=...) ; à
+# défaut, l'entrypoint en tire un au hasard et l'affiche dans le journal.
 ENV DEBIAN_FRONTEND=noninteractive \
-    ROOT_PASSWORD=insacloud \
     INSACLOUD_MODE=${DESKTOP:+desktop}
 
 # -----------------------------------------------------------------------------

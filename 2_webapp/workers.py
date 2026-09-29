@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 workers.py - Nœuds Docker (« workers ») qui hébergent les machines louées.
 

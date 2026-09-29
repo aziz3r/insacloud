@@ -166,8 +166,8 @@ secondes qui suivent (mesuré : expiration 15:13:48, destruction 15:13:52).
 \subsection*{Automatisation complète}
 \texttt{vagrant up} crée les trois VM ; \texttt{ansible-playbook site.yml -{}-ask-vault-pass} installe
 pare-feu, Docker, certificats, images, nginx et application. Résultats mesurés : premier passage
-\texttt{ok=55 / changed=33 / failed=0} sur le contrôleur et \texttt{ok=33} sur chaque worker ;
-second passage \texttt{changed=0} sur les trois n\oe{}uds.
+\texttt{ok=72 / changed=35 / failed=0} sur le contrôleur et \texttt{ok=57 / changed=21} sur chaque
+worker ; second passage \texttt{changed=0} sur les trois n\oe{}uds.
 
 \subsection*{Sécurité}
 Jetons CSRF sur tous les formulaires, politique de mot de passe, cookies \texttt{Secure} /
@@ -212,19 +212,26 @@ ce qui impose de créer un \emph{virtualenv} dans le rôle Ansible.
 %================================================================ 5
 \section{Orientations futures}
 
-\textbf{Court terme.} Décrire le déploiement des machines louées en \texttt{docker compose} plutôt
-qu'en \texttt{docker run}, afin d'aligner l'implémentation sur l'énoncé et de gagner en lisibilité ;
-ajouter une \emph{réservation} mémoire (\texttt{-{}-memory-reservation}) en complément de la limite ;
-introduire \texttt{block}/\texttt{rescue}/\texttt{always} dans les rôles Ansible les plus risqués
-(construction d'images, démarrage des services).
+\textbf{Déjà comblé depuis la première version.} La relecture du cours avait révélé huit écarts, tous
+traités depuis : un fichier \texttt{docker-compose.yml} déclare la construction des images et une
+machine de démonstration ; chaque conteneur reçoit désormais une \emph{réservation} mémoire en plus
+de sa limite ; la construction des images est encadrée par \texttt{block}/\texttt{rescue}/\texttt{always} ;
+le \texttt{Vagrantfile} enchaîne lui-même le \emph{provisioner} Ansible ; le \emph{watchdog} relève
+la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les huit rôles déclarent
+leurs dépendances dans \texttt{meta/main.yml} ; un inventaire dynamique interroge Vagrant ; enfin une
+chaîne d'intégration continue exécute à chaque envoi huit contrôles --- lint, 67 tests, SAST, SCA,
+recherche de secrets, DAST et scan de l'image Docker.
 
-\textbf{Moyen terme.} Chaîne CI/CD (analyse statique du code Python, audit des dépendances, scan des
-images de conteneurs avant publication) ; certificat de confiance en remplacement du certificat
-auto-signé ; supervision continue (\texttt{docker stats}, métriques par machine) et notification en
-cas d'indisponibilité d'un worker.
+\textbf{Court terme.} Certificat reconnu (Let's Encrypt) en remplacement du certificat auto-signé,
+seule alerte que le scan dynamique signale encore ; quotas de ressources par utilisateur et non plus
+seulement par machine ; notification (courriel ou webhook) lorsqu'un worker devient injoignable.
 
-\textbf{Long terme.} Inventaire dynamique pour enregistrer automatiquement de nouveaux workers ;
-mise à l'échelle horizontale du parc ; passage à un orchestrateur (Docker Swarm ou Kubernetes) si
-le nombre de n\oe{}uds dépasse la dizaine ; authentification à deux facteurs et quotas par ressource.
+\textbf{Moyen terme.} Authentification à deux facteurs ; journalisation centralisée des accès aux
+machines louées ; archivage du travail de l'utilisateur avant destruction, pour que l'expiration
+ne soit plus une perte sèche.
+
+\textbf{Long terme.} Passage à un orchestrateur (Docker Swarm ou Kubernetes) si le parc dépasse la
+dizaine de n\oe{}uds : la planification, la santé des n\oe{}uds et le redémarrage des conteneurs
+seraient alors délégués à l'orchestrateur, et le Faucheur se réduirait à une politique d'expiration.
 
 \end{document}

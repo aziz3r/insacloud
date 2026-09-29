@@ -1,0 +1,22 @@
+---
+# =============================================================================
+#  roles/controller_key/meta/main.yml
+#  Compte de service et clé SSH de pilotage des workers
+# -----------------------------------------------------------------------------
+#  Dépendances : Aucune : la clé doit exister avant que les workers ne l'autorisent.
+#  Les rôles déclarés ici sont exécutés automatiquement avant celui-ci.
+# =============================================================================
+galaxy_info:
+  role_name: controller_key
+  author: Mohamed Aziz Baoueb
+  description: "Compte de service et clé SSH de pilotage des workers"
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy]
+    - name: Debian
+      versions: [bookworm]
+  galaxy_tags: [insacloud, iac, docker, ansible]
+
+dependencies: []

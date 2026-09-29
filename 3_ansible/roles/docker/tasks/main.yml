@@ -83,4 +83,7 @@
 
 - name: Afficher la version de Docker installée
   ansible.builtin.debug:
-    msg: "{{ 'Client Docker installé (pilotage des workers par SSH)' if docker_cli_only | bool else 'Docker Engine ' ~ docker_info.stdout ~ ' opérationnel (' ~ docker_arch ~ ')' }}"
+    msg: >-
+      {{ 'Client Docker installé (pilotage des workers par SSH)'
+         if docker_cli_only | bool
+         else 'Docker Engine ' ~ docker_info.stdout ~ ' opérationnel (' ~ docker_arch ~ ')' }}

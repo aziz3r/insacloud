@@ -1,0 +1,22 @@
+---
+# =============================================================================
+#  roles/security_hardening/meta/main.yml
+#  Pare-feu UFW et durcissement de base du nœud
+# -----------------------------------------------------------------------------
+#  Dépendances : Aucune : ce rôle doit s'appliquer en premier, avant que Docker n'installe ses chaînes iptables.
+#  Les rôles déclarés ici sont exécutés automatiquement avant celui-ci.
+# =============================================================================
+galaxy_info:
+  role_name: security_hardening
+  author: Mohamed Aziz Baoueb
+  description: "Pare-feu UFW et durcissement de base du nœud"
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy]
+    - name: Debian
+      versions: [bookworm]
+  galaxy_tags: [insacloud, iac, docker, ansible]
+
+dependencies: []

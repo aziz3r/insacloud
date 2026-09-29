@@ -15,7 +15,6 @@ LABEL maintainer="InsaCloud - Projet INSA STI 4A" \
       description="Machine Debian louable (SSH + terminal web, option bureau XFCE)"
 
 ENV DEBIAN_FRONTEND=noninteractive \
-    ROOT_PASSWORD=insacloud \
     INSACLOUD_MODE=${DESKTOP:+desktop}
 
 # 1. Socle commun (ttyd n'est pas dans les dépôts Debian 12 : binaire statique officiel)

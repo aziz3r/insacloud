@@ -9,7 +9,7 @@
     home: "{{ insacloud_root }}"
     create_home: false
 
-- name: Créer {{ insacloud_root }} et son répertoire .ssh
+- name: Créer le répertoire de service et son sous-dossier .ssh dans {{ insacloud_root }}
   ansible.builtin.file:
     path: "{{ item.path }}"
     state: directory

@@ -1,0 +1,23 @@
+---
+# =============================================================================
+#  roles/docker/meta/main.yml
+#  Docker Engine (workers) ou client seul (contrôleur)
+# -----------------------------------------------------------------------------
+#  Dépendances : Le pare-feu doit être actif avant l'installation de Docker.
+#  Les rôles déclarés ici sont exécutés automatiquement avant celui-ci.
+# =============================================================================
+galaxy_info:
+  role_name: docker
+  author: Mohamed Aziz Baoueb
+  description: "Docker Engine (workers) ou client seul (contrôleur)"
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy]
+    - name: Debian
+      versions: [bookworm]
+  galaxy_tags: [insacloud, iac, docker, ansible]
+
+dependencies:
+  - role: security_hardening

@@ -1,0 +1,22 @@
+---
+# =============================================================================
+#  roles/tls_cert/meta/main.yml
+#  Certificat TLS auto-signé propre au nœud
+# -----------------------------------------------------------------------------
+#  Dépendances : Aucune : produit un certificat indépendant du reste.
+#  Les rôles déclarés ici sont exécutés automatiquement avant celui-ci.
+# =============================================================================
+galaxy_info:
+  role_name: tls_cert
+  author: Mohamed Aziz Baoueb
+  description: "Certificat TLS auto-signé propre au nœud"
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy]
+    - name: Debian
+      versions: [bookworm]
+  galaxy_tags: [insacloud, iac, docker, ansible]
+
+dependencies: []

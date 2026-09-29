@@ -41,7 +41,7 @@
     state: present
 
 # ------------------------------------------------------------ 3. Utilisateur
-- name: Créer l'utilisateur système {{ insacloud_user }} (groupe docker uniquement en mode mono-hôte)
+- name: "Créer l'utilisateur système de l'application, dans le groupe docker si mono-hôte : {{ insacloud_user }}"
   ansible.builtin.user:
     name: "{{ insacloud_user }}"
     system: true
@@ -209,11 +209,23 @@
     state: started
     daemon_reload: true
 
+- name: Relever l'état des services systemd du nœud
+  ansible.builtin.service_facts:
+
 - name: Vérifier que le Faucheur est actif
-  ansible.builtin.command:
-    cmd: systemctl is-active insacloud-faucheur
-  register: faucheur_state
-  changed_when: false
+  # Sans lui, les machines expirées ne seraient jamais détruites : le
+  # déploiement doit échouer bruyamment plutôt que de laisser croire au succès.
+  ansible.builtin.assert:
+    that:
+      # La première condition est évaluée d'abord : sans elle, une unité absente
+      # provoquerait une erreur de clé au lieu d'un message de diagnostic clair.
+      - "'insacloud-faucheur.service' in ansible_facts.services"
+      - ansible_facts.services['insacloud-faucheur.service'].state == 'running'
+    fail_msg: >-
+      Le Faucheur n'est pas actif. Diagnostic :
+      journalctl -u insacloud-faucheur -n 50
+    success_msg: "Faucheur actif : les machines expirées seront détruites."
+    quiet: true
 
 - name: Résumé du déploiement
   ansible.builtin.debug:
@@ -221,5 +233,5 @@
       - "InsaCloud est déployé : https://{{ ansible_host | default(inventory_hostname) }}  (certificat auto-signé)"
       - "Images : {{ insacloud_images_to_build | map(attribute='name') | join(', ') }}{{ ' (mode démo)' if demo_mode | bool else '' }}"
       - "Nœuds Docker : {{ insacloud_workers_env if insacloud_workers_env else 'local (conteneurs sur ce serveur)' }}"
-      - "Faucheur : {{ faucheur_state.stdout }}"
+      - "Faucheur : {{ ansible_facts.services['insacloud-faucheur.service'].state }}"
       - "Logs : journalctl -u insacloud-web -f  |  journalctl -u insacloud-faucheur -f"

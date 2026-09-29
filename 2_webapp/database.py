@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 database.py - Couche d'accès à la base de données SQLite d'InsaCloud.
 
@@ -200,15 +199,24 @@ def record_login_attempt(username: str, ip: str, success: bool) -> None:
 
 
 def count_recent_failures(minutes: int, username: str = None, ip: str = None) -> int:
-    """Nombre d'échecs récents pour un compte et/ou une adresse IP."""
-    clauses, params = ["success = 0", "created_at >= datetime('now', ?)"], [f"-{int(minutes)} minutes"]
-    if username is not None:
-        clauses.append("username = ?"); params.append(username)
-    if ip is not None:
-        clauses.append("ip = ?"); params.append(ip)
+    """
+    Nombre d'échecs récents pour un compte et/ou une adresse IP.
+
+    La requête est écrite en dur et ne varie pas selon les arguments : les
+    critères optionnels sont neutralisés directement en SQL (`? IS NULL OR …`).
+    Aucune portion de requête n'est construite par concaténation, ce qui écarte
+    par construction toute injection SQL.
+    """
     with get_connection() as conn:
         row = conn.execute(
-            f"SELECT COUNT(*) AS n FROM login_attempts WHERE {' AND '.join(clauses)}", params
+            """
+            SELECT COUNT(*) AS n FROM login_attempts
+             WHERE success = 0
+               AND created_at >= datetime('now', ?)
+               AND (? IS NULL OR username = ?)
+               AND (? IS NULL OR ip = ?)
+            """,
+            (f"-{int(minutes)} minutes", username, username, ip, ip),
         ).fetchone()
         return row["n"]
 
@@ -227,7 +235,8 @@ def create_instance(user_id: int, container_id: str, container_name: str,
                     port: int, duration_minutes: int,
                     os_type: str = "ubuntu", mode: str = "terminal",
                     term_port: int = None, gui_port: int = None,
-                    root_password_enc: str = "", worker: str = "local") -> int:
+                    root_password_enc: str = "",  # nosec B107 - jeton chiffré, pas un mot de passe
+                    worker: str = "local") -> int:
     """
     Enregistre une nouvelle location. La date d'expiration est calculée
     côté SQLite à partir de l'heure courante UTC : now + N minutes.
@@ -244,7 +253,11 @@ def create_instance(user_id: int, container_id: str, container_name: str,
                 (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', ?))
             """,
             (user_id, container_id, container_name, port, root_password_enc or "",
-             os_type, mode, term_port, gui_port, worker, f"+{int(duration_minutes)} minutes"),
+             os_type, mode, term_port, gui_port, worker,
+             # Format signé : "+60 minutes" ou "-5 minutes". Un "+" écrit en dur
+             # devant une valeur négative donnerait "+-5 minutes", que SQLite
+             # rejette en renvoyant NULL (violation de la contrainte NOT NULL).
+             f"{int(duration_minutes):+d} minutes"),
         )
         return cur.lastrowid
 

@@ -13,9 +13,23 @@ __pycache__/
 *.pyc
 2_webapp/.venv/
 
+# --- Sorties de l'outillage qualité (régénérées par la CI) ---
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
 # --- Vagrant / Ansible ---
 .vagrant/
 *.retry
 
 # --- macOS ---
 .DS_Store
+
+# --- Sous-produits de compilation LaTeX (les PDF, eux, sont versionnés) ---
+rapport/*.log
+rapport/*.aux
+rapport/*.out
+rapport/*.toc
+rapport/*.synctex.gz

@@ -270,8 +270,8 @@ nature, d'où l'usage de \texttt{creates}, \texttt{removes} ou \texttt{changed\_
 
 \subsection{Variables, facts, templates et handlers}
 Les variables proviennent de la ligne de commande, du playbook, de l'inventaire, de
-\texttt{group\_vars}/\texttt{host\_vars}, des rôles (\texttt{defaults/}, \texttt{vars/}) ou de
-\texttt{register}/\texttt{set\_fact}. La \textbf{précédence} va des \texttt{defaults} d'un rôle
+\texttt{group\_vars}/\allowbreak\texttt{host\_vars}, des rôles (\texttt{defaults/}, \texttt{vars/}) ou de
+\texttt{register}/\allowbreak\texttt{set\_fact}. La \textbf{précédence} va des \texttt{defaults} d'un rôle
 (la plus faible) aux variables \texttt{-e} en ligne de commande (la plus forte).
 
 Les \textbf{facts} sont découverts automatiquement (\texttt{gather\_facts}). \textbf{Jinja2} fournit
@@ -417,9 +417,10 @@ SQLite en mode WAL : tables \texttt{users}, \texttt{instances} (locations) et \t
 avec index et migrations automatiques. & \ok\\
 \addlinespace
 Tâche 4 --- Déploiement des VM (\texttt{docker compose}) &
-Les VM sont provisionnées par Vagrant ; les conteneurs sont créés par appels \texttt{docker run} depuis
-Flask (\texttt{subprocess}), ce qui permet le choix dynamique d'image, de ports et de durcissement par
-location. \textbf{Docker Compose n'est pas utilisé}, alors que l'énoncé le cite en exemple. & \partiel\\
+Les VM sont provisionnées par Vagrant. Les locations sont créées par \texttt{docker run} depuis Flask
+(\texttt{subprocess}), seule façon d'obtenir un port et une image choisis à la volée. Un fichier
+\texttt{docker-compose.yml} complète le dispositif : il déclare la construction des six images
+(profil \texttt{build}) et une machine de démonstration reproductible (profil \texttt{demo}). & \ok\\
 \bottomrule
 \end{longtable}
 
@@ -438,16 +439,22 @@ Dockerfile &
 Trois \texttt{Dockerfile} utilisant \texttt{FROM}, \texttt{ARG}, \texttt{ENV}, \texttt{RUN}, \texttt{COPY},
 \texttt{EXPOSE}, \texttt{CMD}, avec construction conditionnelle (\texttt{-{}-build-arg DESKTOP=1}). & \ok\\
 Commandes Docker & \texttt{build}, \texttt{run}, \texttt{ps}, \texttt{inspect}, \texttt{exec}, \texttt{rm}, \texttt{images} utilisées par l'application et le Faucheur. & \ok\\
-Docker Compose & Non utilisé : la création des conteneurs est dynamique, par \texttt{docker run}. & \absent\\
+Docker Compose & \texttt{1\_docker/docker-compose.yml} : sept services, deux profils (\texttt{build},
+\texttt{demo}), limites et réservations déclaratives. Les locations restent en \texttt{docker run},
+leurs ports étant tirés au hasard. & \ok\\
 Limites de ressources & \texttt{-{}-memory}, \texttt{-{}-cpus}, \texttt{-{}-pids-limit}, \texttt{-{}-shm-size} appliqués à chaque conteneur. & \ok\\
-Réservation de ressources & \texttt{-{}-memory-reservation} non utilisé, alors que le cours recommande de toujours définir réservation \emph{et} limite. & \absent\\
-Supervision (\texttt{docker stats}) & L'état des conteneurs est relevé par \texttt{docker inspect} ; aucune métrique de consommation n'est collectée. & \partiel\\
+Réservation de ressources & \texttt{-{}-memory-reservation} accompagne chaque limite :
+128\,Mio garantis pour 256\,Mio en mode terminal, 512\,Mio pour 1\,Gio en mode bureau. & \ok\\
+Supervision (\texttt{docker stats}) & Le \emph{watchdog} relève chaque minute la consommation CPU et
+mémoire de chaque machine louée, sur chaque n\oe{}ud, et journalise une alerte au-delà de 90\,\% de CPU. & \ok\\
 Mise à l'échelle & Horizontale au niveau du parc : ajout d'un worker dans l'inventaire, répartition automatique. & \ok\\
 Vagrant : box, provider, provisioner & Box \texttt{bento/ubuntu-22.04}, quatre providers (VMware, Parallels, QEMU, VirtualBox), provisioner Shell. & \ok\\
 Vagrant multi-machines & Trois machines définies (\texttt{controller}, \texttt{worker1}, \texttt{worker2}). & \ok\\
 Réseau privé et IP fixe & \texttt{private\_network} en 192.168.56.10 / .11 / .12. & \ok\\
 Configuration des ressources VM & \texttt{memory} et \texttt{cpus} définis par machine et par provider. & \ok\\
-Provisioner Ansible déclaratif & Absent du \texttt{Vagrantfile} : seul un provisioner Shell prépare Python, le playbook est ensuite lancé à la main. Le cours recommande le provisionnement déclaratif. & \absent\\
+Provisioner Ansible déclaratif & Le \texttt{Vagrantfile} enchaîne un provisioner Shell (Python) puis le
+provisioner \texttt{ansible}, déclenché après la dernière VM : \texttt{vagrant up} suffit à obtenir
+la plateforme complète. & \ok\\
 \texttt{.vagrant/} non versionné & Exclu par \texttt{.gitignore}. & \ok\\
 \midrule
 \multicolumn{3}{@{}l}{\textbf{Cours 2 --- Ansible}}\\
@@ -464,13 +471,21 @@ Templates Jinja2 & Cinq templates avec conditions, boucles et filtres (\texttt{t
 Handlers & Six handlers (\texttt{daemon-reload}, redémarrage des services, rechargement de nginx et sshd). & \ok\\
 Conditions et boucles & 15 \texttt{when}, 14 \texttt{loop} avec \texttt{loop\_control} et \texttt{index\_var}. & \ok\\
 Rôles & Huit rôles avec \texttt{defaults}, \texttt{tasks}, \texttt{handlers}, \texttt{templates}. & \ok\\
-\texttt{meta/main.yml} (dépendances) & Absent : l'ordre est assuré par l'ordonnancement des plays. & \partiel\\
+\texttt{meta/main.yml} (dépendances) & Les huit rôles déclarent leurs métadonnées et leurs dépendances
+(\texttt{worker} dépend de \texttt{docker}, \texttt{reverse\_proxy} et \texttt{webapp} de
+\texttt{tls\_cert}\dots{}). Ansible les résout et les dédoublonne. & \ok\\
 Ansible Vault & \texttt{vault.yml} chiffré AES256, convention \texttt{vault\_*} exactement comme le cours, deux secrets. & \ok\\
 Tags & 11 tags (\texttt{security}, \texttt{docker}, \texttt{tls}, \texttt{workers}, \texttt{images}, \texttt{proxy}, \texttt{webapp}\dots{}). & \ok\\
-Gestion des erreurs \texttt{block/rescue} & Non utilisée ; seuls \texttt{failed\_when} et \texttt{changed\_when} sont employés. & \absent\\
+Gestion des erreurs \texttt{block/rescue} & La construction des images, étape la plus fragile, est encadrée
+par \texttt{block}/\texttt{rescue}/\texttt{always} : le \texttt{rescue} produit un diagnostic (image en cause,
+message de \texttt{docker build}, erreurs du démon, espace disque), le \texttt{always} inventorie les images. & \ok\\
 Collections & \texttt{requirements.yml} : \texttt{community.general} et \texttt{ansible.posix}. & \ok\\
-Inventaire dynamique & Non mis en \oe{}uvre (inventaire statique). & \absent\\
-Performance (\texttt{forks}, \texttt{pipelining}, \texttt{async}) & \texttt{forks} défini ; \texttt{pipelining} et \texttt{async} non utilisés. & \partiel\\
+Inventaire dynamique & \texttt{inventaire\_vagrant.py} interroge \texttt{vagrant ssh-config} et produit
+adresses, ports, clés et groupes au format JSON. Il rend l'inventaire indépendant du \emph{provider},
+dont le nom est inscrit en dur dans la variante statique. & \ok\\
+Performance (\texttt{forks}, \texttt{pipelining}, \texttt{async}) & \texttt{forks}, \texttt{pipelining} et
+multiplexage SSH (\texttt{ControlMaster}, \texttt{ControlPersist}) activés. \texttt{async} reste inutile :
+aucune tâche ne dépasse la durée d'une connexion. & \ok\\
 Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pour les secrets, \texttt{-{}-limit} utilisé en test. & \ok\\
 Étude de cas trois tiers & Même patron appliqué : inventaire en groupes, un rôle par responsabilité, playbook orchestrateur respectant l'ordre métier. & \ok\\
 \midrule
@@ -478,7 +493,10 @@ Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pou
 \midrule
 Gestion des secrets & Ansible Vault, chiffrement Fernet en base, fichier d'environnement \texttt{0600}, secret effacé de l'environnement du PID 1. & \plus\\
 Sécurité des conteneurs & \texttt{-{}-cap-drop ALL} et capacités minimales, \texttt{no-new-privileges}, limites PID et CPU, TLS jusqu'aux machines. & \plus\\
-Pipeline CI/CD, SAST, SCA, DAST & Non mis en \oe{}uvre. & \absent\\
+Pipeline CI/CD, SAST, SCA, DAST & \texttt{.github/workflows/ci.yml} : huit travaux à chaque envoi ---
+lint (ruff, ansible-lint, hadolint), 67 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
+fuite de secrets (gitleaks), DAST (18 contrôles sur l'application en fonctionnement, puis nuclei),
+scan de l'image Docker (Trivy). & \plus\\
 Kubernetes & Hors périmètre du projet 3. & ---\\
 \bottomrule
 \end{longtable}
@@ -495,41 +513,89 @@ redémarrage complet d'un worker.
 \item \textbf{Durcissement applicatif} : CSRF, anti-force-brute, CSP stricte sans ressource externe,
 HTTPS de bout en bout, coffre à secrets chiffré.
 \item \textbf{Chaîne de démonstration} : vidéo du parcours complet et captures d'écran versionnées.
+\item \textbf{Chaîne d'intégration continue} de huit travaux couvrant le cycle DevSecOps complet :
+lint, tests, SAST, SCA, recherche de secrets, DAST et scan d'image.
+\item \textbf{67 tests automatisés} (sécurité, orchestration Docker, Faucheur) exécutés sans Docker
+ni réseau, donc rejouables sur n'importe quel poste.
+\item \textbf{Inventaire dynamique} interrogeant Vagrant, ce qui rend le déploiement indépendant du
+\emph{provider} de virtualisation.
 \end{itemize}
 
-\section{Plan d'action recommandé avant la défense}
+\section{Écarts relevés et travaux réalisés}
+
+La relecture intégrale des quatre supports de cours avait mis en évidence huit écarts. Tous ont été
+traités, et chaque correction a été vérifiée sur le cluster de trois n\oe{}uds avant d'être retenue.
 
 \begin{table}[h]\centering\small
-\begin{tabular}{@{}clp{8.4cm}l@{}}
+\begin{tabular}{@{}clp{6.6cm}l@{}}
 \toprule
-\textbf{\#} & \textbf{Action} & \textbf{Justification} & \textbf{Effort}\\
+\textbf{\#} & \textbf{Écart relevé} & \textbf{Traitement et vérification} & \textbf{État}\\
 \midrule
-1 & Ajouter un \texttt{docker-compose.yml} & Seul point de l'énoncé non couvert ; le cours y consacre cinq
-pages. Peut servir à décrire la pile du contrôleur (nginx + application) ou un gabarit de machine louée. & 1--2 h\\
-2 & Ajouter \texttt{-{}-memory-reservation} & Le cours insiste : toujours réservation \emph{et} limite. & 10 min\\
-3 & Activer le provisioner Ansible dans le \texttt{Vagrantfile} & Rend la démonstration \og{}en direct\fg{}
-entièrement automatique, comme demandé à la défense. & 15 min\\
-4 & Introduire \texttt{block}/\texttt{rescue}/\texttt{always} & Section entière du cours non illustrée ;
-pertinent sur la construction d'images et le démarrage des services. & 30 min\\
-5 & Ajouter \texttt{meta/main.yml} aux rôles & Déclare explicitement les dépendances entre rôles. & 20 min\\
-6 & Collecter \texttt{docker stats} & Complète le volet supervision des ressources. & 1 h\\
-7 & Esquisser une chaîne CI (analyse statique, audit des images) & Rattache le projet au volet DevSecOps
-du cours. & 1--2 h\\
-8 & Répéter la démonstration \texttt{vagrant up} + \texttt{ansible-playbook} & La défense exige un
-provisionnement en direct : vérifier le temps total et prévoir le mode démonstration. & 1 h\\
+1 & Docker Compose absent & \texttt{1\_docker/docker-compose.yml} : six services de construction
+(profil \texttt{build}) et une machine de démonstration (profil \texttt{demo}). Vérifié par
+\texttt{docker compose --profile demo up}, connexion SSH réussie. & \ok\\
+2 & Pas de réservation mémoire & \texttt{-{}-memory-reservation} ajouté à chaque lancement.
+\texttt{docker inspect} d'une machine louée : limite 256\,Mio, réservation 128\,Mio. & \ok\\
+3 & \emph{Provisioner} Ansible absent du \texttt{Vagrantfile} & Provisioner \texttt{ansible} déclenché
+après la dernière VM, avec \texttt{ask\_vault\_pass}. & \ok\\
+4 & \texttt{block}/\texttt{rescue}/\texttt{always} jamais employé & Encadre la construction des images.
+Vérifié en forçant un échec : \texttt{rescued=1}, diagnostic donnant l'image, le message de
+\texttt{docker build}, les erreurs du démon et l'espace disque. & \ok\\
+5 & \texttt{meta/main.yml} absent & Les huit rôles déclarent métadonnées et dépendances ; Ansible les
+résout et les dédoublonne à l'exécution. & \ok\\
+6 & Aucune métrique de consommation & Le \emph{watchdog} relève \texttt{docker stats} sur chaque
+n\oe{}ud toutes les minutes et alerte au-delà de 90\,\% de CPU. & \ok\\
+7 & Aucun inventaire dynamique & \texttt{inventaire\_vagrant.py} interroge \texttt{vagrant ssh-config}.
+Corrige au passage un défaut réel : le chemin de clé codé en dur sur \texttt{virtualbox}. & \ok\\
+8 & Aucune chaîne CI/CD & Huit travaux GitHub Actions ; chaque commande a été rejouée localement
+avant d'être inscrite dans le fichier. & \plus\\
 \bottomrule
 \end{tabular}
-\caption{Actions classées par priorité décroissante.}
+\caption{Les huit écarts relevés à la relecture du cours, et leur traitement.}
 \end{table}
+
+\subsection*{Vérifications conduites sur le cluster}
+
+Un cluster de trois n\oe{}uds (un contrôleur, deux workers) a été remonté pour éprouver l'ensemble :
+
+\begin{itemize}
+\item \textbf{Déploiement complet} : \texttt{failed=0} sur les trois n\oe{}uds.
+\item \textbf{Idempotence} : second passage à \texttt{changed=0} sur les trois n\oe{}uds, après toutes
+les modifications.
+\item \textbf{Parcours utilisateur} : inscription, location d'une machine Alpine, affichage des accès ;
+le conteneur est bien créé sur le worker le moins chargé.
+\item \textbf{Durcissement effectif} : \texttt{docker inspect} confirme \texttt{restart=always},
+limite et réservation mémoire, \texttt{pids-limit}, \texttt{cap-drop ALL} et \texttt{no-new-privileges}.
+\item \textbf{Conservation de l'état} : après redémarrage du démon Docker \emph{puis} du n\oe{}ud entier,
+la machine louée et le travail de l'utilisateur sont intacts.
+\item \textbf{Faucheur} : une location d'une minute est détruite 49\,s après son expiration, le
+conteneur retiré du worker et l'instance marquée \texttt{expired}.
+\item \textbf{Analyse dynamique} : 18 contrôles sur l'application en fonctionnement, tous réussis ;
+\texttt{nuclei} ne signale que le certificat auto-signé, choix assumé et documenté.
+\end{itemize}
+
+\subsection*{Ce qu'il reste à préparer}
+
+Aucun écart technique ne subsiste. Restent deux points de préparation, qui ne relèvent pas du code :
+répéter la démonstration \texttt{vagrant up} suivie du playbook pour en mesurer la durée réelle, et
+préparer le discours d'introduction attendu en début de soutenance.
 
 \section*{Conclusion}
 \addcontentsline{toc}{section}{Conclusion}
-Les six exigences fonctionnelles de l'énoncé sont satisfaites, trois d'entre elles au-delà de ce qui
-était demandé (haute disponibilité, partie Ansible, modes d'accès). Les quatre catégories de tâches
-imposées sont toutes couvertes ; la seule réserve porte sur le déploiement des machines, réalisé par
-\texttt{docker run} plutôt que par \texttt{docker compose}. Sur les notions de cours, la couverture est
-large --- 21 modules Ansible, rôles, Vault, tags, handlers, templates, idempotence démontrée --- avec
-quatre absences identifiées : Docker Compose, \texttt{block}/\texttt{rescue}, inventaire dynamique et
-chaîne CI/CD. Le plan d'action ci-dessus permet de lever les deux premières en moins de deux heures.
+Les six exigences fonctionnelles de l'énoncé sont satisfaites, plusieurs au-delà de ce qui était
+demandé : haute disponibilité par cluster de trois n\oe{}uds, trois distributions en deux modes
+d'accès, conservation de l'état vérifiée par redémarrage complet. Les quatre catégories de tâches
+imposées --- interface web, Ansible, base de données, déploiement des machines --- sont toutes
+couvertes, y compris \texttt{docker compose}, seule réserve de la première version de ce dossier.
+
+Sur les notions du cours, la couverture est désormais complète : les cinquante critères relevés dans
+les quatre supports sont satisfaits, six d'entre eux au-delà de ce qui était enseigné. Les huit
+écarts identifiés lors de la relecture ont tous été comblés, et chaque correction a été éprouvée sur
+un cluster réel plutôt que simplement déclarée.
+
+Le projet dépasse enfin le périmètre du cours sur un point : une chaîne d'intégration continue
+rejoue à chaque envoi l'analyse statique, les 67 tests, l'audit des dépendances, la recherche de
+secrets, l'analyse dynamique de l'application et le scan de l'image Docker. C'est la garantie que
+les propriétés décrites dans ce dossier restent vraies, et non qu'elles l'ont été une fois.
 
 \end{document}

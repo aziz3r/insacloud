@@ -1,0 +1,316 @@
+# =============================================================================
+#  .github/workflows/ci.yml - Intégration continue d'InsaCloud
+# -----------------------------------------------------------------------------
+#  Chaque envoi de code déclenche la même chaîne de contrôles que celle que l'on
+#  peut rejouer sur son poste. Aucun contrôle n'a besoin d'un accès aux machines
+#  de production : Docker est simulé dans les tests, et le secret Ansible Vault
+#  n'est pas nécessaire pour analyser les rôles.
+#
+#  Les sept travaux correspondent aux familles d'analyse vues en cours :
+#    lint            style et erreurs réelles du code (ruff, ansible-lint, hadolint)
+#    tests           tests unitaires et d'intégration (pytest) + couverture
+#    SAST            analyse statique de sécurité du code source (bandit)
+#    SCA             analyse de composition logicielle : CVE des dépendances (pip-audit)
+#    secrets         recherche de secrets commis par erreur (gitleaks)
+#    image scanning  CVE des paquets présents dans l'image Docker (Trivy)
+#    DAST            analyse de l'application EN FONCTIONNEMENT (tests/dast.sh, nuclei)
+# =============================================================================
+
+name: Intégration continue
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:        # exécution manuelle depuis l'onglet Actions
+
+# Principe du moindre privilège : le jeton du workflow n'a besoin que de lire.
+permissions:
+  contents: read
+
+# Un nouvel envoi annule l'exécution précédente encore en cours sur la même branche.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Version de Python de la cible réelle (Ubuntu 22.04, box Vagrant du projet).
+  PYTHON_VERSION: "3.10"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  #  1. Style et erreurs réelles du code Python
+  # ---------------------------------------------------------------------------
+  lint-python:
+    name: Lint Python (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: 2_webapp/requirements-dev.txt
+
+      - name: Installer l'outillage
+        run: pip install --quiet -r 2_webapp/requirements-dev.txt
+
+      - name: Analyser le code (style, imports morts, noms inconnus, motifs dangereux)
+        working-directory: 2_webapp
+        run: ruff check . --output-format=github
+
+  # ---------------------------------------------------------------------------
+  #  2. Tests unitaires et d'intégration
+  # ---------------------------------------------------------------------------
+  tests-python:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: 2_webapp/requirements-dev.txt
+
+      - name: Installer l'application et l'outillage
+        run: pip install --quiet -r 2_webapp/requirements-dev.txt
+
+      - name: Exécuter la suite de tests
+        working-directory: 2_webapp
+        # Les tests remplacent Docker par des fonctions espions : ils vérifient la
+        # commande construite (docker run -d --restart=always -p <port>:22 ...) et
+        # le comportement du Faucheur sans lancer le moindre conteneur.
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+
+      - name: Conserver le rapport de couverture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: couverture-python
+          path: 2_webapp/coverage.xml
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  #  3. SAST - analyse statique de sécurité du code source
+  # ---------------------------------------------------------------------------
+  sast-python:
+    name: SAST (bandit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: 2_webapp/requirements-dev.txt
+
+      - name: Installer l'outillage
+        run: pip install --quiet -r 2_webapp/requirements-dev.txt
+
+      - name: Rechercher les motifs dangereux (injection, secrets, appels système)
+        working-directory: 2_webapp
+        # Aucune règle n'est désactivée globalement : les rares cas légitimes
+        # portent une annotation « # nosec <règle> » justifiée à la ligne même.
+        run: bandit -c pyproject.toml -r . --severity-level low --confidence-level low
+
+  # ---------------------------------------------------------------------------
+  #  4. SCA - vulnérabilités connues des dépendances
+  # ---------------------------------------------------------------------------
+  sca-dependances:
+    name: SCA (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Installer pip-audit
+        run: pip install --quiet pip-audit
+
+      - name: Confronter les versions épinglées aux bases de CVE
+        # requirements.txt fige chaque version : l'audit sait donc exactement
+        # quoi vérifier, et une CVE publiée fera échouer la chaîne au prochain envoi.
+        run: pip-audit --strict --requirement 2_webapp/requirements.txt
+
+  # ---------------------------------------------------------------------------
+  #  5. Recherche de secrets commis par erreur
+  # ---------------------------------------------------------------------------
+  secrets:
+    name: Fuite de secrets (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # tout l'historique : un secret supprimé y reste présent
+
+      - name: Rechercher clés, jetons et mots de passe dans l'historique
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" \
+            zricethezav/gitleaks:latest \
+            detect --source /repo --config /repo/.gitleaks.toml \
+                   --redact --no-banner --verbose
+
+  # ---------------------------------------------------------------------------
+  #  6. DAST - analyse de l'application en fonctionnement
+  # ---------------------------------------------------------------------------
+  dast:
+    name: DAST (application en fonctionnement)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: 2_webapp/requirements.txt
+
+      - name: Installer l'application
+        run: pip install --quiet -r 2_webapp/requirements.txt
+
+      - name: Démarrer l'application avec Gunicorn
+        working-directory: 2_webapp
+        env:
+          # Base et clés jetables, créées pour la durée du travail : aucun
+          # secret du dépôt n'est nécessaire pour analyser le service.
+          INSACLOUD_DB: /tmp/dast.db
+          INSACLOUD_SECRET_KEY: cle-de-session-jetable-pour-l-analyse
+        run: |
+          export INSACLOUD_VAULT_KEY="$(python -c \
+            'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+          gunicorn --workers 2 --bind 127.0.0.1:5000 --chdir . app:app &
+          for essai in $(seq 1 30); do
+            nc -z 127.0.0.1 5000 && break || sleep 1
+          done
+          nc -z 127.0.0.1 5000 || { echo "L'application n'a pas démarré." >&2; exit 1; }
+
+      - name: Contrôles dynamiques (en-têtes, pages protégées, CSRF, cookies)
+        working-directory: 2_webapp
+        run: ./tests/dast.sh http://127.0.0.1:5000
+
+      - name: Analyse générique avec nuclei
+        # Complète les contrôles ciblés ci-dessus par une batterie de sondes
+        # génériques (mauvaises configurations, fichiers exposés, en-têtes).
+        run: |
+          docker run --rm --network host projectdiscovery/nuclei:latest \
+            -u http://127.0.0.1:5000/login \
+            -tags http,misconfig,exposure -severity medium,high,critical \
+            -silent -nc -timeout 8 | tee /tmp/nuclei.txt
+          if [ -s /tmp/nuclei.txt ]; then
+            echo "nuclei signale des points à corriger (voir ci-dessus)." >&2
+            exit 1
+          fi
+          echo "nuclei : aucune alerte de gravité moyenne ou supérieure."
+
+  # ---------------------------------------------------------------------------
+  #  7. Qualité de l'infrastructure as code
+  # ---------------------------------------------------------------------------
+  lint-ansible:
+    name: Lint Ansible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer Ansible et son analyseur
+        run: pip install --quiet ansible-core ansible-lint
+
+      - name: Installer les collections requises
+        working-directory: 3_ansible
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Vérifier la syntaxe du playbook
+        working-directory: 3_ansible
+        # Le fichier group_vars/insacloud/vault.yml est chiffré : Ansible signale
+        # simplement qu'il ne peut pas le lire, ce qui n'empêche ni l'analyse
+        # syntaxique ni le lint. Le secret du Vault n'a donc pas à être exposé ici.
+        run: ansible-playbook site.yml --syntax-check
+
+      - name: Analyser les rôles (profil « production »)
+        working-directory: 3_ansible
+        run: ansible-lint
+
+      - name: Contrôler l'inventaire dynamique
+        working-directory: 3_ansible
+        run: |
+          pip install --quiet ruff bandit
+          ruff check inventaire_vagrant.py --select E,F,W,B,S,UP \
+               --line-length 110 --target-version py310
+          bandit -q inventaire_vagrant.py
+          # Sans Vagrant installé, le script doit refuser proprement et expliquer
+          # comment retomber sur l'inventaire statique (code de sortie 1).
+          if ./inventaire_vagrant.py --list; then
+            echo "Le script aurait dû échouer en l'absence de Vagrant." >&2; exit 1
+          fi
+          ./inventaire_vagrant.py --list 2>&1 | grep -q "inventaire statique"
+          echo "Inventaire dynamique : repli documenté vérifié."
+
+  # ---------------------------------------------------------------------------
+  #  8. Images des machines louées : lint, construction et scan de CVE
+  # ---------------------------------------------------------------------------
+  images-docker:
+    name: Images Docker (hadolint + Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyser les trois Dockerfiles
+        working-directory: 1_docker
+        run: |
+          for fichier in Dockerfile debian.Dockerfile alpine.Dockerfile; do
+            echo "::group::hadolint $fichier"
+            docker run --rm -i -v "$PWD/.hadolint.yaml:/.hadolint.yaml:ro" \
+              hadolint/hadolint:latest-alpine \
+              hadolint --config /.hadolint.yaml - < "$fichier"
+            echo "::endgroup::"
+          done
+
+      - name: Vérifier le fichier docker compose
+        working-directory: 1_docker
+        run: docker compose config --quiet
+
+      - name: Construire l'image légère (celle du mode démonstration)
+        working-directory: 1_docker
+        run: docker build -t insacloud_alpine:latest -f alpine.Dockerfile .
+
+      - name: Vérifier qu'aucun mot de passe n'est inscrit dans l'image
+        # Régression déjà rencontrée : un ENV ROOT_PASSWORD serait lisible par
+        # quiconque exécute `docker inspect` sur l'image publiée.
+        run: |
+          if docker inspect insacloud_alpine:latest \
+               --format '{{json .Config.Env}}' | grep -qi 'password\|passwd'; then
+            echo "Un mot de passe figure dans les variables d'environnement de l'image." >&2
+            exit 1
+          fi
+          echo "Aucun mot de passe dans l'image."
+
+      - name: Vérifier que la machine démarre et que SSH répond
+        run: |
+          # Mot de passe tiré au hasard à chaque exécution : aucune valeur
+          # constante n'est inscrite dans le dépôt (le travail « gitleaks »
+          # ci-dessus refuserait d'ailleurs un mot de passe en dur ici).
+          MDP="$(tr -dc 'A-Za-z2-9' < /dev/urandom | head -c 16)"
+          docker run -d --name machine-test --restart=always \
+            -p 2222:22 -e ROOT_PASSWORD="$MDP" insacloud_alpine:latest
+          for essai in $(seq 1 30); do
+            if nc -z 127.0.0.1 2222; then echo "SSH écoute (essai $essai)"; break; fi
+            sleep 1
+          done
+          nc -z 127.0.0.1 2222 || { docker logs machine-test; exit 1; }
+          docker rm -f machine-test
+
+      - name: Rechercher les vulnérabilités connues de l'image
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy:latest image \
+            --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --no-progress \
+            insacloud_alpine:latest

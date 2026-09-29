@@ -39,7 +39,7 @@
     comment: "SSH depuis le controleur InsaCloud"
   loop: "{{ ufw_ssh_allow_from }}"
 
-- name: Autoriser SSH (port {{ ufw_ssh_port }}) avec limitation anti-force-brute
+- name: Autoriser SSH avec limitation anti-force-brute sur le port {{ ufw_ssh_port }}
   community.general.ufw:
     rule: limit
     port: "{{ ufw_ssh_port }}"

@@ -83,6 +83,19 @@ Vagrant.configure("2") do |config|
         apt-get update -qq
         apt-get install -y -qq python3 python3-apt > /dev/null
       SHELL
+
+      # Provisionnement déclaratif : le playbook est joué une fois les trois VM
+      # créées (ansible.limit = "all" + parallélisme). `vagrant up` suffit donc
+      # à obtenir une plateforme complète. Pour rejouer : `vagrant provision`.
+      if name == MACHINES.keys.to_a.last
+        node.vm.provision "ansible", name: "insacloud" do |ansible|
+          ansible.playbook           = "3_ansible/site.yml"
+          ansible.inventory_path     = "3_ansible/inventaire.ini"
+          ansible.limit              = "all"
+          ansible.compatibility_mode = "2.0"
+          ansible.ask_vault_pass     = true
+        end
+      end
     end
   end
 end
