@@ -16,12 +16,14 @@ pendant une écriture ; c'est ce qui rend cette cohabitation possible.
 
 import logging
 import os
+import time
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import (create_engine, delete, event, func, select, text,
                         update)
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import (IntegrityError, OperationalError,
+                            ProgrammingError)
 from sqlalchemy.orm import Session, sessionmaker
 
 from models import (DISTRIBUTION_ACTIVE, INSTANCE_EXPIRED, INSTANCE_RUNNING,
@@ -166,21 +168,58 @@ def _marquer_schema_a_jour() -> None:
     try:
         command.stamp(configuration, "head")
         log.info("Base placée sous suivi Alembic.")
+    except (OperationalError, ProgrammingError, IntegrityError) as erreur:
+        # Un autre processus a marqué la base entre notre vérification et
+        # notre écriture : le résultat voulu est atteint, on n'insiste pas.
+        log.info("Marquage Alembic déjà effectué par un autre processus (%s).",
+                 type(erreur).__name__)
     finally:
         journal.setLevel(niveau)
 
 
 def init_db() -> None:
-    """Crée le schéma s'il manque et garnit le catalogue des distributions."""
-    Base.metadata.create_all(engine)
+    """
+    Crée le schéma s'il manque et garnit le catalogue des distributions.
+
+    Appelée au démarrage par chaque processus : les quatre workers Gunicorn,
+    le Faucheur, et l'agent. Ils démarrent en même temps et peuvent donc créer
+    les tables simultanément — « CREATE TABLE IF NOT EXISTS » ne suffit pas,
+    car deux processus peuvent passer le test avant que l'un ait créé la table.
+    Les erreurs « existe déjà » sont donc tolérées : c'est exactement le
+    résultat recherché, obtenu par un autre processus.
+    """
+    for tentative in range(5):
+        try:
+            Base.metadata.create_all(engine)
+            break
+        except (OperationalError, ProgrammingError) as erreur:
+            message = str(erreur).lower()
+            if "already exists" in message:
+                log.info("Schéma créé simultanément par un autre processus.")
+                break
+            # « database is locked » : en SQLite, plusieurs processus qui
+            # créent le schéma d'une base neuve se disputent le verrou
+            # d'écriture. On laisse passer celui qui l'a, puis on revient.
+            if "locked" not in message or tentative == 4:
+                raise
+            time.sleep(0.3 * (tentative + 1))
+
     _marquer_schema_a_jour()
-    with SessionLocal() as session:
-        for donnees in DISTRIBUTIONS_PAR_DEFAUT:
-            existante = session.scalar(
-                select(Distribution).where(Distribution.name == donnees["name"]))
-            if existante is None:
+
+    # Une transaction par distribution, et non une seule pour les trois : si
+    # un autre processus insère la même ligne entre notre lecture et notre
+    # écriture, seule CETTE insertion échoue, et les autres aboutissent.
+    for donnees in DISTRIBUTIONS_PAR_DEFAUT:
+        with SessionLocal() as session:
+            try:
+                existante = session.scalar(
+                    select(Distribution).where(Distribution.name == donnees["name"]))
+                if existante is not None:
+                    continue
                 session.add(Distribution(status=DISTRIBUTION_ACTIVE, **donnees))
-        session.commit()
+                session.commit()
+            except IntegrityError:
+                session.rollback()      # insérée entre-temps : c'est le but
 
 
 # =============================================================================

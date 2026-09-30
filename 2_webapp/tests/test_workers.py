@@ -270,3 +270,32 @@ def test_api_arret_d_une_machine(client, docker_espion, monkeypatch):
     reponse = client.post(f"/instances/{identifiant}/stop", json={})
     assert reponse.status_code == 200
     assert db.get_instance(identifiant)["status"] == db.STATUS_STOPPED
+
+
+# --- Démarrage simultané -----------------------------------------------------
+def test_initialisation_simultanee_ne_casse_pas(tmp_path, monkeypatch):
+    """
+    Quatre workers Gunicorn, le Faucheur et les agents démarrent ensemble et
+    appellent tous init_db(). Sans précaution, deux d'entre eux créent la même
+    table au même instant et l'un des deux meurt au démarrage — c'est ce qui
+    est arrivé sur l'agent d'intégration continue.
+    """
+    import threading
+
+    erreurs = []
+
+    def initialiser():
+        try:
+            db.init_db()
+        except Exception as exc:            # noqa: BLE001
+            erreurs.append(exc)
+
+    fils = [threading.Thread(target=initialiser) for _ in range(6)]
+    for f in fils:
+        f.start()
+    for f in fils:
+        f.join()
+
+    assert not erreurs, f"init_db() a échoué en parallèle : {erreurs[:2]}"
+    # Le catalogue ne doit pas avoir été inséré six fois
+    assert len(db.get_distributions()) == len(db.DISTRIBUTIONS_PAR_DEFAUT)

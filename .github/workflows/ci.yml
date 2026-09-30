@@ -189,7 +189,9 @@ jobs:
         run: |
           export INSACLOUD_VAULT_KEY="$(python -c \
             'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
-          gunicorn --workers 2 --bind 127.0.0.1:5000 --chdir . app:app &
+          # --preload comme en production : le schéma est créé une seule fois,
+          # avant le fork des workers.
+          gunicorn --workers 2 --preload --bind 127.0.0.1:5000 --chdir . app:app &
           for essai in $(seq 1 30); do
             nc -z 127.0.0.1 5000 && break || sleep 1
           done
