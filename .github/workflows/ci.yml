@@ -307,7 +307,7 @@ jobs:
           if [ "$utilisateur" = "0" ]; then
             echo "L'image de la plateforme tourne en root." >&2; exit 1
           fi
-          echo "Plateforme exécutée sous l'uid $utilisateur (non root).""
+          echo "Plateforme exécutée sous l'uid $utilisateur (non root)."
 
       - name: Vérifier qu'aucun mot de passe n'est inscrit dans l'image
         # Régression déjà rencontrée : un ENV ROOT_PASSWORD serait lisible par

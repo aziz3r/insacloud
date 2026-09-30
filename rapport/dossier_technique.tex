@@ -521,6 +521,116 @@ ni réseau, donc rejouables sur n'importe quel poste.
 \emph{provider} de virtualisation.
 \end{itemize}
 
+\section{Conformité au document \og{}PROJET 3\fg{} (17 fonctionnalités)}
+
+Le document détaillé remis par l'enseignante décompose le projet en dix-sept
+fonctionnalités, chacune assortie d'une liste de points à couvrir. Le tableau
+suivant reprend cette décomposition telle quelle.
+
+\begin{longtable}{@{}p{0.5cm}p{4.4cm}p{8.5cm}c@{}}
+\toprule
+\textbf{\#} & \textbf{Fonctionnalité} & \textbf{Réalisation} & \\
+\midrule
+\endhead
+1 & Préparation et environnement &
+Arborescence en trois répertoires, dépôt Git, \texttt{.gitignore},
+\texttt{README.md}, \texttt{.env.example} et stratégie de branches décrite
+dans \texttt{CONTRIBUTING.md}. & \ok\\
+\addlinespace
+2 & API web Flask &
+Inscription, connexion, déconnexion, sessions, hachage \texttt{scrypt},
+tableau de bord protégé. Les onze points d'entrée demandés existent avec
+leurs chemins exacts, de \texttt{GET /health} à
+\texttt{POST /workers/heartbeat}. Application découpée en huit modules et
+trois profils de configuration. & \ok\\
+\addlinespace
+3 & Base de données &
+Les cinq entités demandées en SQLAlchemy avec leurs relations : \texttt{User}
+(dont \texttt{email}), \texttt{Distribution}, \texttt{Worker}, \texttt{Instance},
+\texttt{Rental}. Migrations Alembic réversibles, jeu de données de
+démonstration, contraintes d'intégrité vérifiées par des tests. & \ok\\
+\addlinespace
+4 & Conteneurisation Docker &
+\texttt{Dockerfile} de l'application en deux étapes, compte sans privilège
+(uid 10001), sonde de santé. \texttt{docker-compose.yml} unique : base de
+données, application, Faucheur, les six images louables et une machine de
+démonstration. \texttt{docker compose up -d} donne une plateforme
+fonctionnelle. & \ok\\
+\addlinespace
+5 & Infrastructure Vagrant &
+Contrôleur et trois workers, adresses fixes sur réseau privé, parc
+paramétrable par \texttt{WORKERS=n}. Provisionnement Ansible enchaîné
+automatiquement. & \ok\\
+\addlinespace
+6 & Automatisation Ansible &
+\texttt{hosts.ini} avec les groupes demandés, quatre playbooks
+(\texttt{site}, \texttt{docker}, \texttt{worker}, \texttt{deploy}), neuf rôles,
+idempotence mesurée à \texttt{changed=0} sur quatre n\oe{}uds. L'agent est
+déployé par son propre rôle. & \ok\\
+\addlinespace
+7 & Agent et enregistrement dynamique &
+\texttt{worker\_agent.py} inscrit le n\oe{}ud puis envoie un battement de c\oe{}ur
+toutes les trente secondes. Il relève c\oe{}urs, mémoire et état de Docker, et
+n'utilise que la bibliothèque standard : rien à installer sur un worker.
+États \texttt{AVAILABLE}, \texttt{BUSY}, \texttt{OFFLINE}. & \ok\\
+\addlinespace
+8 & Gestionnaire de ressources &
+Sélection du n\oe{}ud joignable le moins chargé, capacité déduite de la
+mémoire, points d'entrée \texttt{GET /workers} et \texttt{GET /workers/\{id\}}. & \ok\\
+\addlinespace
+9 & Service de location &
+Formulaire, choix de la distribution et de la durée, validation, confirmation.
+Côté serveur : vérification du quota, choix du n\oe{}ud, création de l'instance
+et de la location en une transaction. & \ok\\
+\addlinespace
+10 & Déploiement des instances &
+Nom unique, image choisie, limites CPU et mémoire avec réservation, port SSH
+publié, identifiants enregistrés. Destruction : arrêt, suppression, location
+passée à \texttt{EXPIRED}. & \ok\\
+\addlinespace
+11 & Accès SSH &
+SSH configuré dans les trois images, mot de passe tiré au sort affiché une
+seule fois ou clé publique de l'utilisateur, commande affichée sur le tableau
+de bord, accès révoqué à l'expiration puisque la machine est détruite. & \ok\\
+\addlinespace
+12 & Gestion de l'expiration &
+Le Faucheur relit la base toutes les dix secondes, détruit les machines
+échues et met la location à jour. Mesuré : destruction 49\,s après
+l'expiration d'une location d'une minute. & \ok\\
+\addlinespace
+13 & Haute disponibilité &
+Battement de c\oe{}ur, délai d'expiration, passage \texttt{OFFLINE}, recherche
+d'un n\oe{}ud de repli et recréation du conteneur. Le scénario du document
+(\texttt{vagrant halt worker1}, l'instance repart sur worker2) est vérifié sur
+un cluster réel : la location n'est pas touchée, l'utilisateur garde sa durée. & \ok\\
+\addlinespace
+14 & Sécurité DevSecOps &
+Validation des entrées, hachage, secrets au Vault, chiffrement Fernet en base,
+image minimale sans secret, compte sans privilège, scan Trivy, Vault Ansible,
+privilèges limités, cloisonnement entre comptes vérifié par un test. & \plus\\
+\addlinespace
+15 & CI/CD &
+Onze travaux : lint, tests, sécurité, build, scan d'image, SBOM, registre,
+déploiement. La chaîne publie des images étiquetées version, commit et
+\texttt{latest}, et refuse toute image portant une faille critique. & \plus\\
+\addlinespace
+16 & Tests d'intégration &
+Les six scénarios du document dans \texttt{tests/integration.sh} : 19 contrôles
+sur le cluster Vagrant, 18 sur la pile compose. Les tests 1 à 5 sont rejoués
+à chaque envoi par l'intégration continue. & \ok\\
+\addlinespace
+17 & Documentation et soutenance &
+Schémas d'architecture, de réseau, de cycle de vie, du modèle de données et de
+la chaîne CI/CD. Documentation de l'API, de la base, de Docker, de Vagrant et
+d'Ansible. Procédures d'installation, de déploiement et de test, scénario de
+panne, limites et perspectives. & \ok\\
+\bottomrule
+\caption{Les dix-sept fonctionnalités du document PROJET 3.}
+\end{longtable}
+
+\noindent Les dix-sept fonctionnalités sont couvertes, deux d'entre elles
+au-delà de ce qui est demandé.
+
 \section{Écarts relevés et travaux réalisés}
 
 La relecture intégrale des quatre supports de cours avait mis en évidence huit écarts. Tous ont été

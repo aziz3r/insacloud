@@ -57,19 +57,20 @@ par utilisateur, destruction automatique à l'expiration.
 \node[boite,minimum width=3cm] (n1) at ([yshift=-11mm]ctrl.north) {nginx \textperiodcentered{} TLS 1.3};
 \node[boite,minimum width=3cm,below=1.5mm of n1] (n2) {Gunicorn \textperiodcentered{} Flask};
 \node[boite,minimum width=3cm,below=1.5mm of n2] (n3) {Faucheur \textperiodcentered{} Watchdog};
-\node[boite,minimum width=3cm,below=1.5mm of n3] (n4) {SQLite \textperiodcentered{} Vault};
+\node[boite,minimum width=3cm,below=1.5mm of n3] (n4) {PostgreSQL / SQLite \textperiodcentered{} Vault};
 \node[draw=grisligne,rounded corners=3pt,inner sep=5pt,right=16mm of ctrl,yshift=10mm,minimum width=3.7cm,minimum height=1.35cm] (w1) {};
 \node[titre] at ([yshift=-4mm]w1.north) {worker1 --- .56.11};
-\node[boite,minimum width=3.1cm,font=\tiny] at ([yshift=-11mm]w1.north) {dockerd \textperiodcentered\ live-restore\\conteneurs insacloud\_*};
+\node[boite,minimum width=3.1cm,font=\tiny] at ([yshift=-11mm]w1.north) {dockerd \textperiodcentered\ live-restore\\agent \textperiodcentered\ machines louées};
 \node[draw=grisligne,rounded corners=3pt,inner sep=5pt,below=6mm of w1,minimum width=3.7cm,minimum height=1.35cm] (w2) {};
-\node[titre] at ([yshift=-4mm]w2.north) {worker2 --- .56.12};
-\node[boite,minimum width=3.1cm,font=\tiny] at ([yshift=-11mm]w2.north) {dockerd \textperiodcentered\ live-restore\\conteneurs insacloud\_*};
+\node[titre] at ([yshift=-4mm]w2.north) {worker2, worker3 --- .12, .13};
+\node[boite,minimum width=3.1cm,font=\tiny] at ([yshift=-11mm]w2.north) {worker2 \textperiodcentered\ worker3\\dockerd \textperiodcentered\ agent};
 \draw[-{Stealth},thick] (nav) -- node[above,font=\tiny]{HTTPS} (ctrl);
 \draw[-{Stealth}] (ctrl.east) -- node[above,font=\tiny,pos=.55]{docker -H ssh://} (w1.west);
+\draw[-{Stealth},dashed] (w1.west) -- node[below,font=\tiny,pos=.5]{register \textperiodcentered\ heartbeat} (ctrl.east);
 \draw[-{Stealth}] (ctrl.east) -- (w2.west);
 \draw[-{Stealth},dashed] (nav.south) |- ([yshift=-8mm]$(w2.south)!0.5!(w2.south)$) node[below,font=\tiny,pos=.75]{SSH \textperiodcentered\ terminal web \textperiodcentered\ bureau (ports 8000--9000)} -| (w2.south);
 \end{tikzpicture}
-\caption{Architecture déployée : un contrôleur et deux \emph{workers}, provisionnés par Vagrant et Ansible.}
+\caption{Architecture déployée : un contrôleur et trois \emph{workers}, provisionnés par Vagrant et Ansible. Chaque worker s'inscrit lui-même auprès du contrôleur et signale sa présence.}
 \end{figure}
 
 \textbf{Séparation contrôleur / workers.} Le serveur web ne doit pas être le point de défaillance
@@ -157,23 +158,49 @@ en mode bureau, un environnement XFCE complet avec Firefox diffusé par noVNC.
 \caption{Terminal web (gauche) et bureau XFCE dans le navigateur (droite).}
 \end{figure}
 
-\subsection*{Haute disponibilité et expiration}
-Vérifications réalisées sur banc de test à trois n\oe{}uds : un worker entièrement redémarré retrouve
-ses machines \emph{et} les fichiers créés à l'intérieur ; un service arrêté de force est relancé par
-le watchdog en moins d'une minute ; une machine expirée est détruite par le Faucheur dans les
-secondes qui suivent (mesuré : expiration 15:13:48, destruction 15:13:52).
+\subsection*{Un parc qui se gère seul}
+Aucun n\oe{}ud n'est déclaré à la main. Un agent installé sur chaque worker l'inscrit au démarrage
+(\texttt{POST /workers/register}) puis signale sa présence toutes les trente secondes. Le contrôleur
+connaît ainsi en permanence les n\oe{}uds joignables, leurs ressources et leur charge, et place
+chaque nouvelle machine sur le moins chargé. Cet agent n'utilise que la bibliothèque standard :
+un worker n'a aucun paquet Python à installer.
+
+\subsection*{Haute disponibilité : trois niveaux}
+\textbf{Dans la machine}, \texttt{supervisord} relance un service mort. \textbf{Sur le n\oe{}ud},
+\texttt{-{}-restart=always} relance le conteneur et \texttt{live-restore} lui permet de survivre à
+un redémarrage du démon Docker. \textbf{Dans le parc}, un worker qui cesse de battre passe
+\texttt{OFFLINE} et ses machines sont recréées ailleurs.
+
+Mesuré sur un cluster de quatre n\oe{}uds : worker1 éteint, détecté hors ligne au bout du délai
+configuré, machine recréée sur worker2 avec un nouveau port et un nouveau mot de passe --- mais
+\emph{la location n'est pas touchée}, l'utilisateur garde la durée qu'il a réservée. Worker1
+redémarré réintègre le parc en moins de dix secondes. Ce que la reprise ne rend pas : les fichiers
+de l'ancienne machine, limite assumée d'une reprise sans stockage partagé.
+
+\subsection*{Expiration}
+Le Faucheur relit la base toutes les dix secondes. Mesuré : une location d'une minute est détruite
+49\,s après son échéance, le conteneur retiré du worker et la location passée à \texttt{EXPIRED}.
 
 \subsection*{Automatisation complète}
-\texttt{vagrant up} crée les trois VM ; \texttt{ansible-playbook site.yml -{}-ask-vault-pass} installe
-pare-feu, Docker, certificats, images, nginx et application. Résultats mesurés : premier passage
-\texttt{ok=72 / changed=35 / failed=0} sur le contrôleur et \texttt{ok=57 / changed=21} sur chaque
-worker ; second passage \texttt{changed=0} sur les trois n\oe{}uds.
+\texttt{vagrant up} crée les quatre VM et enchaîne lui-même le playbook. Neuf rôles installent
+pare-feu, Docker, certificats, images, agents, nginx et application. Mesuré sur quatre n\oe{}uds :
+premier passage \texttt{failed=0}, second passage \texttt{changed=0} partout.
+
+La pile est aussi disponible en conteneurs : un seul \texttt{docker-compose.yml} décrit PostgreSQL,
+l'application, le Faucheur et les images louables. \texttt{docker compose up -d} suffit à obtenir
+une plateforme fonctionnelle, l'application tournant sous un compte sans privilège.
 
 \subsection*{Sécurité}
 Jetons CSRF sur tous les formulaires, politique de mot de passe, cookies \texttt{Secure} /
 \texttt{HttpOnly} / \texttt{SameSite=Strict}, en-têtes de sécurité avec une CSP
 \texttt{default-src 'self'} (aucun CDN, aucun script en ligne), HTTPS de bout en bout,
 pare-feu UFW différencié par groupe, conteneurs à capacités minimales.
+
+Ces propriétés ne sont pas seulement décrites : une chaîne d'intégration continue de onze travaux
+les rejoue à chaque envoi --- analyse statique, 91 tests, audit des dépendances, recherche de
+secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, scan des
+images, puis publication et déploiement. Aucune image portant une faille critique n'atteint le
+registre.
 
 %================================================================ 4
 \section{Difficultés}
