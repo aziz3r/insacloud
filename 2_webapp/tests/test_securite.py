@@ -254,3 +254,73 @@ def test_generation_de_mot_de_passe_solide():
 
 def test_longueur_du_mot_de_passe_parametrable():
     assert len(docker_ops.generate_password(24)) == 24
+
+
+# --- Le secret ne doit jamais transiter par le cookie ------------------------
+def _decoder_cookie(valeur: str) -> str:
+    """
+    Décode la charge utile d'un cookie de session Flask SANS la clé secrète.
+
+    C'est exactement ce que peut faire quiconque met la main sur le cookie :
+    la session Flask est signée, ce qui garantit qu'elle n'a pas été modifiée,
+    mais elle n'est pas chiffrée — son contenu est lisible.
+    """
+    import base64
+    import zlib
+
+    charge = valeur.split(".")[0]
+    compresse = charge.startswith("-")
+    if compresse:
+        charge = charge[1:]
+    charge += "=" * (-len(charge) % 4)
+    brut = base64.urlsafe_b64decode(charge)
+    if compresse:
+        brut = zlib.decompress(brut)
+    return brut.decode(errors="replace")
+
+
+def test_le_mot_de_passe_machine_ne_transite_pas_par_le_cookie(connecte, monkeypatch):
+    """
+    Le mot de passe root est chiffré en base ; il ne doit pas ressortir en
+    clair dans le cookie de session au moment de l'afficher.
+    """
+    monkeypatch.setattr(insacloud, "docker_container_state", lambda *a, **k: "running")
+    utilisateur = db.get_user_by_username("etudiant")
+    secret = "MotDePasseRoot12"
+    identifiant = db.create_instance(utilisateur["id"], "abc123456789", "insacloud_etudiant_c1",
+                                     8020, 30, os_type="ubuntu", mode="terminal",
+                                     term_port=8120, gui_port=None, worker="local")
+    db.set_instance_password(identifiant, crypto.encrypt_secret(secret))
+
+    # On simule ce que fait la route de location : marquer la machine à révéler
+    with connecte.session_transaction() as session:
+        session["reveal"] = {"instance": identifiant, "rotated": False}
+
+    reponse = connecte.get("/dashboard")
+    cookie = "".join(str(v) for v in reponse.headers.getlist("Set-Cookie"))
+    if cookie:
+        valeur = cookie.split("insacloud_session=", 1)[-1].split(";", 1)[0]
+        contenu = _decoder_cookie(valeur)
+        assert secret not in contenu, "le mot de passe ne doit pas être dans le cookie"
+
+    # …mais il doit bien s'afficher dans la page, une seule fois
+    assert secret in reponse.get_data(as_text=True)
+    assert secret not in connecte.get("/dashboard").get_data(as_text=True), \
+        "le mot de passe ne doit apparaître qu'une fois"
+
+
+def test_un_marqueur_pour_la_machine_d_autrui_ne_revele_rien(client, monkeypatch):
+    """Forger l'identifiant dans son propre cookie ne donne accès à rien."""
+    monkeypatch.setattr(insacloud, "docker_container_state", lambda *a, **k: "running")
+    inscrire(client, "alice")
+    alice = db.get_user_by_username("alice")
+    identifiant = db.create_instance(alice["id"], "aaa111222333", "insacloud_alice_c1",
+                                     8021, 30, os_type="ubuntu", mode="terminal",
+                                     term_port=8121, gui_port=None, worker="local")
+    db.set_instance_password(identifiant, crypto.encrypt_secret("SecretDAlice1234"))
+    client.post("/logout", data={"_csrf": pose_csrf(client)})
+
+    inscrire(client, "bob")
+    with client.session_transaction() as session:
+        session["reveal"] = {"instance": identifiant, "rotated": False}
+    assert "SecretDAlice1234" not in client.get("/dashboard").get_data(as_text=True)

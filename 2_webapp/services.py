@@ -239,7 +239,8 @@ def regenerer_mot_de_passe(instance_id: int, user_id: int) -> Resultat:
     db.set_instance_password(instance_id, encrypt_secret(nouveau))
     log.info("Mot de passe régénéré : %s", instance["container_name"])
     return Resultat.succes("Nouveau mot de passe généré.",
-                           password=nouveau, name=instance["container_name"],
+                           instance_id=instance_id, password=nouveau,
+                           name=instance["container_name"],
                            is_desktop=bool(instance["gui_port"]))
 
 

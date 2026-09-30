@@ -438,7 +438,7 @@ def dashboard():
     distros_ok = catalogue
     modes_ok = services.modes_disponibles(catalogue)
     # Secret à afficher une seule fois (déposé par create/rotate, consommé ici)
-    reveal = session.pop("reveal", None)
+    reveal = secret_a_reveler()
     return render_template(
         "dashboard.html",
         active_instances=active,
@@ -463,13 +463,41 @@ def dashboard():
     )
 
 
-def reveal_secret(inst_name: str, password: str, is_desktop: bool, rotated: bool = False) -> None:
-    """Dépose le mot de passe dans la session pour un affichage unique sur le tableau de bord."""
-    session["reveal"] = {
-        "name": inst_name,
-        "password": password,
-        "vnc_password": password[:8] if is_desktop else None,
-        "rotated": rotated,
+def reveal_secret(instance_id: int, rotated: bool = False) -> None:
+    """
+    Marque une machine dont le mot de passe doit être affiché une fois.
+
+    Seul l'identifiant de l'instance transite par la session, jamais le mot de
+    passe. La session Flask est un cookie *signé*, pas *chiffré* : son contenu
+    se lit avec un simple décodage base64, sans connaître la clé secrète. Y
+    déposer le mot de passe root l'aurait écrit dans le pot de cookies du
+    navigateur et renvoyé au serveur à la requête suivante — alors qu'il est
+    déjà chiffré en base. Il est donc relu et déchiffré au moment du rendu,
+    et ne quitte le serveur que dans le corps de la page.
+    """
+    session["reveal"] = {"instance": int(instance_id), "rotated": bool(rotated)}
+
+
+def secret_a_reveler():
+    """
+    Consomme le marqueur déposé par la location ou la régénération, et
+    retourne le mot de passe à afficher — une seule fois.
+    """
+    marqueur = session.pop("reveal", None)
+    if not marqueur or g.user is None:
+        return None
+    instance = db.get_instance(marqueur.get("instance"), user_id=g.user["id"])
+    if instance is None or instance["status"] != db.STATUS_RUNNING:
+        return None
+    secret = decrypt_secret(instance["root_password"])
+    if not secret:
+        return None
+    return {
+        "name": instance["container_name"],
+        "password": secret,
+        # Le protocole VNC limite le mot de passe à huit caractères
+        "vnc_password": secret[:8] if instance["gui_port"] else None,
+        "rotated": marqueur.get("rotated", False),
     }
 
 
@@ -494,8 +522,7 @@ def create_instance():
         flash(resultat.message, "error")
         return redirect(url_for("dashboard"))
 
-    reveal_secret(resultat.donnees["name"], resultat.donnees["password"],
-                  resultat.donnees["is_desktop"])
+    reveal_secret(resultat.donnees["instance_id"])
     flash(resultat.message, "success")
     return redirect(url_for("dashboard"))
 
@@ -510,8 +537,7 @@ def rotate_password(instance_id):
             abort(404)
         flash(resultat.message, "error")
         return redirect(url_for("dashboard"))
-    reveal_secret(resultat.donnees["name"], resultat.donnees["password"],
-                  resultat.donnees["is_desktop"], rotated=True)
+    reveal_secret(instance_id, rotated=True)
     return redirect(url_for("dashboard"))
 
 
