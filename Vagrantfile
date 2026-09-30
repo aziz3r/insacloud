@@ -6,6 +6,7 @@
 #    controller  192.168.56.10  site web (nginx + Flask/Gunicorn), Faucheur, watchdog
 #    worker1     192.168.56.11  Docker : héberge les machines louées
 #    worker2     192.168.56.12  Docker : héberge les machines louées
+#    worker3     192.168.56.13  Docker : héberge les machines louées
 #
 #  Le contrôleur pilote les workers via `docker -H ssh://` (clé SSH dédiée,
 #  aucune API Docker exposée). Les conteneurs sont répartis sur le worker le
@@ -18,7 +19,8 @@
 #    virtualbox     (PC Windows / Linux, Mac Intel)
 #
 #  Commandes :
-#    vagrant up                     # les 3 VM
+#    vagrant up                     # les 4 VM (1 contrôleur + 3 workers)
+#    WORKERS=2 vagrant up           # parc réduit sur un poste modeste
 #    vagrant up controller worker1  # un sous-ensemble
 #    vagrant status / ssh worker1 / halt / destroy -f
 #  Puis : cd 3_ansible && ansible-playbook site.yml --ask-vault-pass
@@ -26,11 +28,17 @@
 
 BOX = "bento/ubuntu-22.04"   # existe en amd64 et arm64 (VMware, Parallels, VirtualBox)
 
+# Trois workers, comme le demande le cahier des charges. Sur un poste modeste,
+# WORKERS=2 (ou 1) réduit le parc sans toucher au fichier :
+#   WORKERS=2 vagrant up
+NB_WORKERS = (ENV["WORKERS"] || "3").to_i.clamp(1, 9)
+
 MACHINES = {
   "controller" => { "ip" => "192.168.56.10", "memory" => 2048, "cpus" => 2 },
-  "worker1"    => { "ip" => "192.168.56.11", "memory" => 3072, "cpus" => 2 },
-  "worker2"    => { "ip" => "192.168.56.12", "memory" => 3072, "cpus" => 2 },
 }
+(1..NB_WORKERS).each do |n|
+  MACHINES["worker#{n}"] = { "ip" => "192.168.56.#{10 + n}", "memory" => 3072, "cpus" => 2 }
+end
 
 # Architecture du poste (le Ruby embarqué par Vagrant peut tourner sous Rosetta)
 HOST_ARM64 = (RUBY_PLATFORM =~ /arm64|aarch64/) ||

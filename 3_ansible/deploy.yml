@@ -1,0 +1,49 @@
+---
+# =============================================================================
+#  deploy.yml - Déployer (ou mettre à jour) l'application sur le contrôleur
+# -----------------------------------------------------------------------------
+#  Ne touche ni au pare-feu, ni à Docker, ni aux workers : uniquement le code,
+#  la configuration et les services du contrôleur. C'est le playbook qu'appelle
+#  l'étape de déploiement de l'intégration continue.
+#
+#      ansible-playbook -i hosts.ini deploy.yml --ask-vault-pass
+#
+#  À la fin, la page de connexion est interrogée en HTTPS : un déploiement qui
+#  ne sert pas est un déploiement en échec, et doit le dire.
+# =============================================================================
+
+- name: Déployer l'application sur le contrôleur
+  hosts: controllers
+  become: true
+  vars:
+    single_host: "{{ groups['workers'] | default([]) | length == 0 }}"
+    docker_cli_only: "{{ not single_host }}"
+  roles:
+    - role: tls_cert
+      tags: [tls]
+    - role: reverse_proxy
+      tags: [proxy]
+    - role: webapp
+      tags: [webapp]
+
+  post_tasks:
+    - name: Vérifier que l'API de santé répond
+      ansible.builtin.uri:
+        url: "https://127.0.0.1/health"
+        validate_certs: false
+        return_content: true
+      register: sante
+      retries: 10
+      delay: 3
+      until: sante.status is defined and sante.status == 200
+      changed_when: false
+
+    - name: Résumé du déploiement
+      ansible.builtin.debug:
+        msg:
+          - "Déploiement terminé sur {{ inventory_hostname }}."
+          - "État : {{ sante.json.status }} — base {{ sante.json.database }},
+             version {{ sante.json.version }}"
+          - "Parc : {{ sante.json.workers_available }} nœud(s) disponible(s)
+             sur {{ sante.json.workers_total }}"
+          - "Machines actives : {{ sante.json.instances_running }}"

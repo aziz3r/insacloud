@@ -1,0 +1,18 @@
+---
+# =============================================================================
+#  roles/worker_agent/defaults/main.yml
+# =============================================================================
+insacloud_user: insacloud
+insacloud_root: /opt/insacloud
+
+# Adresse du contrôleur vue depuis le worker
+insacloud_controller_url: "https://{{ hostvars[groups['controllers'][0]]['node_ip']
+                            | default(hostvars[groups['controllers'][0]]['ansible_host']) }}"
+
+# Battement de cœur : intervalle d'émission et délai d'expiration côté contrôleur
+insacloud_heartbeat_interval: 30
+insacloud_heartbeat_timeout: 90
+
+# Le contrôleur présente un certificat auto-signé sur le réseau privé.
+# Passer à 0 dès qu'un certificat reconnu est en place.
+insacloud_agent_insecure: 1

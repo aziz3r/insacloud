@@ -15,6 +15,7 @@ import os
 import secrets
 import socket
 import string
+import time
 import subprocess  # nosec B404 - le sujet impose de piloter Docker par la CLI
 
 import workers as wk
@@ -90,11 +91,46 @@ def image_for(distro: str, mode: str) -> str:
     return os.environ.get(f"INSACLOUD_IMAGE_{distro.upper()}{suffix.upper()}", default)
 
 
+# Cache des images présentes sur le nœud local. Interroger Docker à chaque
+# affichage du tableau de bord coûterait un appel par distribution ; dix
+# secondes suffisent à rester juste sans peser.
+_CACHE_IMAGES: dict = {"instant": 0.0, "noms": frozenset()}
+DUREE_CACHE_IMAGES = 10
+
+
+def images_presentes(worker: str = "local") -> frozenset:
+    """Noms des images insacloud_* réellement construites sur un nœud."""
+    maintenant = time.monotonic()
+    if maintenant - _CACHE_IMAGES["instant"] < DUREE_CACHE_IMAGES:
+        return _CACHE_IMAGES["noms"]
+    try:
+        sortie = run_docker("images", "--filter", "reference=insacloud_*",
+                            "--format", "{{.Repository}}", worker=worker, timeout=15)
+        noms = frozenset(x.strip() for x in sortie.splitlines() if x.strip())
+    except DockerError:
+        # Docker injoignable : on ne masque rien plutôt que de tout masquer.
+        noms = frozenset()
+        log.warning("Impossible de lister les images sur %s", worker)
+        return noms
+    _CACHE_IMAGES.update(instant=maintenant, noms=noms)
+    return noms
+
+
 def image_available(distro: str, mode: str) -> bool:
-    """Faux si Ansible a déployé la plateforme en mode démonstration sans cette image."""
-    if not AVAILABLE_IMAGES:
-        return True
-    return image_for(distro, mode).split(":")[0] in AVAILABLE_IMAGES
+    """
+    L'image de cette distribution existe-t-elle vraiment ?
+
+    Deux sources, dans cet ordre : la déclaration d'Ansible
+    (INSACLOUD_AVAILABLE_IMAGES, qui reflète le mode démonstration), sinon le
+    démon Docker lui-même. Sans cette seconde source, le tableau de bord
+    proposerait des distributions dont l'image n'a jamais été construite, et
+    la location échouerait au moment du `docker run`.
+    """
+    nom = image_for(distro, mode).split(":")[0]
+    if AVAILABLE_IMAGES:
+        return nom in AVAILABLE_IMAGES
+    presentes = images_presentes()
+    return nom in presentes if presentes else True
 
 
 # =============================================================================

@@ -14,7 +14,9 @@ click==8.5.0            # interface en ligne de commande de Flask
 blinker==1.9.0          # signaux Flask
 MarkupSafe==3.0.3       # échappement sûr des chaînes dans les templates
 cryptography==50.0.1    # chiffrement Fernet des mots de passe root stockés
-SQLAlchemy==2.1.1      # ORM : modèle de données et relations entre entités
+# 2.0.x et non 2.1 : la cible de déploiement est Ubuntu 22.04, donc
+# Python 3.10, pour lequel SQLAlchemy 2.1 n'est pas publié.
+SQLAlchemy==2.0.54      # ORM : modèle de données et relations entre entités
 alembic==1.20.0         # migrations de schéma versionnées
 psycopg[binary]==3.3.6 # pilote PostgreSQL (service « db » du docker-compose)
 # worker_agent.py n'apparaît pas ici : il n'utilise que la bibliothèque standard,

@@ -14,6 +14,10 @@
 #    secrets         recherche de secrets commis par erreur (gitleaks)
 #    image scanning  CVE des paquets présents dans l'image Docker (Trivy)
 #    DAST            analyse de l'application EN FONCTIONNEMENT (tests/dast.sh, nuclei)
+#    build           construction et publication des images, versionnées
+#    SBOM            inventaire des composants livrés (Syft)
+#    integration     la pile complète démarre et fonctionne (docker compose)
+#    deploy          déploiement par Ansible vers l'hôte de production
 # =============================================================================
 
 name: Intégration continue
@@ -27,6 +31,7 @@ on:
 # Principe du moindre privilège : le jeton du workflow n'a besoin que de lire.
 permissions:
   contents: read
+  packages: write        # publication des images dans le registre GitHub
 
 # Un nouvel envoi annule l'exécution précédente encore en cours sur la même branche.
 concurrency:
@@ -263,24 +268,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Analyser les trois Dockerfiles
-        working-directory: 1_docker
+      - name: Analyser les quatre Dockerfiles
         run: |
-          for fichier in Dockerfile debian.Dockerfile alpine.Dockerfile; do
+          for fichier in 1_docker/Dockerfile 1_docker/debian.Dockerfile \
+                         1_docker/alpine.Dockerfile 2_webapp/Dockerfile; do
             echo "::group::hadolint $fichier"
-            docker run --rm -i -v "$PWD/.hadolint.yaml:/.hadolint.yaml:ro" \
+            docker run --rm -i -v "$PWD/1_docker/.hadolint.yaml:/.hadolint.yaml:ro" \
               hadolint/hadolint:latest-alpine \
               hadolint --config /.hadolint.yaml - < "$fichier"
             echo "::endgroup::"
           done
 
       - name: Vérifier le fichier docker compose
-        working-directory: 1_docker
-        run: docker compose config --quiet
+        # Les secrets sont obligatoires (« :? ») : on en fournit de factices,
+        # le temps de valider la syntaxe et la résolution des variables.
+        env:
+          POSTGRES_PASSWORD: validation-syntaxe
+          INSACLOUD_SECRET_KEY: validation-syntaxe
+          INSACLOUD_VAULT_KEY: validation-syntaxe
+        run: |
+          docker compose config --quiet
+          docker compose --profile build --profile demo config --quiet
+          echo "Services : $(docker compose config --services | tr '\n' ' ')"
 
       - name: Construire l'image légère (celle du mode démonstration)
         working-directory: 1_docker
         run: docker build -t insacloud_alpine:latest -f alpine.Dockerfile .
+
+      - name: Construire l'image de la plateforme
+        working-directory: 2_webapp
+        run: docker build -t insacloud_web:latest .
+
+      - name: Vérifier que la plateforme tourne sans privilège
+        # Exigence explicite du cahier des charges : « utilisateur non-root
+        # dans le conteneur ». Une régression ici doit arrêter la chaîne.
+        run: |
+          utilisateur=$(docker run --rm insacloud_web:latest id -u)
+          if [ "$utilisateur" = "0" ]; then
+            echo "L'image de la plateforme tourne en root." >&2; exit 1
+          fi
+          echo "Plateforme exécutée sous l'uid $utilisateur (non root).""
 
       - name: Vérifier qu'aucun mot de passe n'est inscrit dans l'image
         # Régression déjà rencontrée : un ENV ROOT_PASSWORD serait lisible par
@@ -314,3 +341,224 @@ jobs:
             aquasec/trivy:latest image \
             --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --no-progress \
             insacloud_alpine:latest
+
+  # ---------------------------------------------------------------------------
+  #  9. Intégration : la pile complète démarre et fonctionne
+  # ---------------------------------------------------------------------------
+  integration:
+    name: Intégration (pile compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Préparer les secrets de la pile
+        # Secrets jetables, valables le temps du travail. La pile refuse de
+        # démarrer sans eux : c'est précisément ce qu'on veut vérifier.
+        run: |
+          python -c "import secrets; print(f'POSTGRES_PASSWORD={secrets.token_urlsafe(24)}')" >> .env
+          python -c "import secrets; print(f'INSACLOUD_SECRET_KEY={secrets.token_hex(32)}')" >> .env
+          pip install --quiet cryptography
+          python -c "from cryptography.fernet import Fernet; print(f'INSACLOUD_VAULT_KEY={Fernet.generate_key().decode()}')" >> .env
+          python -c "import secrets; print(f'INSACLOUD_AGENT_TOKEN={secrets.token_urlsafe(32)}')" >> .env
+          {
+            echo "INSACLOUD_BIND=127.0.0.1"
+            echo "INSACLOUD_HTTP_PORT=8088"
+            echo "INSACLOUD_CLUSTER=ci"
+            echo "DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)"
+          } >> .env
+
+      - name: Construire les images nécessaires
+        run: |
+          docker compose build web
+          docker compose --profile build build image-alpine
+
+      - name: Démarrer la pile
+        run: |
+          docker compose up -d
+          for essai in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8088/health >/dev/null 2>&1; then
+              echo "Pile prête après ${essai}0 s."; break
+            fi
+            sleep 10
+          done
+          curl -fsS http://127.0.0.1:8088/health
+
+      - name: Exécuter les tests d'intégration
+        # Tests 1 à 5 du cahier des charges. Le test 6 (panne d'un nœud) exige
+        # un parc de plusieurs machines : il est joué sur le cluster Vagrant.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          ./2_webapp/tests/integration.sh http://127.0.0.1:8088
+
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: docker compose logs --tail 80
+
+      - name: Arrêter la pile
+        if: always()
+        run: docker compose down -v
+
+  # ---------------------------------------------------------------------------
+  #  10. Build et publication des images, avec leur inventaire de composants
+  # ---------------------------------------------------------------------------
+  publier-images:
+    name: Build, SBOM et publication
+    runs-on: ubuntu-latest
+    # On ne publie que ce qui a franchi tous les contrôles précédents.
+    needs: [lint-python, tests-python, sast-python, sca-dependances, secrets,
+            dast, lint-ansible, images-docker, integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Calculer les étiquettes de version
+        id: version
+        # Trois étiquettes : le numéro de version du dépôt, le commit exact
+        # (traçabilité : on sait toujours quel code tourne), et « latest ».
+        run: |
+          version=$(git describe --tags --always --dirty 2>/dev/null || echo "0.0.0")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          echo "registre=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "Version : ${version} — commit ${GITHUB_SHA::12}"
+
+      - name: Se connecter au registre GitHub
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construire et étiqueter les images
+        env:
+          REGISTRE: ${{ steps.version.outputs.registre }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          docker build -t "$REGISTRE/insacloud-web:$VERSION" \
+                       -t "$REGISTRE/insacloud-web:$SHA" \
+                       -t "$REGISTRE/insacloud-web:latest" 2_webapp
+          docker build -f 1_docker/alpine.Dockerfile \
+                       -t "$REGISTRE/insacloud-alpine:$VERSION" \
+                       -t "$REGISTRE/insacloud-alpine:$SHA" \
+                       -t "$REGISTRE/insacloud-alpine:latest" 1_docker
+
+      - name: Inventorier les composants livrés (SBOM)
+        env:
+          REGISTRE: ${{ steps.version.outputs.registre }}
+          VERSION: ${{ steps.version.outputs.version }}
+        # Un SBOM dit exactement quels paquets contient l'image publiée : c'est
+        # ce qui permet, le jour où une faille est annoncée, de répondre en
+        # quelques secondes à « sommes-nous concernés ? ».
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/sortie" anchore/syft:latest \
+            "$REGISTRE/insacloud-web:$VERSION" \
+            -o spdx-json="/sortie/sbom-insacloud-web.json" \
+            -o table
+          echo "Composants inventoriés : $(grep -c '"name"' sbom-insacloud-web.json)"
+
+      - name: Conserver le SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-*.json
+
+      - name: Refuser la publication d'une image vulnérable
+        env:
+          REGISTRE: ${{ steps.version.outputs.registre }}
+          VERSION: ${{ steps.version.outputs.version }}
+        # Dernier verrou avant le registre : aucune image portant une faille
+        # critique ou élevée ne doit en sortir.
+        run: |
+          for image in insacloud-web insacloud-alpine; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image --scanners vuln \
+              --severity HIGH,CRITICAL --exit-code 1 --no-progress \
+              "$REGISTRE/$image:$VERSION"
+          done
+
+      - name: Publier les images
+        env:
+          REGISTRE: ${{ steps.version.outputs.registre }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          for image in insacloud-web insacloud-alpine; do
+            for etiquette in "$VERSION" "$SHA" latest; do
+              docker push "$REGISTRE/$image:$etiquette"
+            done
+          done
+          echo "Images publiées sous $REGISTRE."
+
+  # ---------------------------------------------------------------------------
+  #  11. Déploiement vers l'hôte de production, par Ansible
+  # ---------------------------------------------------------------------------
+  deployer:
+    name: Déploiement (Ansible)
+    runs-on: ubuntu-latest
+    needs: [publier-images]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier que la cible est configurée
+        id: cible
+        # Sans secrets de déploiement, l'étage s'annonce ignoré plutôt que de
+        # faire croire à un déploiement qui n'a pas eu lieu.
+        run: |
+          if [ -z "${{ secrets.DEPLOY_HOST }}" ]; then
+            echo "configuree=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Aucun hôte de déploiement configuré (secret DEPLOY_HOST)."
+            echo "Renseignez DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY et"
+            echo "ANSIBLE_VAULT_PASSWORD dans les secrets du dépôt pour l'activer."
+          else
+            echo "configuree=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.cible.outputs.configuree == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: Installer Ansible
+        if: steps.cible.outputs.configuree == 'true'
+        run: |
+          pip install --quiet ansible-core
+          ansible-galaxy collection install -r 3_ansible/requirements.yml
+
+      - name: Préparer l'accès SSH et le secret du Vault
+        if: steps.cible.outputs.configuree == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploiement
+          chmod 600 ~/.ssh/id_deploiement
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          printf '%s' "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > /tmp/vault_pass
+          chmod 600 /tmp/vault_pass
+
+      - name: Déployer la nouvelle version
+        if: steps.cible.outputs.configuree == 'true'
+        working-directory: 3_ansible
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        # deploy.yml ne touche qu'au contrôleur et interroge /health à la fin :
+        # un déploiement qui ne sert pas fait échouer la chaîne.
+        run: |
+          cat > /tmp/cible.ini <<INI
+          [controllers]
+          production ansible_host=${{ secrets.DEPLOY_HOST }}
+          [insacloud:children]
+          controllers
+          [insacloud:vars]
+          ansible_user=${{ secrets.DEPLOY_USER }}
+          ansible_become=true
+          ansible_ssh_private_key_file=~/.ssh/id_deploiement
+          INI
+          ansible-playbook -i /tmp/cible.ini deploy.yml \
+            --vault-password-file /tmp/vault_pass
+
+      - name: Effacer les secrets de l'agent
+        if: always()
+        run: rm -f ~/.ssh/id_deploiement /tmp/vault_pass /tmp/cible.ini

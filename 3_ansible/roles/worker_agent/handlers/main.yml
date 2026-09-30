@@ -1,0 +1,6 @@
+---
+- name: Redémarrer l'agent
+  ansible.builtin.systemd:
+    name: insacloud-agent
+    state: restarted
+    daemon_reload: true

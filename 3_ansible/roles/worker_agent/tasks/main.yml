@@ -1,0 +1,85 @@
+---
+# =============================================================================
+#  roles/worker_agent - Agent du nœud d'exécution
+# -----------------------------------------------------------------------------
+#  L'agent inscrit le worker auprès du contrôleur puis signale régulièrement
+#  qu'il est vivant. C'est ce qui permet d'ajouter un nœud au parc sans rien
+#  modifier sur le contrôleur, et de détecter sa panne pour reprendre ses
+#  machines ailleurs.
+#
+#  L'agent n'utilise que la bibliothèque standard de Python : aucun paquet,
+#  aucun environnement virtuel à installer sur le worker.
+# =============================================================================
+
+- name: Garde-fou - le jeton des agents doit venir du Vault
+  ansible.builtin.assert:
+    that:
+      - insacloud_agent_token is defined
+      - insacloud_agent_token | length >= 16
+    fail_msg: >-
+      insacloud_agent_token est absent ou trop court. Il doit venir de
+      group_vars/insacloud/vault.yml (variable vault_insacloud_agent_token).
+    quiet: true
+
+- name: Installer Python 3 (l'agent n'a besoin de rien d'autre)
+  ansible.builtin.apt:
+    name: python3
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Créer le répertoire de l'agent
+  ansible.builtin.file:
+    path: "{{ insacloud_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Déployer l'agent
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../2_webapp/worker_agent.py"
+    dest: "{{ insacloud_root }}/worker_agent.py"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Redémarrer l'agent
+
+- name: Déposer la configuration de l'agent (jeton partagé)
+  ansible.builtin.template:
+    src: insacloud-agent.env.j2
+    dest: "{{ insacloud_agent_env_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Redémarrer l'agent
+
+- name: Installer l'unité systemd de l'agent
+  ansible.builtin.template:
+    src: insacloud-agent.service.j2
+    dest: /etc/systemd/system/insacloud-agent.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Redémarrer l'agent
+
+- name: Activer et démarrer l'agent
+  ansible.builtin.systemd:
+    name: insacloud-agent
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Relever l'état des services du nœud
+  ansible.builtin.service_facts:
+
+- name: Vérifier que l'agent tourne
+  ansible.builtin.assert:
+    that:
+      - "'insacloud-agent.service' in ansible_facts.services"
+      - ansible_facts.services['insacloud-agent.service'].state == 'running'
+    fail_msg: >-
+      L'agent n'est pas actif : ce nœud ne sera pas vu par le contrôleur.
+      Diagnostic : journalctl -u insacloud-agent -n 50
+    success_msg: "Agent actif : le nœud s'annonce au contrôleur."
+    quiet: true

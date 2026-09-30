@@ -40,10 +40,8 @@ webapp_system_packages:
   - python3-pip
   - python3-venv
   - python3-setuptools
-webapp_pip_packages:
-  - flask
-  - gunicorn          # serveur WSGI de production (remplace `python app.py`)
-  - cryptography      # chiffrement (Fernet) des mots de passe root en base
+# Les dépendances ne sont plus listées ici : elles viennent de
+# 2_webapp/requirements.txt, le fichier que la chaîne d'intégration audite.
 
 # --- Sécurité : le site est servi en HTTPS par nginx (rôle reverse_proxy) ---
 insacloud_https: true
@@ -55,10 +53,19 @@ insacloud_gunicorn_timeout: 60      # secondes ; `docker run` peut prendre quelq
 
 # --- Fichiers de l'application à copier (relatifs à 2_webapp/) ---------------
 webapp_files:
+  # Application et couches métier
   - app.py
+  - api.py
+  - services.py
+  - config.py
+  - crypto.py
+  - docker_ops.py
   - database.py
+  - models.py
   - faucheur.py
   - workers.py
+  - seed.py
+  # Gabarits
   - templates/login.html
   - templates/dashboard.html
 

@@ -85,9 +85,20 @@
           ControlPath {{ insacloud_root }}/.ssh/cm-%C
           ControlPersist 120
 
-- name: Créer le virtualenv et installer Flask + Gunicorn
+- name: Déposer la liste des dépendances épinglées
+  # Le fichier du dépôt fait foi : ce que la chaîne d'intégration teste et
+  # audite (pip-audit) est exactement ce qui est installé sur le serveur.
+  ansible.builtin.copy:
+    src: "{{ insacloud_src_webapp }}/requirements.txt"
+    dest: "{{ insacloud_app_dir }}/requirements.txt"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0644"
+  register: dependances
+
+- name: Créer le virtualenv et installer les dépendances
   ansible.builtin.pip:
-    name: "{{ webapp_pip_packages }}"
+    requirements: "{{ insacloud_app_dir }}/requirements.txt"
     virtualenv: "{{ insacloud_venv }}"
     virtualenv_command: "python3 -m venv"
     state: present
@@ -113,6 +124,68 @@
     group: "{{ insacloud_user }}"
     mode: "0644"
     directory_mode: "0755"
+
+- name: Créer l'arborescence des migrations
+  ansible.builtin.file:
+    path: "{{ insacloud_app_dir }}/migrations/versions"
+    state: directory
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0755"
+
+- name: Déployer les migrations de schéma (Alembic)
+  ansible.builtin.copy:
+    src: "{{ insacloud_src_webapp }}/{{ item }}"
+    dest: "{{ insacloud_app_dir }}/{{ item }}"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0644"
+  loop:
+    - alembic.ini
+    - migrations/env.py
+    - migrations/script.py.mako
+  notify:
+    - Redémarrer insacloud-web
+    - Redémarrer insacloud-faucheur
+
+- name: Déployer les révisions de schéma
+  ansible.builtin.copy:
+    src: "{{ insacloud_src_webapp }}/migrations/versions/"
+    dest: "{{ insacloud_app_dir }}/migrations/versions/"
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0644"
+  notify:
+    - Redémarrer insacloud-web
+    - Redémarrer insacloud-faucheur
+
+- name: Initialiser la base et la placer sous suivi Alembic
+  # Deux cas à couvrir : une base neuve, qu'il faut créer, et une base déjà
+  # créée par une version antérieure de l'application, qu'Alembic ne connaît
+  # pas encore. init_db() traite les deux — il crée ce qui manque, puis
+  # inscrit la révision courante dans alembic_version.
+  ansible.builtin.command:
+    cmd: "{{ insacloud_venv }}/bin/python -c 'import database; database.init_db()'"
+    chdir: "{{ insacloud_app_dir }}"
+  become: true
+  become_user: "{{ insacloud_user }}"
+  environment:
+    INSACLOUD_DB: "{{ insacloud_app_dir }}/insacloud.db"
+  register: initialisation
+  changed_when: "'Running stamp_revision' in initialisation.stderr"
+
+- name: Appliquer les migrations en attente
+  # Sur une base à jour, `alembic upgrade head` ne fait rien et ne signale
+  # aucun changement : le playbook reste donc idempotent.
+  ansible.builtin.command:
+    cmd: "{{ insacloud_venv }}/bin/alembic upgrade head"
+    chdir: "{{ insacloud_app_dir }}"
+  become: true
+  become_user: "{{ insacloud_user }}"
+  environment:
+    INSACLOUD_DB: "{{ insacloud_app_dir }}/insacloud.db"
+  register: migration
+  changed_when: "'Running upgrade' in migration.stderr"
 
 # ------------------------------------------------------------ 5. Secrets + systemd
 - name: Créer le répertoire de configuration

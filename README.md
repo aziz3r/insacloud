@@ -10,8 +10,9 @@
   <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/Flask-Gunicorn-000000?logo=flask&logoColor=white" alt="Flask">
   <img src="https://img.shields.io/badge/Docker-Engine-2496ED?logo=docker&logoColor=white" alt="Docker">
-  <img src="https://img.shields.io/badge/Ansible-8_rôles-EE0000?logo=ansible&logoColor=white" alt="Ansible">
-  <img src="https://img.shields.io/badge/Vagrant-3_VM-1868F2?logo=vagrant&logoColor=white" alt="Vagrant">
+  <img src="https://img.shields.io/badge/Ansible-9_rôles-EE0000?logo=ansible&logoColor=white" alt="Ansible">
+  <img src="https://img.shields.io/badge/Vagrant-4_VM-1868F2?logo=vagrant&logoColor=white" alt="Vagrant">
+  <img src="https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL">
   <img src="https://img.shields.io/badge/nginx-TLS_1.3-009639?logo=nginx&logoColor=white" alt="nginx">
 </p>
 
@@ -19,7 +20,7 @@
   <a href="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml">
     <img src="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml/badge.svg" alt="Intégration continue">
   </a>
-  <img src="https://img.shields.io/badge/tests-67-success" alt="67 tests">
+  <img src="https://img.shields.io/badge/tests-91-success" alt="91 tests">
   <img src="https://img.shields.io/badge/SAST%20·%20SCA%20·%20DAST-vert-success" alt="Analyses de sécurité">
   <img src="https://img.shields.io/badge/ansible--lint-production-success" alt="ansible-lint profil production">
 </p>
@@ -135,6 +136,40 @@ Côté site : jetons CSRF sur tous les formulaires, verrouillage après cinq éc
 Le playbook est **idempotent** — second passage : `changed=0` sur les trois nœuds — et un mode démonstration ne construit que l'image la plus légère pour un déploiement en quelques minutes.
 </details>
 
+## Un parc qui se gère tout seul
+
+Aucun nœud n'est écrit en dur nulle part. Un worker qu'on allume rejoint la
+plateforme, un worker qui tombe en sort, et ses machines repartent ailleurs.
+
+```
+  worker qui démarre                     worker qui tombe
+  ──────────────────                     ────────────────
+  agent → POST /workers/register         plus de battement de cœur
+       → le nœud apparaît AVAILABLE      → au-delà du délai : OFFLINE
+       → l'ordonnanceur peut s'en servir → ses machines sont recréées
+  puis battement toutes les 30 s            sur un nœud disponible
+```
+
+L'agent (`worker_agent.py`) n'utilise **que la bibliothèque standard** : un
+worker n'a aucun paquet Python à installer. Il relève ses cœurs, sa mémoire et
+l'état de Docker, et en déduit sa capacité.
+
+Quand un nœud tombe, la machine est recréée avec un nouveau conteneur, un
+nouveau port et un nouveau mot de passe — mais **la location ne bouge pas** :
+l'utilisateur garde la durée qu'il a réservée. Un compteur `migrations` retient
+combien de fois cela s'est produit.
+
+Vérifié sur un cluster réel de quatre nœuds :
+
+```
+worker1 arrêté  →  OFFLINE après 90 s  →  machine reprise sur worker2
+                                          location intacte, migrations = 1
+worker1 relancé →  AVAILABLE en moins de 10 s
+```
+
+Ce que la reprise ne rend pas : les fichiers créés dans l'ancienne machine.
+C'est la limite d'une reprise sans stockage partagé, et elle est assumée.
+
 ## Ce qui empêche le projet de se dégrader
 
 Un projet d'école finit souvent par ne plus marcher que sur la machine de son auteur. Ici, chaque
@@ -167,6 +202,25 @@ pytest                       # 67 tests
 ruff check . && bandit -c pyproject.toml -r .
 ./tests/dast.sh http://127.0.0.1:5000    # application démarrée à côté
 ```
+
+## Toute la plateforme en une commande
+
+```bash
+git clone https://github.com/aziz3r/insacloud.git && cd insacloud
+cp .env.example .env        # puis remplissez les trois secrets
+docker compose up -d
+```
+
+PostgreSQL, l'application et le Faucheur démarrent ensemble ; le site est sur
+**<http://127.0.0.1:8088>**. Pour construire les images des machines louables :
+
+```bash
+docker compose --profile build build
+```
+
+L'application tourne sous un compte sans privilège (uid 10001) et n'accepte de
+démarrer que si les secrets sont renseignés : un mot de passe oublié arrête la
+pile plutôt que de la lancer avec une valeur par défaut.
 
 ## Essayer en local
 

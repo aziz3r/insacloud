@@ -14,10 +14,13 @@ Concurrence : Flask (4 workers Gunicorn), le Faucheur et l'agent des workers
 pendant une écriture ; c'est ce qui rend cette cohabitation possible.
 """
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import create_engine, delete, event, func, select, update
+from sqlalchemy import (create_engine, delete, event, func, select, text,
+                        update)
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -42,6 +45,8 @@ STATUS_STOPPED = INSTANCE_STOPPED
 HEARTBEAT_TIMEOUT = int(os.environ.get("INSACLOUD_HEARTBEAT_TIMEOUT", "90"))
 
 LOCAL_WORKER = "local"     # nœud fictif du mode mono-hôte
+
+log = logging.getLogger("insacloud.database")
 
 def url_sans_secret(url: str = None) -> str:
     """
@@ -114,9 +119,61 @@ DISTRIBUTIONS_PAR_DEFAUT = [
 ]
 
 
+def _marquer_schema_a_jour() -> None:
+    """
+    Marque une base créée par `create_all()` comme étant à la dernière révision.
+
+    Deux mécanismes savent créer le schéma : `create_all()`, pratique en
+    développement et pour les tests, et Alembic, qui fait foi en production.
+    Sans ce marquage, `alembic upgrade head` tenterait de recréer des tables
+    déjà présentes et échouerait. On inscrit donc la révision courante dans
+    `alembic_version` : la migration suivante partira du bon point.
+    """
+    # Le niveau est abaissé AVANT l'import : Alembic journalise dès le
+    # chargement de ses greffons, et ces lignes n'ont rien à faire dans le
+    # journal de démarrage de l'application.
+    journal = logging.getLogger("alembic")
+    niveau = journal.level
+    journal.setLevel(logging.WARNING)
+    try:
+        from alembic import command
+        from alembic.config import Config
+    except ImportError:
+        journal.setLevel(niveau)
+        return                                  # Alembic absent : rien à marquer
+
+    chemin_ini = os.path.join(BASE_DIR, "alembic.ini")
+    dossier = os.path.join(BASE_DIR, "migrations")
+    if not (os.path.exists(chemin_ini) and os.path.isdir(dossier)):
+        journal.setLevel(niveau)
+        return
+
+    with engine.connect() as connexion:
+        if sa_inspect(connexion).has_table("alembic_version"):
+            # La table peut exister sans contenir de révision : c'est ce que
+            # laisse une migration interrompue. Dans ce cas la base n'est pas
+            # réellement suivie, et il faut bel et bien la marquer.
+            revision = connexion.execute(
+                text("SELECT version_num FROM alembic_version LIMIT 1")).first()
+            if revision is not None:
+                journal.setLevel(niveau)
+                return                          # déjà suivie par Alembic
+
+    configuration = Config(chemin_ini)
+    configuration.set_main_option("script_location", dossier)
+    configuration.attributes["configure_logger"] = False
+
+    try:
+        command.stamp(configuration, "head")
+        log.info("Base placée sous suivi Alembic.")
+    finally:
+        journal.setLevel(niveau)
+
+
 def init_db() -> None:
     """Crée le schéma s'il manque et garnit le catalogue des distributions."""
     Base.metadata.create_all(engine)
+    _marquer_schema_a_jour()
     with SessionLocal() as session:
         for donnees in DISTRIBUTIONS_PAR_DEFAUT:
             existante = session.scalar(

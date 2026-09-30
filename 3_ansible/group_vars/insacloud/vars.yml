@@ -12,6 +12,16 @@
 insacloud_secret_key: "{{ vault_insacloud_secret_key }}"
 # Clé de chiffrement des mots de passe root des machines -> vient du Vault
 insacloud_vault_key: "{{ vault_insacloud_vault_key }}"
+# Jeton partagé des agents des workers -> vient du Vault
+insacloud_agent_token: "{{ vault_insacloud_agent_token }}"
+
+# Fichier d'environnement de l'agent, en 0600 (il porte le jeton)
+insacloud_agent_env_file: /etc/insacloud/agent.env
+
+# Délai sans battement de cœur au-delà duquel un worker est déclaré hors ligne
+insacloud_heartbeat_timeout: 90
+# Nom du déploiement : chaque plateforme n'agit que sur SES machines
+insacloud_cluster: insacloud
 
 # --- Paramètres applicatifs surchargeables (valeurs par défaut dans roles/webapp/defaults) ---
 insacloud_web_port: 5000

@@ -1,0 +1,39 @@
+---
+# =============================================================================
+#  worker.yml - Préparer un nœud d'exécution de bout en bout
+# -----------------------------------------------------------------------------
+#  Enchaîne tout ce dont un worker a besoin : pare-feu, Docker, certificat,
+#  accès du contrôleur, images des machines louées, puis l'agent qui l'inscrit
+#  auprès du contrôleur.
+#
+#      ansible-playbook -i hosts.ini worker.yml --ask-vault-pass
+#      ansible-playbook -i hosts.ini worker.yml --limit worker3 --ask-vault-pass
+#
+#  C'est le playbook à jouer pour AJOUTER un nœud au parc : une fois l'agent
+#  démarré, le contrôleur le découvre seul, sans être reconfiguré.
+# =============================================================================
+
+- name: Préparer les nœuds d'exécution
+  hosts: workers
+  become: true
+  roles:
+    - role: security_hardening
+      tags: [security]
+    - role: docker
+      tags: [docker]
+    - role: tls_cert
+      tags: [tls]
+    - role: worker
+      tags: [workers]
+    - role: docker_images
+      tags: [images]
+    - role: worker_agent
+      tags: [agent]
+
+  post_tasks:
+    - name: Rappel - le nœud s'annonce tout seul
+      ansible.builtin.debug:
+        msg:
+          - "{{ inventory_hostname }} est prêt et s'inscrit auprès du contrôleur."
+          - "Vérification : curl -ks https://{{ hostvars[groups['controllers'][0]]['node_ip']
+             | default(hostvars[groups['controllers'][0]]['ansible_host']) }}/workers"

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="1000" height="560" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif">
+  <style>
+    .t    { fill:#1b1b1f; }
+    .mut  { fill:#6b6b76; font-size:11px; }
+    .stage{ fill:#ffffff; stroke:#c9c9d1; stroke-width:1.5; rx:8; }
+    .hd   { font-size:12.5px; font-weight:600; fill:#1b1b1f; }
+    .tool { font-size:11px; fill:#6b6b76; }
+    .arr  { stroke:#c8102e; stroke-width:2; fill:none; marker-end:url(#fleche); }
+    .gate { fill:#fdf0f2; stroke:#c8102e; stroke-width:1.5; rx:8; }
+    .ok   { fill:#0a7a3d; font-size:11px; }
+  </style>
+  <defs>
+    <marker id="fleche" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#c8102e"/>
+    </marker>
+  </defs>
+  <rect width="1000" height="560" fill="#fbfbfd"/>
+  <text x="24" y="30" class="t" font-size="16" font-weight="600">InsaCloud — chaîne d'intégration et de déploiement continus</text>
+  <text x="24" y="50" class="mut">Dix travaux GitHub Actions, déclenchés à chaque envoi. Aucune image n'atteint le registre sans avoir franchi tous les contrôles.</text>
+
+  <!-- Déclencheur -->
+  <rect x="24" y="80" width="130" height="52" class="stage"/>
+  <text x="40" y="104" class="hd">git push</text>
+  <text x="40" y="120" class="tool">branche main</text>
+
+  <!-- Étage 1 : qualité -->
+  <rect x="196" y="72" width="178" height="150" class="stage"/>
+  <text x="212" y="94" class="hd">1 · Qualité</text>
+  <text x="212" y="116" class="tool">ruff — style et erreurs</text>
+  <text x="212" y="134" class="tool">ansible-lint — profil</text>
+  <text x="212" y="150" class="tool">      production</text>
+  <text x="212" y="168" class="tool">hadolint — 4 Dockerfiles</text>
+  <text x="212" y="190" class="tool">pytest — 91 tests</text>
+  <text x="212" y="208" class="tool">couverture conservée</text>
+
+  <!-- Étage 2 : sécurité -->
+  <rect x="416" y="72" width="178" height="150" class="stage"/>
+  <text x="432" y="94" class="hd">2 · Sécurité</text>
+  <text x="432" y="116" class="tool">bandit — SAST</text>
+  <text x="432" y="134" class="tool">pip-audit — SCA</text>
+  <text x="432" y="152" class="tool">gitleaks — secrets,</text>
+  <text x="432" y="168" class="tool">      historique compris</text>
+  <text x="432" y="190" class="tool">dast.sh + nuclei — DAST</text>
+  <text x="432" y="208" class="tool">sur l'app en marche</text>
+
+  <!-- Étage 3 : build -->
+  <rect x="636" y="72" width="178" height="150" class="stage"/>
+  <text x="652" y="94" class="hd">3 · Build</text>
+  <text x="652" y="116" class="tool">image de la plateforme</text>
+  <text x="652" y="134" class="tool">image des machines</text>
+  <text x="652" y="156" class="tool">étiquettes :</text>
+  <text x="652" y="172" class="tool">  version · commit · latest</text>
+  <text x="652" y="194" class="tool">SBOM (Syft) conservé</text>
+  <text x="652" y="210" class="tool">en artefact</text>
+
+  <!-- Verrou -->
+  <rect x="380" y="272" width="240" height="64" class="gate"/>
+  <text x="396" y="296" class="hd">Verrou · Trivy</text>
+  <text x="396" y="316" class="tool">aucune faille HIGH ou CRITICAL ne passe</text>
+
+  <!-- Registre -->
+  <rect x="680" y="272" width="150" height="64" class="stage"/>
+  <text x="696" y="296" class="hd">4 · Registre</text>
+  <text x="696" y="316" class="tool">ghcr.io</text>
+
+  <!-- Déploiement -->
+  <rect x="680" y="384" width="150" height="80" class="stage"/>
+  <text x="696" y="408" class="hd">5 · Déploiement</text>
+  <text x="696" y="428" class="tool">ansible-playbook</text>
+  <text x="696" y="444" class="tool">deploy.yml</text>
+  <text x="696" y="460" class="tool">sur le contrôleur</text>
+
+  <!-- Vérification -->
+  <rect x="440" y="384" width="180" height="80" class="stage"/>
+  <text x="456" y="408" class="hd">6 · Vérification</text>
+  <text x="456" y="428" class="tool">GET /health</text>
+  <text x="456" y="448" class="ok">un déploiement qui ne sert</text>
+  <text x="456" y="462" class="ok">pas fait échouer la chaîne</text>
+
+  <!-- flèches -->
+  <path d="M154 106 H196" class="arr"/>
+  <path d="M374 147 H416" class="arr"/>
+  <path d="M594 147 H636" class="arr"/>
+  <path d="M725 222 V272" class="arr"/>
+  <path d="M620 304 H680" class="arr"/>
+  <path d="M500 222 V272" class="arr"/>
+  <path d="M755 336 V384" class="arr"/>
+  <path d="M680 424 H620" class="arr"/>
+
+  <text x="24" y="500" class="mut">Le travail « déploiement » s'annonce ignoré, plutôt que de faire croire à un déploiement, si les secrets DEPLOY_HOST, DEPLOY_USER,</text>
+  <text x="24" y="518" class="mut">DEPLOY_SSH_KEY et ANSIBLE_VAULT_PASSWORD ne sont pas renseignés dans le dépôt.</text>
+  <text x="24" y="540" class="mut">Chaque commande de la chaîne est rejouable telle quelle sur un poste : rien n'y est spécifique à l'agent d'intégration.</text>
+</svg>

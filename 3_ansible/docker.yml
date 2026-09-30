@@ -1,0 +1,33 @@
+---
+# =============================================================================
+#  docker.yml - Installer et configurer Docker sur tous les nœuds
+# -----------------------------------------------------------------------------
+#  Point d'entrée ciblé, utile quand on ne veut pas rejouer tout site.yml :
+#  ajout d'un nœud, mise à jour du démon, vérification d'une installation.
+#
+#      ansible-playbook -i hosts.ini docker.yml --ask-vault-pass
+#      ansible-playbook -i hosts.ini docker.yml --limit worker3 --ask-vault-pass
+#
+#  Les workers reçoivent le démon complet (live-restore activé, pour que les
+#  machines louées survivent à un redémarrage de Docker) ; le contrôleur ne
+#  reçoit que le client, puisqu'il pilote les workers par SSH.
+# =============================================================================
+
+- name: Docker sur les nœuds d'exécution
+  hosts: workers
+  become: true
+  roles:
+    - role: docker
+      tags: [docker]
+
+- name: Client Docker sur le contrôleur
+  hosts: controllers
+  become: true
+  vars:
+    # Sans worker dans l'inventaire, le contrôleur héberge lui-même les
+    # machines : il lui faut alors le démon, pas seulement le client.
+    single_host: "{{ groups['workers'] | default([]) | length == 0 }}"
+    docker_cli_only: "{{ not single_host }}"
+  roles:
+    - role: docker
+      tags: [docker]

@@ -25,10 +25,18 @@ def docker_espion(monkeypatch):
 
     def faux_run(*args, worker="local", timeout=None):
         appels.append({"worker": worker, "commande": args[0], "args": list(args)})
+        if args[0] == "images":
+            # La plateforme demande quelles images existent avant de proposer
+            # une distribution : on répond que les six sont construites.
+            return "\n".join(f"insacloud_{d}{s}" for d in ("ubuntu", "debian", "alpine")
+                              for s in ("", "_desktop"))
         return "nouveauconteneur0123"
 
     monkeypatch.setattr(docker_ops, "run_docker", faux_run)
     monkeypatch.setattr(docker_ops, "port_is_free_on_host", lambda port: True)
+    # Le cache des images est partagé entre les tests : on le vide pour que
+    # chacun reparte de la réponse de SON espion.
+    docker_ops._CACHE_IMAGES.update(instant=0.0, noms=frozenset())
     return appels
 
 

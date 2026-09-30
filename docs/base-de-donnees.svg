@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif">
+  <style>
+    .t   { fill:#1b1b1f; }
+    .mut { fill:#6b6b76; }
+    .box { fill:#ffffff; stroke:#c9c9d1; stroke-width:1.5; rx:6; }
+    .hdr { fill:#c8102e; }
+    .hdt { fill:#ffffff; font-weight:600; font-size:13px; }
+    .col { font-size:11.5px; }
+    .pk  { font-weight:600; fill:#1b1b1f; }
+    .fk  { fill:#0b5cad; }
+    .lnk { stroke:#6b6b76; stroke-width:1.4; fill:none; }
+    .lbl { font-size:10.5px; fill:#6b6b76; }
+    .note{ font-size:11px; fill:#6b6b76; }
+  </style>
+  <rect width="960" height="620" fill="#fbfbfd"/>
+  <text x="24" y="30" class="t" font-size="16" font-weight="600">InsaCloud — modèle de données</text>
+  <text x="24" y="50" class="note">Six tables. Instance décrit un conteneur, Rental l'engagement de location : les séparer permet de recréer la machine ailleurs sans toucher à la location.</text>
+
+  <!-- users -->
+  <rect x="24" y="80" width="200" height="132" class="box"/>
+  <rect x="24" y="80" width="200" height="26" class="hdr" rx="6"/><rect x="24" y="96" width="200" height="10" class="hdr"/>
+  <text x="36" y="98" class="hdt">users</text>
+  <text x="36" y="124" class="col pk">id · PK</text>
+  <text x="36" y="141" class="col">username · unique</text>
+  <text x="36" y="158" class="col">email · unique</text>
+  <text x="36" y="175" class="col">password_hash</text>
+  <text x="36" y="192" class="col">ssh_public_key</text>
+  <text x="36" y="207" class="col mut">created_at</text>
+
+  <!-- rentals -->
+  <rect x="300" y="80" width="200" height="132" class="box"/>
+  <rect x="300" y="80" width="200" height="26" class="hdr" rx="6"/><rect x="300" y="96" width="200" height="10" class="hdr"/>
+  <text x="312" y="98" class="hdt">rentals</text>
+  <text x="312" y="124" class="col pk">id · PK</text>
+  <text x="312" y="141" class="col fk">user_id · FK</text>
+  <text x="312" y="158" class="col fk">instance_id · FK</text>
+  <text x="312" y="175" class="col">start_time · end_time</text>
+  <text x="312" y="192" class="col">status</text>
+  <text x="312" y="207" class="col mut">ACTIVE · EXPIRED · STOPPED</text>
+
+  <!-- instances -->
+  <rect x="576" y="80" width="230" height="200" class="box"/>
+  <rect x="576" y="80" width="230" height="26" class="hdr" rx="6"/><rect x="576" y="96" width="230" height="10" class="hdr"/>
+  <text x="588" y="98" class="hdt">instances</text>
+  <text x="588" y="124" class="col pk">id · PK</text>
+  <text x="588" y="141" class="col">container_id · container_name</text>
+  <text x="588" y="158" class="col fk">worker_id · FK</text>
+  <text x="588" y="175" class="col fk">distribution_id · FK</text>
+  <text x="588" y="192" class="col">ssh_port · term_port · gui_port</text>
+  <text x="588" y="209" class="col">root_password  🔒 chiffré</text>
+  <text x="588" y="226" class="col">mode · status</text>
+  <text x="588" y="243" class="col">migrations</text>
+  <text x="588" y="260" class="col mut">created_at · terminated_at</text>
+
+  <!-- workers -->
+  <rect x="576" y="336" width="230" height="166" class="box"/>
+  <rect x="576" y="336" width="230" height="26" class="hdr" rx="6"/><rect x="576" y="352" width="230" height="10" class="hdr"/>
+  <text x="588" y="354" class="hdt">workers</text>
+  <text x="588" y="380" class="col pk">id · PK</text>
+  <text x="588" y="397" class="col">hostname · unique</text>
+  <text x="588" y="414" class="col">ip</text>
+  <text x="588" y="431" class="col">status</text>
+  <text x="588" y="448" class="col mut">AVAILABLE · BUSY · OFFLINE</text>
+  <text x="588" y="465" class="col">cpu · memory · capacity</text>
+  <text x="588" y="482" class="col">last_heartbeat</text>
+  <text x="588" y="497" class="col mut">alimentée par l'agent du nœud</text>
+
+  <!-- distributions -->
+  <rect x="300" y="336" width="200" height="132" class="box"/>
+  <rect x="300" y="336" width="200" height="26" class="hdr" rx="6"/><rect x="300" y="352" width="200" height="10" class="hdr"/>
+  <text x="312" y="354" class="hdt">distributions</text>
+  <text x="312" y="380" class="col pk">id · PK</text>
+  <text x="312" y="397" class="col">name · unique</text>
+  <text x="312" y="414" class="col">docker_image · version</text>
+  <text x="312" y="431" class="col">status</text>
+  <text x="312" y="448" class="col">label · hint</text>
+  <text x="312" y="463" class="col mut">ubuntu · debian · alpine</text>
+
+  <!-- login_attempts -->
+  <rect x="24" y="336" width="200" height="115" class="box"/>
+  <rect x="24" y="336" width="200" height="26" class="hdr" rx="6"/><rect x="24" y="352" width="200" height="10" class="hdr"/>
+  <text x="36" y="354" class="hdt">login_attempts</text>
+  <text x="36" y="380" class="col pk">id · PK</text>
+  <text x="36" y="397" class="col">username · ip</text>
+  <text x="36" y="414" class="col">success</text>
+  <text x="36" y="431" class="col">created_at</text>
+  <text x="36" y="446" class="col mut">anti-force-brute</text>
+
+  <!-- relations -->
+  <path d="M224 146 H300" class="lnk"/>
+  <text x="236" y="139" class="lbl">1 — n</text>
+  <path d="M500 158 H576 V180" class="lnk"/>
+  <text x="512" y="151" class="lbl">1 — 1</text>
+  <path d="M691 280 V336" class="lnk"/>
+  <text x="700" y="312" class="lbl">n — 1</text>
+  <path d="M576 175 H540 V400 H500" class="lnk"/>
+  <text x="506" y="330" class="lbl">n — 1</text>
+
+  <text x="24" y="545" class="note">Index unique PARTIEL sur (worker_id, ssh_port), limité aux instances actives : un port redevient libre dès que la machine est détruite.</text>
+  <text x="24" y="566" class="note">Index (status, end_time) sur rentals : c'est la requête que le Faucheur exécute toutes les dix secondes.</text>
+  <text x="24" y="587" class="note">Schéma versionné par Alembic · SQLite en mode WAL, ou PostgreSQL via DATABASE_URL.</text>
+</svg>

@@ -572,6 +572,13 @@ def not_found(_error):
 # =============================================================================
 db.init_db()
 
+# Mode mono-hôte : le contrôleur est lui-même le nœud d'exécution. Il n'a pas
+# d'agent — il EST l'agent — et doit donc s'enregistrer au démarrage, sinon le
+# parc paraîtrait vide tant qu'aucune machine n'a été louée.
+if wk.WORKERS == {db.LOCAL_WORKER: None}:
+    db.ensure_worker(db.LOCAL_WORKER, SSH_HOST_OVERRIDE or "127.0.0.1")
+    db.worker_heartbeat(db.LOCAL_WORKER)
+
 if __name__ == "__main__":
     # Serveur de développement : écoute locale par défaut. En production,
     # Gunicorn est lancé par systemd et nginx assure seul l'exposition TLS.

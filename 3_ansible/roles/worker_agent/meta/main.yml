@@ -1,0 +1,23 @@
+---
+# =============================================================================
+#  roles/worker_agent/meta/main.yml
+#  Agent d'enregistrement et de battement de cœur du nœud d'exécution
+# -----------------------------------------------------------------------------
+#  Dépendances : l'agent vérifie que le démon Docker répond avant de déclarer
+#  le nœud disponible ; Docker doit donc être installé avant lui.
+# =============================================================================
+galaxy_info:
+  role_name: worker_agent
+  author: Mohamed Aziz Baoueb
+  description: "Agent qui inscrit le nœud auprès du contrôleur et signale sa présence"
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy]
+    - name: Debian
+      versions: [bookworm]
+  galaxy_tags: [insacloud, iac, docker, ansible]
+
+dependencies:
+  - role: docker

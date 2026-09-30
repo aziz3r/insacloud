@@ -9,6 +9,7 @@
 #    tls_cert            certificat auto-signé propre au nœud           tous
 #    worker              accès SSH restreint du contrôleur, groupe docker  workers
 #    docker_images       images des machines louées (demo_mode)        workers*
+#    worker_agent        agent d'enregistrement et battement de cœur    workers
 #    reverse_proxy       nginx HTTPS devant Gunicorn                    contrôleur
 #    webapp              Flask/Gunicorn, Faucheur, watchdog, secrets     contrôleur
 #  * sans worker dans l'inventaire, les images sont construites sur le
@@ -44,6 +45,8 @@
       tags: [workers]
     - role: docker_images
       tags: [images]
+    - role: worker_agent
+      tags: [agent, workers]
 
 - name: 4. Contrôleur — client Docker, certificat, nginx, application
   hosts: controllers
