@@ -337,12 +337,30 @@ jobs:
           nc -z 127.0.0.1 2222 || { docker logs machine-test; exit 1; }
           docker rm -f machine-test
 
-      - name: Rechercher les vulnérabilités connues de l'image
+      - name: Inventorier toutes les failles connues (sans bloquer)
+        # Rapport complet, failles sans correctif comprises : rien n'est caché,
+        # même ce sur quoi on ne peut pas agir aujourd'hui.
         run: |
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy:latest image \
-            --scanners vuln --severity HIGH,CRITICAL --exit-code 1 --no-progress \
-            insacloud_alpine:latest
+          for image in insacloud_alpine:latest insacloud_web:latest; do
+            echo "::group::Trivy — $image"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image --scanners vuln \
+              --severity HIGH,CRITICAL --no-progress "$image" || true
+            echo "::endgroup::"
+          done
+
+      - name: Refuser une faille corrigeable
+        # --ignore-unfixed : le verrou ne bloque que sur ce qu'on peut
+        # réellement corriger. Échouer sur une faille sans correctif publié
+        # rendrait la chaîne rouge en permanence, et apprendrait à l'ignorer.
+        run: |
+          for image in insacloud_alpine:latest insacloud_web:latest; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image --scanners vuln \
+              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+              --no-progress "$image"
+          done
+          echo "Aucune faille corrigeable dans les images.""
 
   # ---------------------------------------------------------------------------
   #  9. Intégration : la pile complète démarre et fonctionne
@@ -471,13 +489,14 @@ jobs:
           REGISTRE: ${{ steps.version.outputs.registre }}
           VERSION: ${{ steps.version.outputs.version }}
         # Dernier verrou avant le registre : aucune image portant une faille
-        # critique ou élevée ne doit en sortir.
+        # grave ET corrigeable ne doit en sortir. Les failles sans correctif
+        # publié sont inventoriées par le travail précédent, pas bloquantes.
         run: |
           for image in insacloud-web insacloud-alpine; do
             docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
               aquasec/trivy:latest image --scanners vuln \
-              --severity HIGH,CRITICAL --exit-code 1 --no-progress \
-              "$REGISTRE/$image:$VERSION"
+              --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+              --no-progress "$REGISTRE/$image:$VERSION"
           done
 
       - name: Publier les images

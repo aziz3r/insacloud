@@ -16,7 +16,10 @@
 # (docker -H ssh://worker) ou la socket de l'hôte. Le prendre dans l'image
 # officielle évite de dépendre du découpage des paquets Debian, où le client
 # a changé de paquet, et donne un binaire unique de quelques mégaoctets.
-FROM docker:28-cli AS dockercli
+# 29-cli et non 28-cli : le client 28 est compilé avec un Go plus ancien,
+# qui traîne plus de cent alertes de sa bibliothèque standard. Le scan de
+# l'image publiée refuserait de la laisser passer.
+FROM docker:29-cli AS dockercli
 
 # --- Étage 1 : dépendances ---------------------------------------------------
 FROM python:3.12-slim AS builder
@@ -43,9 +46,14 @@ ENV PYTHONUNBUFFERED=1 \
     INSACLOUD_HOST=0.0.0.0 \
     INSACLOUD_PORT=5000
 
-# curl pour la sonde de santé, openssh-client pour le transport `docker -H ssh://`
+# curl pour la sonde de santé, openssh-client pour le transport `docker -H ssh://`.
+# `upgrade` en plus d'`install` : l'image de base accuse toujours quelques jours
+# de retard sur le dépôt de sécurité de Debian, et le scan de l'image publiée
+# refuse les failles corrigeables — ce serait le cas d'OpenSSL sans cette ligne.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends curl openssh-client \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
