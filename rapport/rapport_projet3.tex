@@ -197,7 +197,7 @@ Jetons CSRF sur tous les formulaires, politique de mot de passe, cookies \texttt
 pare-feu UFW différencié par groupe, conteneurs à capacités minimales.
 
 Ces propriétés ne sont pas seulement décrites : une chaîne d'intégration continue de onze travaux
-les rejoue à chaque envoi --- analyse statique, 91 tests, audit des dépendances, recherche de
+les rejoue à chaque envoi --- analyse statique, 94 tests, audit des dépendances, recherche de
 secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, scan des
 images, puis publication et déploiement. Aucune image portant une faille critique n'atteint le
 registre.
@@ -246,7 +246,7 @@ de sa limite ; la construction des images est encadrée par \texttt{block}/\text
 le \texttt{Vagrantfile} enchaîne lui-même le \emph{provisioner} Ansible ; le \emph{watchdog} relève
 la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les huit rôles déclarent
 leurs dépendances dans \texttt{meta/main.yml} ; un inventaire dynamique interroge Vagrant ; enfin une
-chaîne d'intégration continue exécute à chaque envoi huit contrôles --- lint, 67 tests, SAST, SCA,
+chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 94 tests, SAST, SCA,
 recherche de secrets, DAST et scan de l'image Docker.
 
 \textbf{Court terme.} Certificat reconnu (Let's Encrypt) en remplacement du certificat auto-signé,

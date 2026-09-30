@@ -494,7 +494,7 @@ Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pou
 Gestion des secrets & Ansible Vault, chiffrement Fernet en base, fichier d'environnement \texttt{0600}, secret effacé de l'environnement du PID 1. & \plus\\
 Sécurité des conteneurs & \texttt{-{}-cap-drop ALL} et capacités minimales, \texttt{no-new-privileges}, limites PID et CPU, TLS jusqu'aux machines. & \plus\\
 Pipeline CI/CD, SAST, SCA, DAST & \texttt{.github/workflows/ci.yml} : huit travaux à chaque envoi ---
-lint (ruff, ansible-lint, hadolint), 67 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
+lint (ruff, ansible-lint, hadolint), 94 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
 fuite de secrets (gitleaks), DAST (18 contrôles sur l'application en fonctionnement, puis nuclei),
 scan de l'image Docker (Trivy). & \plus\\
 Kubernetes & Hors périmètre du projet 3. & ---\\
@@ -515,7 +515,7 @@ HTTPS de bout en bout, coffre à secrets chiffré.
 \item \textbf{Chaîne de démonstration} : vidéo du parcours complet et captures d'écran versionnées.
 \item \textbf{Chaîne d'intégration continue} de huit travaux couvrant le cycle DevSecOps complet :
 lint, tests, SAST, SCA, recherche de secrets, DAST et scan d'image.
-\item \textbf{67 tests automatisés} (sécurité, orchestration Docker, Faucheur) exécutés sans Docker
+\item \textbf{94 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne) exécutés sans Docker
 ni réseau, donc rejouables sur n'importe quel poste.
 \item \textbf{Inventaire dynamique} interrogeant Vagrant, ce qui rend le déploiement indépendant du
 \emph{provider} de virtualisation.
@@ -684,6 +684,45 @@ conteneur retiré du worker et l'instance marquée \texttt{expired}.
 \texttt{nuclei} ne signale que le certificat auto-signé, choix assumé et documenté.
 \end{itemize}
 
+\subsection*{Défauts trouvés en faisant tourner la plateforme}
+
+Six défauts n'ont pas été vus en relisant le code, mais en le faisant
+fonctionner --- en déployant sur un cluster, en lançant la pile compose, ou
+parce que l'agent d'intégration continue a refusé de démarrer. Chacun est
+corrigé et gardé par un test ou une étape de la chaîne.
+
+\begin{enumerate}[leftmargin=*,itemsep=2pt]
+\item \textbf{Le Faucheur détruisait sa propre plateforme.} Il reconnaissait
+les machines louées à leur préfixe de nom ; les conteneurs de la pile
+s'appelant \texttt{insacloud\_web} et \texttt{insacloud\_db}, il les prenait
+pour des orphelins. Les machines portent désormais un label Docker explicite.
+
+\item \textbf{Deux plateformes sur un même démon se détruisaient mutuellement
+leurs machines.} Un second label, \texttt{insacloud.cluster}, donne à chaque
+déploiement son périmètre.
+
+\item \textbf{Le mot de passe de la base apparaissait en clair} dans le
+journal du Faucheur. La chaîne de connexion est masquée avant toute trace.
+
+\item \textbf{SQLAlchemy 2.1 n'existe pas pour Python 3.10}, la version
+d'Ubuntu 22.04. Le déploiement échouait à l'installation ; la dépendance est
+réépinglée en 2.0.54.
+
+\item \textbf{La plateforme proposait des distributions sans image
+construite}, et la location échouait au \texttt{docker run}. Les images
+disponibles sont maintenant découvertes auprès du démon.
+
+\item \textbf{Course au démarrage.} Sans \texttt{-{}-preload}, chaque worker
+Gunicorn importe l'application et crée le schéma ; deux d'entre eux créaient
+la même table et l'un mourait. Le cas se présente aussi en production, où
+quatre workers et le Faucheur démarrent ensemble.
+\end{enumerate}
+
+Un septième a été corrigé après relecture ciblée : le mot de passe root
+transitait par le cookie de session, qui est \emph{signé} mais non chiffré et
+se lit donc avec un simple décodage base64. Seul l'identifiant de la machine y
+figure désormais ; le secret est déchiffré au moment du rendu.
+
 \subsection*{Ce qu'il reste à préparer}
 
 Aucun écart technique ne subsiste. Restent deux points de préparation, qui ne relèvent pas du code :
@@ -704,7 +743,7 @@ les quatre supports sont satisfaits, six d'entre eux au-delà de ce qui était e
 un cluster réel plutôt que simplement déclarée.
 
 Le projet dépasse enfin le périmètre du cours sur un point : une chaîne d'intégration continue
-rejoue à chaque envoi l'analyse statique, les 67 tests, l'audit des dépendances, la recherche de
+rejoue à chaque envoi l'analyse statique, les 94 tests, l'audit des dépendances, la recherche de
 secrets, l'analyse dynamique de l'application et le scan de l'image Docker. C'est la garantie que
 les propriétés décrites dans ce dossier restent vraies, et non qu'elles l'ont été une fois.
 
