@@ -39,9 +39,14 @@ curl -s http://127.0.0.1:8088/health
   "instances_running": 2,
   "instances_total": 5,
   "rentals_active": 2,
-  "distributions": 3
+  "distributions_total": 3,
+  "distributions_available": 1
 }
 ```
+
+`distributions_total` est la taille du catalogue ; `distributions_available` ne compte
+que celles dont l'image existe réellement sur les nœuds. Les deux diffèrent en mode
+démonstration, où une seule image est construite.
 
 `503` avec `"status": "degraded"` si la base est injoignable.
 

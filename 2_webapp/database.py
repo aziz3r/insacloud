@@ -684,7 +684,9 @@ def get_statistics() -> dict:
             "rentals_active": session.scalar(
                 select(func.count()).select_from(Rental)
                 .where(Rental.status == RENTAL_ACTIVE)) or 0,
-            "distributions": session.scalar(
+            # Taille du catalogue. Le nombre réellement louable dépend des
+            # images présentes sur les nœuds : c'est /distributions qui le dit.
+            "distributions_total": session.scalar(
                 select(func.count()).select_from(Distribution)
                 .where(Distribution.status == DISTRIBUTION_ACTIVE)) or 0,
         }

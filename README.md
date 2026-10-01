@@ -54,11 +54,11 @@
 
 Derrière une interface volontairement simple, le projet répond à des questions que se pose n'importe quelle plateforme d'hébergement :
 
-- **Où placer une nouvelle machine ?** Un contrôleur répartit les conteneurs sur le worker le moins chargé et pilote leur Docker à distance, sans jamais exposer d'API Docker sur le réseau.
-- **Comment ne pas perdre l'état ?** Les machines survivent au redémarrage du démon Docker *et* de leur hôte, avec les données de l'utilisateur.
-- **Comment gérer des secrets qu'on doit pouvoir réafficher ?** Le mot de passe root n'est jamais stocké en clair, et sa consultation exige une re-authentification limitée dans le temps.
-- **Comment garantir que le service se relève seul ?** Un watchdog vérifie chaque minute le site, le nettoyeur et le proxy, et redémarre ce qui est tombé.
-- **Comment reconstruire toute l'infrastructure à l'identique ?** Trois VM et un playbook idempotent : `vagrant up` puis `ansible-playbook`, et rien d'autre.
+- **Comment connaître son parc sans le déclarer ?** Chaque worker porte un agent qui l'inscrit au démarrage puis signale sa présence. Aucune adresse n'est écrite en dur : on allume une machine, elle rejoint la plateforme.
+- **Où placer une nouvelle machine ?** Le contrôleur choisit le worker joignable le moins chargé, et pilote son Docker par SSH — aucune API Docker n'est exposée sur le réseau.
+- **Que faire quand un nœud tombe ?** Sans battement de cœur, il passe hors ligne et ses machines sont **recréées sur un autre worker**, sans que l'utilisateur perde la durée qu'il a réservée.
+- **Comment gérer des secrets qu'on doit pouvoir réafficher ?** Le mot de passe root n'est jamais stocké en clair, ne transite jamais par un cookie, et sa consultation exige une re-authentification limitée dans le temps.
+- **Comment reconstruire tout à l'identique ?** `vagrant up` crée quatre VM et enchaîne lui-même un playbook idempotent. Ou `docker compose up -d`, si l'on veut la pile en conteneurs.
 
 ## Architecture
 
@@ -95,11 +95,15 @@ Six images, construites depuis trois Dockerfiles : la variante bureau s'active p
 ## Sous le capot
 
 <details>
-<summary><b>Haute disponibilité à deux niveaux</b></summary>
+<summary><b>Haute disponibilité à trois niveaux</b></summary>
 
-Dans chaque machine, `supervisord` tourne en PID 1 et surveille ses services (sshd, terminal web, serveur d'affichage, bureau, noVNC) : si l'un meurt, il le relance. Si supervisord lui-même s'arrête, Docker relance le conteneur grâce à `--restart=always`. Enfin, le démon Docker des workers est en `live-restore` : une mise à jour de Docker ne coupe pas les machines en cours.
+**Dans la machine**, `supervisord` tourne en PID 1 et surveille ses services (sshd, terminal web, serveur d'affichage, bureau, noVNC) : si l'un meurt, il le relance.
 
-Vérifié en conditions réelles : un worker entièrement redémarré retrouve ses machines **et** les fichiers créés dedans.
+**Sur le nœud**, si supervisord lui-même s'arrête, Docker relance le conteneur grâce à `--restart=always`. Le démon Docker des workers est en `live-restore` : une mise à jour de Docker ne coupe pas les machines en cours.
+
+**Dans le parc**, un worker qui cesse de battre passe hors ligne et ses machines sont recréées sur un autre nœud.
+
+Vérifié en conditions réelles : un worker entièrement redémarré retrouve ses machines **et** les fichiers créés dedans ; un worker éteint voit ses machines repartir ailleurs en une centaine de secondes.
 </details>
 
 <details>
@@ -108,6 +112,10 @@ Vérifié en conditions réelles : un worker entièrement redémarré retrouve s
 Un service séparé lit la base toutes les dix secondes et détruit les machines dont la date de fin est dépassée. La détection tient en une requête SQL — les dates sont stockées au format de `datetime('now')`, ce qui rend la comparaison native.
 
 Il fait aussi de la **réconciliation** : un conteneur présent sur un worker mais inconnu de la base est supprimé, une machine enregistrée dont le conteneur a disparu passe à « arrêtée ». Un worker injoignable est ignoré, jamais interprété comme une disparition.
+
+Il reconnaît les machines louées à un **label Docker**, jamais à leur nom : les conteneurs de la plateforme elle-même ne doivent pas être pris pour des orphelins. Un second label délimite le déploiement, pour que deux plateformes partageant un démon ne se détruisent pas mutuellement.
+
+C'est lui enfin qui **surveille le parc** : il déclare hors ligne un worker muet et fait recréer ses machines ailleurs.
 </details>
 
 <details>
@@ -133,7 +141,7 @@ Côté site : jetons CSRF sur tous les formulaires, verrouillage après cinq éc
 
 `Vagrantfile` multi-provider (VMware, Parallels, QEMU pour Apple Silicon, VirtualBox en repli) décrivant un contrôleur et trois workers. Puis neuf rôles Ansible : pare-feu, clé de pilotage, Docker, certificats, workers, images, agent, proxy TLS, application. Quatre playbooks permettent de n'en rejouer qu'une partie — `docker.yml`, `worker.yml`, `deploy.yml` — sans tout reprendre.
 
-Le playbook est **idempotent** — second passage : `changed=0` sur les trois nœuds — et un mode démonstration ne construit que l'image la plus légère pour un déploiement en quelques minutes.
+Le playbook est **idempotent** — second passage : `changed=0` sur les quatre nœuds, mesuré — et un mode démonstration ne construit que l'image la plus légère pour un déploiement en quelques minutes. Le schéma de la base est versionné par Alembic et mis à niveau par le playbook lui-même.
 </details>
 
 ## Un parc qui se gère tout seul
@@ -215,65 +223,79 @@ ruff check . && bandit -c pyproject.toml -r .
 
 ```bash
 git clone https://github.com/aziz3r/insacloud.git && cd insacloud
-cp .env.example .env        # puis remplissez les trois secrets
+cp .env.example .env
+```
+
+Renseignez les **quatre secrets** de `.env` — le fichier explique comment les
+produire — puis le groupe propriétaire de la socket Docker, dont l'application
+a besoin pour créer les machines sans tourner en root :
+
+```bash
+echo "DOCKER_GID=$(docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+  alpine stat -c '%g' /var/run/docker.sock)" >> .env
+
+docker compose --profile build build image-alpine   # une image louable
 docker compose up -d
 ```
 
 PostgreSQL, l'application et le Faucheur démarrent ensemble ; le site est sur
-**<http://127.0.0.1:8088>**. Pour construire les images des machines louables :
-
-```bash
-docker compose --profile build build
-```
+**<http://127.0.0.1:8088>**.
 
 L'application tourne sous un compte sans privilège (uid 10001) et n'accepte de
 démarrer que si les secrets sont renseignés : un mot de passe oublié arrête la
-pile plutôt que de la lancer avec une valeur par défaut.
+pile plutôt que de la lancer avec une valeur par défaut. Le tableau de bord ne
+propose que les distributions dont l'image existe vraiment — inutile de tout
+construire pour essayer.
 
 ## Essayer en local
 
-Il faut Python 3.10+ et un Docker (Docker Desktop, ou `brew install colima docker && colima start`).
+Sans conteneuriser la plateforme elle-même — pratique pour développer, puisque le
+code est rechargé à chaud. Il faut Python 3.10+ et un Docker (Docker Desktop, ou
+`brew install colima docker && colima start`).
 
 ```bash
 git clone https://github.com/aziz3r/insacloud.git && cd insacloud
 
-# Les images des machines (la version terminal suffit pour essayer)
-# Variante déclarative : docker compose --profile build build
-cd 1_docker
-docker build -t insacloud_alpine:latest -f alpine.Dockerfile .
-cd ..
+# Une image louable (la version terminal suffit pour essayer)
+docker compose --profile build build image-alpine
 
 # Le site (crée son environnement Python au premier lancement)
 cd 2_webapp && ./run_local.sh
 ```
 
 Puis <http://127.0.0.1:5055> : créez un compte et louez votre première machine.
+La base est un simple fichier SQLite, et le Faucheur tourne dans un thread de
+l'application — aucun service à installer.
 
 <details>
 <summary>Construire les six images (dont les bureaux graphiques)</summary>
 
 ```bash
-cd 1_docker
-for d in ubuntu:Dockerfile debian:debian.Dockerfile alpine:alpine.Dockerfile; do
-  n=${d%%:*}; f=${d##*:}
-  docker build -t insacloud_$n:latest         -f $f .
-  docker build -t insacloud_${n}_desktop:latest --build-arg DESKTOP=1 -f $f .
-done
+docker compose --profile build build        # les six d'un coup
+docker compose --profile build build image-alpine   # ou juste la plus légère
 ```
+
+Les variantes bureau pèsent 1,3 à 1,5 Go et demandent une quinzaine de minutes ;
+la version terminal suffit pour essayer.
 </details>
 
 ## Déployer l'infrastructure complète
 
 ```bash
-vagrant up                                          # controller + worker1 + worker2
+vagrant up                                          # controller + worker1..3
 cd 3_ansible
 ansible-galaxy collection install -r requirements.yml
-ansible-playbook site.yml --ask-vault-pass          # déploie les trois nœuds
+ansible-playbook site.yml --ask-vault-pass          # déploie les quatre nœuds
 ansible-playbook site.yml --ask-vault-pass          # à nouveau : changed=0
 ```
 
 `vagrant up` suffit en réalité : le `Vagrantfile` enchaîne lui-même le playbook une fois la dernière
 VM créée. Les commandes ci-dessus servent à rejouer le déploiement sans recréer les machines.
+
+Trois playbooks ciblés évitent de tout reprendre : `docker.yml` n'installe que le démon,
+`worker.yml` prépare un nœud de bout en bout et l'inscrit au parc — c'est celui à jouer pour
+**ajouter** un worker — et `deploy.yml` ne met à jour que l'application, puis interroge `/health`.
+`WORKERS=2 vagrant up` réduit le parc sur un poste modeste.
 
 Le chemin de la clé SSH dépend du provider de virtualisation. Plutôt que de l'écrire en dur, un
 inventaire dynamique le demande à Vagrant — le même dépôt fonctionne alors sur les quatre providers :
@@ -295,8 +317,9 @@ Le site est alors sur **https://192.168.56.10** (certificat auto-signé). Pour c
 | `tls_cert` | tous | certificat ECDSA auto-signé, propre à chaque nœud |
 | `worker` | workers | compte `insacloud`, clé du contrôleur, SSH par clé uniquement |
 | `docker_images` | workers | images des machines louées |
+| `worker_agent` | workers | agent d'enregistrement et de battement de cœur, en unité systemd durcie |
 | `reverse_proxy` | contrôleur | nginx TLS 1.2/1.3, HTTP/2, redirection 80→443, limitation sur `/login` |
-| `webapp` | contrôleur | Flask + Gunicorn, Faucheur, watchdog, secrets du Vault |
+| `webapp` | contrôleur | Flask + Gunicorn, Faucheur, watchdog, migrations Alembic, secrets du Vault |
 
 Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansible Vault** chiffré, et atterrissent sur le serveur dans un fichier `0600` lu par systemd — jamais dans une unité ni dans les journaux.
 </details>
@@ -304,14 +327,19 @@ Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansi
 ## Structure du dépôt
 
 ```
-1_docker/        3 Dockerfiles + script d'entrée commun, docker-compose.yml
-2_webapp/        Flask : location, coffre, ordonnancement, Faucheur, interface
-  └── tests/     94 tests + contrôles dynamiques et 6 tests d'intégration
-3_ansible/       9 rôles, 4 playbooks, inventaires statique et dynamique, Vault
-.github/         chaîne d'intégration continue (8 travaux)
-Vagrantfile      controller 192.168.56.10 · worker1 .11 · worker2 .12
-docs/            vidéo de démonstration, captures, schémas
-rapport/         rapport de projet et dossier technique (LaTeX + PDF)
+1_docker/            3 Dockerfiles des machines louées + script d'entrée commun
+2_webapp/            Flask : API, services, ORM, Faucheur, agent, interface
+  ├── Dockerfile     image de la plateforme (compte sans privilège)
+  ├── migrations/    schéma versionné par Alembic
+  └── tests/         94 tests + contrôles dynamiques + 6 tests d'intégration
+3_ansible/           9 rôles, 4 playbooks, inventaires statique et dynamique, Vault
+.github/             chaîne d'intégration continue (11 travaux)
+docker-compose.yml   la pile complète : PostgreSQL, application, Faucheur, images
+.env.example         les secrets à renseigner avant le premier lancement
+Vagrantfile          controller .10 · worker1 .11 · worker2 .12 · worker3 .13
+docs/                vidéo, captures, schémas, documentation de l'API et de la base
+rapport/             rapport de projet et dossier technique (LaTeX + PDF)
+CONTRIBUTING.md      stratégie de branches et contrôles avant une fusion
 ```
 
 ## Choses apprises en chemin
@@ -323,6 +351,10 @@ Quelques problèmes qui ont demandé de creuser, et ce qu'ils ont appris :
 - **Un mot de passe VNC fait huit caractères maximum.** Contrainte du protocole, pas un choix : d'où un mot de passe de bureau distinct, affiché comme tel, et un transport chiffré par-dessus.
 - **Firefox n'existe qu'en Snap sur Ubuntu**, inutilisable dans un conteneur — il a fallu passer par le dépôt officiel de Mozilla. Et `ttyd` n'est pas empaqueté dans Debian 12 : binaire statique officiel.
 - **Un venv est obligatoire depuis PEP 668**, ce qui change la façon d'écrire un rôle Ansible qui installe des dépendances Python.
+- **Un préfixe de nom n'est pas une identité.** Le nettoyeur reconnaissait les machines louées à leur nom commençant par `insacloud_` — et détruisait les conteneurs de la plateforme elle-même, qui s'appelaient `insacloud_web` et `insacloud_db`. Un label Docker explicite dit ce qu'une chose *est*, pas ce à quoi elle ressemble.
+- **`CREATE TABLE IF NOT EXISTS` ne protège pas d'une course.** Deux processus peuvent passer le test avant que l'un ait créé la table. Avec quatre workers Gunicorn qui démarrent ensemble, l'un mourait.
+- **Une dépendance épinglée doit l'être pour la version de Python de la *cible*.** SQLAlchemy 2.1 s'installait sur mon poste en 3.14 et nulle part sur l'Ubuntu 22.04 visé.
+- **Un verrou de sécurité qui ne peut jamais passer n'est pas un verrou.** Bloquer sur les failles sans correctif publié rend la chaîne rouge en permanence, et apprend à l'ignorer : il faut bloquer sur ce qui est corrigeable, et inventorier le reste.
 
 ## Limites assumées
 

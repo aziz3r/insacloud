@@ -131,6 +131,9 @@ def health():
     except Exception as exc:  # noqa: BLE001 - la sonde ne doit jamais lever
         log.error("Sonde de santé : base injoignable (%s)", exc)
         return jsonify(status="degraded", database="unreachable", version=VERSION), 503
+    # Deux chiffres distincts : le catalogue, et ce qui est réellement louable
+    # — une distribution dont l'image n'a pas été construite ne l'est pas.
+    statistiques["distributions_available"] = len(services.distributions_disponibles())
     return jsonify(status="ok", database=base, version=VERSION, **statistiques)
 
 
