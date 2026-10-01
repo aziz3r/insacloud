@@ -65,6 +65,14 @@ jobs:
         working-directory: 2_webapp
         run: ruff check . --output-format=github
 
+      - name: Vérifier la syntaxe shell de la chaîne elle-même
+        # Une erreur de syntaxe dans un bloc « run: » ne se voit sinon qu'au
+        # moment où l'étape s'exécute, parfois au bout de dix minutes. Deux
+        # guillemets déséquilibrées ont fait échouer deux exécutions de suite.
+        run: |
+          pip install --quiet pyyaml
+          python3 .github/verifier-workflow.py
+
   # ---------------------------------------------------------------------------
   #  2. Tests unitaires et d'intégration
   # ---------------------------------------------------------------------------
@@ -360,7 +368,7 @@ jobs:
               --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
               --no-progress "$image"
           done
-          echo "Aucune faille corrigeable dans les images.""
+          echo "Aucune faille corrigeable dans les images."
 
   # ---------------------------------------------------------------------------
   #  9. Intégration : la pile complète démarre et fonctionne
