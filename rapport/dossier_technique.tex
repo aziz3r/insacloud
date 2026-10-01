@@ -686,7 +686,7 @@ conteneur retiré du worker et l'instance marquée \texttt{expired}.
 
 \subsection*{Défauts trouvés en faisant tourner la plateforme}
 
-Six défauts n'ont pas été vus en relisant le code, mais en le faisant
+Huit défauts n'ont pas été vus en relisant le code, mais en le faisant
 fonctionner --- en déployant sur un cluster, en lançant la pile compose, ou
 parce que l'agent d'intégration continue a refusé de démarrer. Chacun est
 corrigé et gardé par un test ou une étape de la chaîne.
@@ -716,9 +716,24 @@ disponibles sont maintenant découvertes auprès du démon.
 Gunicorn importe l'application et crée le schéma ; deux d'entre eux créaient
 la même table et l'un mourait. Le cas se présente aussi en production, où
 quatre workers et le Faucheur démarrent ensemble.
+
+\item \textbf{Images refusées par leur propre verrou.} Le scan a bloqué la
+publication : le client Docker embarqué, compilé avec un Go ancien, portait
+163 alertes corrigeables, et l'image de base six alertes OpenSSL. Un client
+plus récent et un \texttt{apt-get upgrade} ramènent le compte à zéro. La
+politique du verrou a été précisée au passage : il bloque sur les failles
+\emph{corrigeables}, un travail séparé inventoriant tout sans bloquer ---
+échouer sur une faille sans correctif publié rendrait la chaîne rouge en
+permanence et apprendrait à l'ignorer.
+
+\item \textbf{Deux guillemets déséquilibrées} dans la chaîne elle-même ont
+fait échouer trois exécutions, pour une raison invisible dans le rapport de
+l'outil concerné. Une erreur de syntaxe dans un bloc \texttt{run:} ne se
+manifeste qu'au moment où l'étape s'exécute. La chaîne vérifie désormais ses
+44 étapes avec \texttt{bash -n} avant toute autre chose.
 \end{enumerate}
 
-Un septième a été corrigé après relecture ciblée : le mot de passe root
+Un neuvième a été corrigé après relecture ciblée : le mot de passe root
 transitait par le cookie de session, qui est \emph{signé} mais non chiffré et
 se lit donc avec un simple décodage base64. Seul l'identifiant de la machine y
 figure désormais ; le secret est déchiffré au moment du rendu.

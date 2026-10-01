@@ -198,9 +198,15 @@ pare-feu UFW différencié par groupe, conteneurs à capacités minimales.
 
 Ces propriétés ne sont pas seulement décrites : une chaîne d'intégration continue de onze travaux
 les rejoue à chaque envoi --- analyse statique, 94 tests, audit des dépendances, recherche de
-secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, scan des
-images, puis publication et déploiement. Aucune image portant une faille critique n'atteint le
-registre.
+secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, démarrage de
+la pile complète, scan des images, puis publication et déploiement. Aucune image portant une faille
+grave et corrigeable n'atteint le registre, et chaque image publiée est accompagnée de son
+inventaire de composants (SBOM).
+
+La chaîne a d'ailleurs trouvé ce que la relecture n'avait pas vu : huit défauts, dont un Faucheur
+qui détruisait sa propre plateforme et une course entre les processus au démarrage. C'est la raison
+d'être de l'exercice --- un projet qui ne tourne que sur le poste de son auteur n'est pas
+reproductible, et seule une machine vierge le démontre.
 
 %================================================================ 4
 \section{Difficultés}

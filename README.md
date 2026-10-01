@@ -173,7 +173,7 @@ C'est la limite d'une reprise sans stockage partagé, et elle est assumée.
 ## Ce qui empêche le projet de se dégrader
 
 Un projet d'école finit souvent par ne plus marcher que sur la machine de son auteur. Ici, chaque
-envoi de code déclenche huit vérifications indépendantes, toutes reproductibles en local :
+envoi de code déclenche onze vérifications indépendantes, toutes reproductibles en local :
 
 | Vérification | Outil | Ce qu'elle attrape |
 |---|---|---|
@@ -184,23 +184,31 @@ envoi de code déclenche huit vérifications indépendantes, toutes reproductibl
 | Fuite de secrets | `gitleaks` | clés et jetons commis par erreur, **y compris dans l'historique** |
 | DAST | `tests/dast.sh` + `nuclei` | l'application **en fonctionnement** : en-têtes, pages protégées, CSRF, cookies |
 | Infrastructure | `ansible-lint`, `hadolint` | rôles Ansible (profil `production`) et Dockerfiles |
-| Image | `Trivy` | CVE des paquets présents dans l'image publiée |
+| Intégration | `docker compose` + `integration.sh` | la pile complète démarre et une machine se loue vraiment |
+| Image | `Trivy` | CVE des paquets de l'image ; bloque sur les failles **corrigeables** |
+| Publication | `Syft` + `ghcr.io` | SBOM conservé, images étiquetées version / commit / `latest` |
+| Déploiement | `ansible-playbook deploy.yml` | met à jour l'hôte puis interroge `/health` |
 
 Les tests ne lancent aucun conteneur : `run_docker` est remplacé par une fonction espion, ce qui
 permet de vérifier que la commande imposée par l'énoncé — `docker run -d --restart=always -p <port>:22` —
 est bien celle qui part, sur un agent d'intégration qui n'a même pas Docker.
 
-Deux défauts réels ont été trouvés par cette chaîne, pas par la relecture : un mot de passe par défaut
-inscrit dans les images (visible par `docker inspect`), et une durée négative qui faisait échouer une
-insertion en base. Les deux sont corrigés, et chacun a son garde-fou : une étape de la chaîne
-inspecte l'image publiée, un test couvre la durée négative.
+**Ce n'est pas décoratif.** Huit défauts réels ont été trouvés en faisant tourner le projet, pas en le
+relisant : le Faucheur qui détruisait sa propre plateforme parce qu'il reconnaissait les machines à
+leur préfixe de nom, deux déploiements qui se supprimaient mutuellement leurs conteneurs, le mot de
+passe de la base journalisé en clair, une dépendance inexistante pour la version de Python de la
+cible, des distributions proposées sans image construite, une course au démarrage entre workers
+Gunicorn, des images refusées par leur propre scan, et deux guillemets déséquilibrées dans la chaîne
+elle-même. Chacun a maintenant son test ou son garde-fou — la chaîne vérifie même sa propre syntaxe
+shell avant de démarrer.
 
 ```bash
 cd 2_webapp
 pip install -r requirements-dev.txt
 pytest                       # 94 tests
 ruff check . && bandit -c pyproject.toml -r .
-./tests/dast.sh http://127.0.0.1:5000    # application démarrée à côté
+./tests/dast.sh http://127.0.0.1:5000      # application démarrée à côté
+./tests/integration.sh http://127.0.0.1:8088   # les 6 scénarios de bout en bout
 ```
 
 ## Toute la plateforme en une commande
