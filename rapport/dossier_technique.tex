@@ -449,8 +449,8 @@ Supervision (\texttt{docker stats}) & Le \emph{watchdog} relève chaque minute l
 mémoire de chaque machine louée, sur chaque n\oe{}ud, et journalise une alerte au-delà de 90\,\% de CPU. & \ok\\
 Mise à l'échelle & Horizontale au niveau du parc : ajout d'un worker dans l'inventaire, répartition automatique. & \ok\\
 Vagrant : box, provider, provisioner & Box \texttt{bento/ubuntu-22.04}, quatre providers (VMware, Parallels, QEMU, VirtualBox), provisioner Shell. & \ok\\
-Vagrant multi-machines & Trois machines définies (\texttt{controller}, \texttt{worker1}, \texttt{worker2}). & \ok\\
-Réseau privé et IP fixe & \texttt{private\_network} en 192.168.56.10 / .11 / .12. & \ok\\
+Vagrant multi-machines & Quatre machines définies (\texttt{controller}, \texttt{worker1}, \texttt{worker2}, \texttt{worker3}). & \ok\\
+Réseau privé et IP fixe & \texttt{private\_network} en 192.168.56.10 / .11 / .12 / .13. & \ok\\
 Configuration des ressources VM & \texttt{memory} et \texttt{cpus} définis par machine et par provider. & \ok\\
 Provisioner Ansible déclaratif & Le \texttt{Vagrantfile} enchaîne un provisioner Shell (Python) puis le
 provisioner \texttt{ansible}, déclenché après la dernière VM : \texttt{vagrant up} suffit à obtenir
@@ -465,13 +465,13 @@ Inventaire, groupes, \texttt{:children} & \texttt{[controllers]}, \texttt{[worke
 Commandes ad hoc & \texttt{ansible insacloud -m ping} utilisé pour valider la connectivité. & \ok\\
 Playbooks multi-plays & Quatre plays successifs : durcissement, clé du contrôleur, workers, contrôleur. & \ok\\
 Modules dédiés & 21 modules distincts, tous qualifiés (\texttt{ansible.builtin.*}, \texttt{ansible.posix.*}, \texttt{community.general.*}). & \plus\\
-Idempotence & Second passage : \texttt{changed=0} sur les trois n\oe{}uds (mesuré). & \ok\\
+Idempotence & Second passage : \texttt{changed=0} sur les quatre n\oe{}uds (mesuré). & \ok\\
 Variables et facts & \texttt{defaults}, \texttt{group\_vars}, \texttt{register}, \texttt{set\_fact}, facts \texttt{ansible\_architecture} et \texttt{ansible\_distribution\_release}. & \ok\\
 Templates Jinja2 & Cinq templates avec conditions, boucles et filtres (\texttt{to\_nice\_json}, \texttt{join}, \texttt{default}). & \ok\\
 Handlers & Six handlers (\texttt{daemon-reload}, redémarrage des services, rechargement de nginx et sshd). & \ok\\
 Conditions et boucles & 15 \texttt{when}, 14 \texttt{loop} avec \texttt{loop\_control} et \texttt{index\_var}. & \ok\\
 Rôles & Huit rôles avec \texttt{defaults}, \texttt{tasks}, \texttt{handlers}, \texttt{templates}. & \ok\\
-\texttt{meta/main.yml} (dépendances) & Les huit rôles déclarent leurs métadonnées et leurs dépendances
+\texttt{meta/main.yml} (dépendances) & Les neuf rôles déclarent leurs métadonnées et leurs dépendances
 (\texttt{worker} dépend de \texttt{docker}, \texttt{reverse\_proxy} et \texttt{webapp} de
 \texttt{tls\_cert}\dots{}). Ansible les résout et les dédoublonne. & \ok\\
 Ansible Vault & \texttt{vault.yml} chiffré AES256, convention \texttt{vault\_*} exactement comme le cours, deux secrets. & \ok\\
@@ -503,7 +503,7 @@ Kubernetes & Hors périmètre du projet 3. & ---\\
 
 \section{Éléments réalisés au-delà de l'énoncé}
 \begin{itemize}
-\item \textbf{Architecture distribuée} contrôleur + deux workers avec ordonnancement sur le n\oe{}ud le
+\item \textbf{Architecture distribuée} contrôleur + trois workers avec ordonnancement sur le n\oe{}ud le
 moins chargé, alors que l'énoncé n'imposait qu'un hôte.
 \item \textbf{Deux modes d'accès supplémentaires} : terminal web et bureau graphique complet dans le
 navigateur, en plus du SSH demandé.
@@ -634,7 +634,7 @@ au-delà de ce qui est demandé.
 \section{Écarts relevés et travaux réalisés}
 
 La relecture intégrale des quatre supports de cours avait mis en évidence huit écarts. Tous ont été
-traités, et chaque correction a été vérifiée sur le cluster de trois n\oe{}uds avant d'être retenue.
+traités, et chaque correction a été vérifiée sur le cluster de quatre n\oe{}uds avant d'être retenue.
 
 \begin{table}[h]\centering\small
 \begin{tabular}{@{}clp{6.6cm}l@{}}
@@ -651,7 +651,7 @@ après la dernière VM, avec \texttt{ask\_vault\_pass}. & \ok\\
 4 & \texttt{block}/\texttt{rescue}/\texttt{always} jamais employé & Encadre la construction des images.
 Vérifié en forçant un échec : \texttt{rescued=1}, diagnostic donnant l'image, le message de
 \texttt{docker build}, les erreurs du démon et l'espace disque. & \ok\\
-5 & \texttt{meta/main.yml} absent & Les huit rôles déclarent métadonnées et dépendances ; Ansible les
+5 & \texttt{meta/main.yml} absent & Les neuf rôles déclarent métadonnées et dépendances ; Ansible les
 résout et les dédoublonne à l'exécution. & \ok\\
 6 & Aucune métrique de consommation & Le \emph{watchdog} relève \texttt{docker stats} sur chaque
 n\oe{}ud toutes les minutes et alerte au-delà de 90\,\% de CPU. & \ok\\
@@ -666,11 +666,13 @@ avant d'être inscrite dans le fichier. & \plus\\
 
 \subsection*{Vérifications conduites sur le cluster}
 
-Un cluster de trois n\oe{}uds (un contrôleur, deux workers) a été remonté pour éprouver l'ensemble :
+Un cluster de quatre n\oe{}uds (un contrôleur, trois workers) a été remonté pour éprouver l'ensemble :
 
 \begin{itemize}
-\item \textbf{Déploiement complet} : \texttt{failed=0} sur les trois n\oe{}uds.
-\item \textbf{Idempotence} : second passage à \texttt{changed=0} sur les trois n\oe{}uds, après toutes
+\item \textbf{Déploiement complet} : \texttt{failed=0} sur les quatre n\oe{}uds.
+\item \textbf{Inscription spontanée} : les trois agents se sont enregistrés seuls au démarrage,
+aucune adresse de worker n'étant écrite dans la configuration du contrôleur.
+\item \textbf{Idempotence} : second passage à \texttt{changed=0} sur les quatre n\oe{}uds, après toutes
 les modifications.
 \item \textbf{Parcours utilisateur} : inscription, location d'une machine Alpine, affichage des accès ;
 le conteneur est bien créé sur le worker le moins chargé.
@@ -680,6 +682,9 @@ limite et réservation mémoire, \texttt{pids-limit}, \texttt{cap-drop ALL} et \
 la machine louée et le travail de l'utilisateur sont intacts.
 \item \textbf{Faucheur} : une location d'une minute est détruite 49\,s après son expiration, le
 conteneur retiré du worker et l'instance marquée \texttt{expired}.
+\item \textbf{Reprise sur panne} : le scénario de l'énoncé joué tel quel --- \texttt{worker1} éteint,
+passage \texttt{OFFLINE} au bout de 90\,s, machine recréée sur \texttt{worker2} avec la location
+intacte et \texttt{migrations=1}, puis \texttt{worker1} de retour dans le parc en moins de dix secondes.
 \item \textbf{Analyse dynamique} : 18 contrôles sur l'application en fonctionnement, tous réussis ;
 \texttt{nuclei} ne signale que le certificat auto-signé, choix assumé et documenté.
 \end{itemize}
@@ -747,7 +752,7 @@ préparer le discours d'introduction attendu en début de soutenance.
 \section*{Conclusion}
 \addcontentsline{toc}{section}{Conclusion}
 Les six exigences fonctionnelles de l'énoncé sont satisfaites, plusieurs au-delà de ce qui était
-demandé : haute disponibilité par cluster de trois n\oe{}uds, trois distributions en deux modes
+demandé : haute disponibilité par cluster de quatre n\oe{}uds, trois distributions en deux modes
 d'accès, conservation de l'état vérifiée par redémarrage complet. Les quatre catégories de tâches
 imposées --- interface web, Ansible, base de données, déploiement des machines --- sont toutes
 couvertes, y compris \texttt{docker compose}, seule réserve de la première version de ce dossier.

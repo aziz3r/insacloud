@@ -102,9 +102,9 @@ injoignable est ignoré plutôt qu'interprété comme une disparition.
 la réponse HTTPS du site et le Faucheur, redémarre ce qui est tombé et journalise les workers
 injoignables.
 
-\textbf{Infrastructure comme code.} Un \texttt{Vagrantfile} décrit les trois machines virtuelles ;
-un playbook Ansible de huit rôles les configure intégralement. Le playbook est idempotent :
-un second passage renvoie \texttt{changed=0} sur les trois n\oe{}uds.
+\textbf{Infrastructure comme code.} Un \texttt{Vagrantfile} décrit les quatre machines virtuelles ;
+un playbook Ansible de neuf rôles les configure intégralement. Le playbook est idempotent :
+un second passage renvoie \texttt{changed=0} sur les quatre n\oe{}uds.
 
 \textbf{Gestion des secrets.} Les clés sensibles (session Flask, chiffrement des mots de passe) sont
 stockées chiffrées dans un fichier Ansible Vault, et déposées sur le serveur dans un fichier en
@@ -250,7 +250,7 @@ traités depuis : un fichier \texttt{docker-compose.yml} déclare la constructio
 machine de démonstration ; chaque conteneur reçoit désormais une \emph{réservation} mémoire en plus
 de sa limite ; la construction des images est encadrée par \texttt{block}/\texttt{rescue}/\texttt{always} ;
 le \texttt{Vagrantfile} enchaîne lui-même le \emph{provisioner} Ansible ; le \emph{watchdog} relève
-la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les huit rôles déclarent
+la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les neuf rôles déclarent
 leurs dépendances dans \texttt{meta/main.yml} ; un inventaire dynamique interroge Vagrant ; enfin une
 chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 94 tests, SAST, SCA,
 recherche de secrets, DAST et scan de l'image Docker.
