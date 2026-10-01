@@ -1,102 +1,89 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 620" width="960" height="620" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif">
-  <style>
-    .t   { fill:#1b1b1f; }
-    .mut { fill:#6b6b76; }
-    .box { fill:#ffffff; stroke:#c9c9d1; stroke-width:1.5; rx:6; }
-    .hdr { fill:#c8102e; }
-    .hdt { fill:#ffffff; font-weight:600; font-size:13px; }
-    .col { font-size:11.5px; }
-    .pk  { font-weight:600; fill:#1b1b1f; }
-    .fk  { fill:#0b5cad; }
-    .lnk { stroke:#6b6b76; stroke-width:1.4; fill:none; }
-    .lbl { font-size:10.5px; fill:#6b6b76; }
-    .note{ font-size:11px; fill:#6b6b76; }
-  </style>
-  <rect width="960" height="620" fill="#fbfbfd"/>
-  <text x="24" y="30" class="t" font-size="16" font-weight="600">InsaCloud — modèle de données</text>
-  <text x="24" y="50" class="note">Six tables. Instance décrit un conteneur, Rental l'engagement de location : les séparer permet de recréer la machine ailleurs sans toucher à la location.</text>
-
-  <!-- users -->
-  <rect x="24" y="80" width="200" height="132" class="box"/>
-  <rect x="24" y="80" width="200" height="26" class="hdr" rx="6"/><rect x="24" y="96" width="200" height="10" class="hdr"/>
-  <text x="36" y="98" class="hdt">users</text>
-  <text x="36" y="124" class="col pk">id · PK</text>
-  <text x="36" y="141" class="col">username · unique</text>
-  <text x="36" y="158" class="col">email · unique</text>
-  <text x="36" y="175" class="col">password_hash</text>
-  <text x="36" y="192" class="col">ssh_public_key</text>
-  <text x="36" y="207" class="col mut">created_at</text>
-
-  <!-- rentals -->
-  <rect x="300" y="80" width="200" height="132" class="box"/>
-  <rect x="300" y="80" width="200" height="26" class="hdr" rx="6"/><rect x="300" y="96" width="200" height="10" class="hdr"/>
-  <text x="312" y="98" class="hdt">rentals</text>
-  <text x="312" y="124" class="col pk">id · PK</text>
-  <text x="312" y="141" class="col fk">user_id · FK</text>
-  <text x="312" y="158" class="col fk">instance_id · FK</text>
-  <text x="312" y="175" class="col">start_time · end_time</text>
-  <text x="312" y="192" class="col">status</text>
-  <text x="312" y="207" class="col mut">ACTIVE · EXPIRED · STOPPED</text>
-
-  <!-- instances -->
-  <rect x="576" y="80" width="230" height="200" class="box"/>
-  <rect x="576" y="80" width="230" height="26" class="hdr" rx="6"/><rect x="576" y="96" width="230" height="10" class="hdr"/>
-  <text x="588" y="98" class="hdt">instances</text>
-  <text x="588" y="124" class="col pk">id · PK</text>
-  <text x="588" y="141" class="col">container_id · container_name</text>
-  <text x="588" y="158" class="col fk">worker_id · FK</text>
-  <text x="588" y="175" class="col fk">distribution_id · FK</text>
-  <text x="588" y="192" class="col">ssh_port · term_port · gui_port</text>
-  <text x="588" y="209" class="col">root_password  🔒 chiffré</text>
-  <text x="588" y="226" class="col">mode · status</text>
-  <text x="588" y="243" class="col">migrations</text>
-  <text x="588" y="260" class="col mut">created_at · terminated_at</text>
-
-  <!-- workers -->
-  <rect x="576" y="336" width="230" height="166" class="box"/>
-  <rect x="576" y="336" width="230" height="26" class="hdr" rx="6"/><rect x="576" y="352" width="230" height="10" class="hdr"/>
-  <text x="588" y="354" class="hdt">workers</text>
-  <text x="588" y="380" class="col pk">id · PK</text>
-  <text x="588" y="397" class="col">hostname · unique</text>
-  <text x="588" y="414" class="col">ip</text>
-  <text x="588" y="431" class="col">status</text>
-  <text x="588" y="448" class="col mut">AVAILABLE · BUSY · OFFLINE</text>
-  <text x="588" y="465" class="col">cpu · memory · capacity</text>
-  <text x="588" y="482" class="col">last_heartbeat</text>
-  <text x="588" y="497" class="col mut">alimentée par l'agent du nœud</text>
-
-  <!-- distributions -->
-  <rect x="300" y="336" width="200" height="132" class="box"/>
-  <rect x="300" y="336" width="200" height="26" class="hdr" rx="6"/><rect x="300" y="352" width="200" height="10" class="hdr"/>
-  <text x="312" y="354" class="hdt">distributions</text>
-  <text x="312" y="380" class="col pk">id · PK</text>
-  <text x="312" y="397" class="col">name · unique</text>
-  <text x="312" y="414" class="col">docker_image · version</text>
-  <text x="312" y="431" class="col">status</text>
-  <text x="312" y="448" class="col">label · hint</text>
-  <text x="312" y="463" class="col mut">ubuntu · debian · alpine</text>
-
-  <!-- login_attempts -->
-  <rect x="24" y="336" width="200" height="115" class="box"/>
-  <rect x="24" y="336" width="200" height="26" class="hdr" rx="6"/><rect x="24" y="352" width="200" height="10" class="hdr"/>
-  <text x="36" y="354" class="hdt">login_attempts</text>
-  <text x="36" y="380" class="col pk">id · PK</text>
-  <text x="36" y="397" class="col">username · ip</text>
-  <text x="36" y="414" class="col">success</text>
-  <text x="36" y="431" class="col">created_at</text>
-  <text x="36" y="446" class="col mut">anti-force-brute</text>
-
-  <!-- relations -->
-  <path d="M224 146 H300" class="lnk"/>
-  <text x="236" y="139" class="lbl">1 — n</text>
-  <path d="M500 158 H576 V180" class="lnk"/>
-  <text x="512" y="151" class="lbl">1 — 1</text>
-  <path d="M691 280 V336" class="lnk"/>
-  <text x="700" y="312" class="lbl">n — 1</text>
-  <path d="M576 175 H540 V400 H500" class="lnk"/>
-  <text x="506" y="330" class="lbl">n — 1</text>
-
-  <text x="24" y="545" class="note">Index unique PARTIEL sur (worker_id, ssh_port), limité aux instances actives : un port redevient libre dès que la machine est détruite.</text>
-  <text x="24" y="566" class="note">Index (status, end_time) sur rentals : c'est la requête que le Faucheur exécute toutes les dix secondes.</text>
-  <text x="24" y="587" class="note">Schéma versionné par Alembic · SQLite en mode WAL, ou PostgreSQL via DATABASE_URL.</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 684" width="900" height="684" role="img" aria-label="Modèle de données InsaCloud : six tables, dont Instance et Rental séparées pour permettre la reprise sur un autre nœud">
+<rect width="900" height="684" rx="12" fill="#ffffff"/>
+<text x="28" y="40" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15" font-weight="600" fill="#15171c">InsaCloud — modèle de données</text>
+<text x="28" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#8b9098">Six tables. Instance décrit un conteneur, Rental l'engagement de location : les séparer permet de recréer la machine ailleurs sans toucher à la location.</text>
+<rect x="28" y="76" width="260" height="152" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<rect x="28" y="76" width="260" height="32" rx="10" fill="#fdecef"/>
+<rect x="28" y="98" width="260" height="10" fill="#fdecef"/>
+<line x1="28" y1="108" x2="288" y2="108" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="42" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#c8102e">users</text>
+<text x="42" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">id · PK</text>
+<text x="42" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">username · unique</text>
+<text x="42" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">email · unique</text>
+<text x="42" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">password_hash</text>
+<text x="42" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ssh_public_key</text>
+<text x="42" y="212" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">created_at</text>
+<rect x="28" y="248" width="260" height="150" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<rect x="28" y="248" width="260" height="32" rx="10" fill="#fdecef"/>
+<rect x="28" y="270" width="260" height="10" fill="#fdecef"/>
+<line x1="28" y1="280" x2="288" y2="280" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="42" y="269" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#c8102e">login_attempts</text>
+<text x="42" y="294" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">id · PK</text>
+<text x="42" y="312" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">username · ip</text>
+<text x="42" y="330" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">success</text>
+<text x="42" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">created_at</text>
+<text x="42" y="364" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="9.5" fill="#8b9098">index (created_at, username, ip)</text>
+<text x="42" y="381" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="9.5" fill="#8b9098">anti-force-brute</text>
+<rect x="320" y="76" width="260" height="206" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<rect x="320" y="76" width="260" height="32" rx="10" fill="#fdecef"/>
+<rect x="320" y="98" width="260" height="10" fill="#fdecef"/>
+<line x1="320" y1="108" x2="580" y2="108" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="334" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#c8102e">instances</text>
+<text x="334" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">id · PK</text>
+<text x="334" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">container_id · container_name</text>
+<text x="334" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">worker_id · FK</text>
+<text x="334" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">distribution_id · FK</text>
+<text x="334" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ssh_port · term_port · gui_port</text>
+<text x="334" y="212" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">root_password — chiffré (Fernet)</text>
+<text x="334" y="230" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">mode · status</text>
+<text x="334" y="248" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">migrations</text>
+<text x="334" y="266" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">created_at · terminated_at</text>
+<rect x="320" y="302" width="260" height="151" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<rect x="320" y="302" width="260" height="32" rx="10" fill="#fdecef"/>
+<rect x="320" y="324" width="260" height="10" fill="#fdecef"/>
+<line x1="320" y1="334" x2="580" y2="334" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="334" y="323" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#c8102e">distributions</text>
+<text x="334" y="348" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">id · PK</text>
+<text x="334" y="366" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">name · unique</text>
+<text x="334" y="384" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">docker_image · version</text>
+<text x="334" y="402" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">status</text>
+<text x="334" y="420" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">label · hint</text>
+<text x="334" y="436" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="9.5" fill="#8b9098">ubuntu · debian · alpine</text>
+<rect x="612" y="76" width="260" height="186" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<rect x="612" y="76" width="260" height="32" rx="10" fill="#fdecef"/>
+<rect x="612" y="98" width="260" height="10" fill="#fdecef"/>
+<line x1="612" y1="108" x2="872" y2="108" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="626" y="97" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#c8102e">workers</text>
+<text x="626" y="122" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">id · PK</text>
+<text x="626" y="140" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">hostname · unique</text>
+<text x="626" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ip</text>
+<text x="626" y="176" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">status</text>
+<text x="626" y="194" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">cpu · memory · capacity</text>
+<text x="626" y="212" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">last_heartbeat · registered_at</text>
+<text x="626" y="228" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="9.5" fill="#8b9098">status : AVAILABLE · BUSY · OFFLINE</text>
+<text x="626" y="245" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="9.5" fill="#8b9098">tenu à jour par l'agent du nœud</text>
+<rect x="612" y="282" width="260" height="151" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<rect x="612" y="282" width="260" height="32" rx="10" fill="#fdecef"/>
+<rect x="612" y="304" width="260" height="10" fill="#fdecef"/>
+<line x1="612" y1="314" x2="872" y2="314" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="626" y="303" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#c8102e">rentals</text>
+<text x="626" y="328" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">id · PK</text>
+<text x="626" y="346" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">user_id · FK</text>
+<text x="626" y="364" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">instance_id · FK</text>
+<text x="626" y="382" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">start_time · end_time</text>
+<text x="626" y="400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">status</text>
+<text x="626" y="416" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="9.5" fill="#8b9098">status : ACTIVE · EXPIRED · STOPPED</text>
+<rect x="28" y="481" width="844" height="118" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="44" y="503" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="600" fill="#15171c">Relations</text>
+<text x="44" y="523" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" font-weight="600" fill="#c8102e">users  1 — n  rentals</text>
+<text x="236" y="523" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">un utilisateur loue plusieurs fois</text>
+<text x="44" y="542" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" font-weight="600" fill="#c8102e">rentals  1 — 1  instances</text>
+<text x="236" y="542" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">la location survit au conteneur : c'est ce qui permet de recréer la machine ailleurs</text>
+<text x="44" y="561" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" font-weight="600" fill="#c8102e">instances  n — 1  workers</text>
+<text x="236" y="561" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">une machine s'exécute sur un nœud à la fois</text>
+<text x="44" y="580" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" font-weight="600" fill="#c8102e">instances  n — 1  distributions</text>
+<text x="236" y="580" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">le catalogue est en base, pas en dur</text>
+<text x="28" y="627" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Index unique partiel sur (worker_id, ssh_port), limité aux instances actives : un port redevient libre dès que la machine est détruite.</text>
+<text x="28" y="644" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Index (status, end_time) sur rentals : c'est exactement la requête que le Faucheur exécute toutes les dix secondes.</text>
+<text x="28" y="661" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Schéma décrit en SQLAlchemy et versionné par Alembic · SQLite en mode WAL, ou PostgreSQL via DATABASE_URL.</text>
 </svg>

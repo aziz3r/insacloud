@@ -73,6 +73,14 @@ jobs:
           pip install --quiet pyyaml
           python3 .github/verifier-workflow.py
 
+      - name: Vérifier que les schémas du README sont à jour
+        # Les SVG de docs/ sont engendrés par docs/schemas/. Un schéma qui
+        # vieillit pendant que le projet avance ne se voit nulle part dans le
+        # code : on régénère ici, et on refuse la moindre différence.
+        run: |
+          python3 docs/schemas/tout.py
+          git diff --exit-code -- docs/*.svg
+
   # ---------------------------------------------------------------------------
   #  2. Tests unitaires et d'intégration
   # ---------------------------------------------------------------------------

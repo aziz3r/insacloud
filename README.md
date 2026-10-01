@@ -144,6 +144,48 @@ Côté site : jetons CSRF sur tous les formulaires, verrouillage après cinq éc
 Le playbook est **idempotent** — second passage : `changed=0` sur les quatre nœuds, mesuré — et un mode démonstration ne construit que l'image la plus légère pour un déploiement en quelques minutes. Le schéma de la base est versionné par Alembic et mis à niveau par le playbook lui-même.
 </details>
 
+<details>
+<summary><b>Une seule URL, deux présentations</b></summary>
+
+Chaque route sert la même donnée en HTML ou en JSON, selon l'en-tête `Accept` de l'appelant : il n'y
+a pas un site d'un côté et une API de l'autre, mais une seule logique métier avec deux rendus. Louer
+une machine depuis le navigateur et la louer depuis `curl` empruntent exactement le même chemin.
+
+```bash
+curl -s http://127.0.0.1:8088/health | jq
+curl -s -H 'Accept: application/json' http://127.0.0.1:8088/distributions | jq
+
+# Louer en JSON : une session suffit, le jeton CSRF ne concerne que les formulaires.
+curl -s -c biscuits -b biscuits -H 'Content-Type: application/json' \
+     -d '{"username":"aziz","password":"…"}' http://127.0.0.1:8088/login
+curl -s -c biscuits -b biscuits -H 'Content-Type: application/json' \
+     -d '{"distribution":"alpine","mode":"terminal","duration":30}' \
+     http://127.0.0.1:8088/rent | jq
+```
+
+Les agents des workers passent par les mêmes routes (`/workers/register`, `/workers/heartbeat`),
+authentifiés par un jeton partagé comparé en temps constant plutôt que par un mot de passe de compte.
+
+Les onze points d'entrée, leurs paramètres et leurs codes de retour : [docs/API.md](docs/API.md).
+</details>
+
+<details>
+<summary><b>Six tables, dont deux qu'on aurait pu confondre</b></summary>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/base-de-donnees-dark.svg">
+  <img src="docs/base-de-donnees.svg" alt="Modèle de données : six tables, Instance et Rental séparées">
+</picture>
+
+Le choix qui structure tout le reste : `Instance` décrit un conteneur, `Rental` l'engagement pris
+envers l'utilisateur. Les fondre en une seule table aurait été plus court — et aurait rendu la
+reprise sur panne impossible, puisqu'il faut pouvoir recréer la machine ailleurs sans toucher à la
+location ni à sa date de fin.
+
+Le schéma est décrit en SQLAlchemy, versionné par Alembic, et tourne indifféremment sur SQLite
+(mode WAL) ou PostgreSQL. Détail dans [docs/BASE-DE-DONNEES.md](docs/BASE-DE-DONNEES.md).
+</details>
+
 ## Un parc qui se gère tout seul
 
 Aucun nœud n'est écrit en dur nulle part. Un worker qu'on allume rejoint la
@@ -182,6 +224,11 @@ C'est la limite d'une reprise sans stockage partagé, et elle est assumée.
 
 Un projet d'école finit souvent par ne plus marcher que sur la machine de son auteur. Ici, chaque
 envoi de code déclenche onze vérifications indépendantes, toutes reproductibles en local :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/chaine-ci-cd-dark.svg">
+  <img src="docs/chaine-ci-cd.svg" alt="Chaîne d'intégration : qualité, sécurité, intégration, images, publication, déploiement">
+</picture>
 
 | Vérification | Outil | Ce qu'elle attrape |
 |---|---|---|
@@ -337,7 +384,7 @@ Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansi
 docker-compose.yml   la pile complète : PostgreSQL, application, Faucheur, images
 .env.example         les secrets à renseigner avant le premier lancement
 Vagrantfile          controller .10 · worker1 .11 · worker2 .12 · worker3 .13
-docs/                vidéo, captures, schémas, documentation de l'API et de la base
+docs/                vidéo, captures, API et base ; schemas/ engendre les SVG
 rapport/             rapport de projet et dossier technique (LaTeX + PDF)
 CONTRIBUTING.md      stratégie de branches et contrôles avant une fusion
 ```

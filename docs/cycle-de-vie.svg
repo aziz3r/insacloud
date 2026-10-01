@@ -1,48 +1,57 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 300" width="900" height="300" role="img" aria-label="Cycle de vie d une machine">
-<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b9098"/></marker><marker id="arrowD" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b9098"/></marker></defs>
-<rect width="900" height="300" rx="12" fill="#ffffff"/>
-<text x="28" y="40" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="14" font-weight="600" fill="#15171c">Cycle de vie d'une machine louée</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 416" width="900" height="416" role="img" aria-label="Cycle de vie d'une machine louée, de la demande à l'expiration, avec la reprise après panne d'un nœud">
+<defs><marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b9098"/></marker><marker id="flA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/></marker></defs>
+<rect width="900" height="416" rx="12" fill="#ffffff"/>
+<text x="28" y="40" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15" font-weight="600" fill="#15171c">Cycle de vie d'une machine louée</text>
 <rect x="28" y="66" width="152" height="128" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
 <circle cx="50" cy="90" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
-<text x="50" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#c8102e" text-anchor="middle">1</text>
-<text x="70" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#15171c">Choix</text>
+<text x="50" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">1</text>
+<text x="70" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Choix</text>
 <text x="44" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">distribution</text>
 <text x="44" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">terminal ou bureau</text>
 <text x="44" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">durée 1-120 min</text>
-<path d="M 183 130 L 197 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 182 130 L 196 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#fl)"/>
 <rect x="200" y="66" width="152" height="128" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
 <circle cx="222" cy="90" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
-<text x="222" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#c8102e" text-anchor="middle">2</text>
-<text x="242" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#15171c">Placement</text>
-<text x="216" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">worker le moins</text>
-<text x="216" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">chargé</text>
+<text x="222" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">2</text>
+<text x="242" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Placement</text>
+<text x="216" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">nœud joignable</text>
+<text x="216" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">le moins chargé</text>
 <text x="216" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">ports libres</text>
-<path d="M 355 130 L 369 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 354 130 L 368 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#fl)"/>
 <rect x="372" y="66" width="152" height="128" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
 <circle cx="394" cy="90" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
-<text x="394" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#c8102e" text-anchor="middle">3</text>
-<text x="414" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#15171c">Démarrage</text>
+<text x="394" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">3</text>
+<text x="414" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Démarrage</text>
 <text x="388" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">docker run -d</text>
 <text x="388" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">--restart=always</text>
 <text x="388" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">supervisord PID 1</text>
-<path d="M 527 130 L 541 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 526 130 L 540 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#fl)"/>
 <rect x="544" y="66" width="152" height="128" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
 <circle cx="566" cy="90" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
-<text x="566" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#c8102e" text-anchor="middle">4</text>
-<text x="586" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#15171c">Accès</text>
+<text x="566" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">4</text>
+<text x="586" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Accès</text>
 <text x="560" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">SSH par clé ou</text>
 <text x="560" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">mot de passe</text>
 <text x="560" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">terminal · bureau</text>
-<path d="M 699 130 L 713 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<path d="M 698 130 L 712 130" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#fl)"/>
 <rect x="716" y="66" width="152" height="128" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
 <circle cx="738" cy="90" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
-<text x="738" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" font-weight="700" fill="#c8102e" text-anchor="middle">5</text>
-<text x="758" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="13" font-weight="600" fill="#15171c">Expiration</text>
+<text x="738" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">5</text>
+<text x="758" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Expiration</text>
 <text x="732" y="120" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">le Faucheur lance</text>
 <text x="732" y="139" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">docker rm -f</text>
 <text x="732" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#5b616b">+ réconciliation</text>
-<rect x="28" y="212" width="844" height="64" rx="9" fill="#ffffff" stroke="#d8dce2" stroke-width="1"/>
-<text x="44" y="234" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="600" fill="#15171c">Tout au long du cycle</text>
-<text x="44" y="252" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" fill="#5b616b">Mot de passe affiché une seule fois, puis conservé chiffré (Fernet) et réaffiché après re-authentification.</text>
-<text x="44" y="268" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" fill="#5b616b">Un service qui tombe est relancé par supervisord ; un worker qui redémarre retrouve ses machines et leurs données.</text>
+<rect x="200" y="226" width="472" height="76" rx="10" fill="#fef6e7" stroke="#e8c98a" stroke-width="1.5"/>
+<text x="216" y="248" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#b45309">Si le nœud tombe pendant la location</text>
+<text x="216" y="269" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#b45309">plus de battement de cœur  →  nœud OFFLINE</text>
+<text x="216" y="288" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11" fill="#b45309">→  machine recréée sur un nœud disponible  →  retour à l'étape 4</text>
+<path d="M 620 198 L 620 222" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#flA)"/>
+<path d="M 240 226 L 240 210 L 560 210 L 560 198" fill="none" stroke="#b45309" stroke-width="1.6" stroke-dasharray="4 3" marker-end="url(#flA)"/>
+<text x="688" y="258" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#b45309">la location</text>
+<text x="688" y="273" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#b45309">n'est pas</text>
+<text x="688" y="288" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#b45309">interrompue</text>
+<text x="28" y="334" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12" font-weight="600" fill="#15171c">Tout au long du cycle</text>
+<text x="28" y="354" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Mot de passe affiché une seule fois, puis conservé chiffré (Fernet) et réaffiché après re-authentification — jamais dans un cookie.</text>
+<text x="28" y="371" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Un service qui tombe est relancé par supervisord ; un nœud qui redémarre retrouve ses machines et leurs données.</text>
+<text x="28" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Un nœud perdu, en revanche, ne rend pas les fichiers : la machine repart neuve ailleurs, avec un nouveau port et un nouveau mot de passe.</text>
 </svg>

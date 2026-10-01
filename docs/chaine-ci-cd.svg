@@ -1,93 +1,77 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" width="1000" height="560" font-family="IBM Plex Sans, Helvetica, Arial, sans-serif">
-  <style>
-    .t    { fill:#1b1b1f; }
-    .mut  { fill:#6b6b76; font-size:11px; }
-    .stage{ fill:#ffffff; stroke:#c9c9d1; stroke-width:1.5; rx:8; }
-    .hd   { font-size:12.5px; font-weight:600; fill:#1b1b1f; }
-    .tool { font-size:11px; fill:#6b6b76; }
-    .arr  { stroke:#c8102e; stroke-width:2; fill:none; marker-end:url(#fleche); }
-    .gate { fill:#fdf0f2; stroke:#c8102e; stroke-width:1.5; rx:8; }
-    .ok   { fill:#0a7a3d; font-size:11px; }
-  </style>
-  <defs>
-    <marker id="fleche" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-      <path d="M0 0 L10 5 L0 10 z" fill="#c8102e"/>
-    </marker>
-  </defs>
-  <rect width="1000" height="560" fill="#fbfbfd"/>
-  <text x="24" y="30" class="t" font-size="16" font-weight="600">InsaCloud — chaîne d'intégration et de déploiement continus</text>
-  <text x="24" y="50" class="mut">Dix travaux GitHub Actions, déclenchés à chaque envoi. Aucune image n'atteint le registre sans avoir franchi tous les contrôles.</text>
-
-  <!-- Déclencheur -->
-  <rect x="24" y="80" width="130" height="52" class="stage"/>
-  <text x="40" y="104" class="hd">git push</text>
-  <text x="40" y="120" class="tool">branche main</text>
-
-  <!-- Étage 1 : qualité -->
-  <rect x="196" y="72" width="178" height="150" class="stage"/>
-  <text x="212" y="94" class="hd">1 · Qualité</text>
-  <text x="212" y="116" class="tool">ruff — style et erreurs</text>
-  <text x="212" y="134" class="tool">ansible-lint — profil</text>
-  <text x="212" y="150" class="tool">      production</text>
-  <text x="212" y="168" class="tool">hadolint — 4 Dockerfiles</text>
-  <text x="212" y="190" class="tool">pytest — 91 tests</text>
-  <text x="212" y="208" class="tool">couverture conservée</text>
-
-  <!-- Étage 2 : sécurité -->
-  <rect x="416" y="72" width="178" height="150" class="stage"/>
-  <text x="432" y="94" class="hd">2 · Sécurité</text>
-  <text x="432" y="116" class="tool">bandit — SAST</text>
-  <text x="432" y="134" class="tool">pip-audit — SCA</text>
-  <text x="432" y="152" class="tool">gitleaks — secrets,</text>
-  <text x="432" y="168" class="tool">      historique compris</text>
-  <text x="432" y="190" class="tool">dast.sh + nuclei — DAST</text>
-  <text x="432" y="208" class="tool">sur l'app en marche</text>
-
-  <!-- Étage 3 : build -->
-  <rect x="636" y="72" width="178" height="150" class="stage"/>
-  <text x="652" y="94" class="hd">3 · Build</text>
-  <text x="652" y="116" class="tool">image de la plateforme</text>
-  <text x="652" y="134" class="tool">image des machines</text>
-  <text x="652" y="156" class="tool">étiquettes :</text>
-  <text x="652" y="172" class="tool">  version · commit · latest</text>
-  <text x="652" y="194" class="tool">SBOM (Syft) conservé</text>
-  <text x="652" y="210" class="tool">en artefact</text>
-
-  <!-- Verrou -->
-  <rect x="380" y="272" width="240" height="64" class="gate"/>
-  <text x="396" y="296" class="hd">Verrou · Trivy</text>
-  <text x="396" y="316" class="tool">aucune faille HIGH ou CRITICAL ne passe</text>
-
-  <!-- Registre -->
-  <rect x="680" y="272" width="150" height="64" class="stage"/>
-  <text x="696" y="296" class="hd">4 · Registre</text>
-  <text x="696" y="316" class="tool">ghcr.io</text>
-
-  <!-- Déploiement -->
-  <rect x="680" y="384" width="150" height="80" class="stage"/>
-  <text x="696" y="408" class="hd">5 · Déploiement</text>
-  <text x="696" y="428" class="tool">ansible-playbook</text>
-  <text x="696" y="444" class="tool">deploy.yml</text>
-  <text x="696" y="460" class="tool">sur le contrôleur</text>
-
-  <!-- Vérification -->
-  <rect x="440" y="384" width="180" height="80" class="stage"/>
-  <text x="456" y="408" class="hd">6 · Vérification</text>
-  <text x="456" y="428" class="tool">GET /health</text>
-  <text x="456" y="448" class="ok">un déploiement qui ne sert</text>
-  <text x="456" y="462" class="ok">pas fait échouer la chaîne</text>
-
-  <!-- flèches -->
-  <path d="M154 106 H196" class="arr"/>
-  <path d="M374 147 H416" class="arr"/>
-  <path d="M594 147 H636" class="arr"/>
-  <path d="M725 222 V272" class="arr"/>
-  <path d="M620 304 H680" class="arr"/>
-  <path d="M500 222 V272" class="arr"/>
-  <path d="M755 336 V384" class="arr"/>
-  <path d="M680 424 H620" class="arr"/>
-
-  <text x="24" y="500" class="mut">Le travail « déploiement » s'annonce ignoré, plutôt que de faire croire à un déploiement, si les secrets DEPLOY_HOST, DEPLOY_USER,</text>
-  <text x="24" y="518" class="mut">DEPLOY_SSH_KEY et ANSIBLE_VAULT_PASSWORD ne sont pas renseignés dans le dépôt.</text>
-  <text x="24" y="540" class="mut">Chaque commande de la chaîne est rejouable telle quelle sur un poste : rien n'y est spécifique à l'agent d'intégration.</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 619" width="900" height="619" role="img" aria-label="Chaîne d'intégration et de déploiement continus : onze travaux GitHub Actions, du style au déploiement vérifié">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8b9098"/></marker><marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c8102e"/></marker></defs>
+<rect width="900" height="619" rx="12" fill="#ffffff"/>
+<text x="28" y="40" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="15" font-weight="600" fill="#15171c">InsaCloud — intégration et déploiement continus</text>
+<text x="28" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#8b9098">Onze travaux GitHub Actions, déclenchés à chaque envoi. Aucune image n'atteint le registre sans avoir franchi tous les contrôles.</text>
+<rect x="28" y="144" width="118" height="56" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<text x="87" y="172" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c" text-anchor="middle">git push</text>
+<text x="87" y="190" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#8b9098" text-anchor="middle">ou pull request</text>
+<path d="M 150 172 L 170 172" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="174" y="88" width="206" height="168" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<circle cx="198" cy="114" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
+<text x="198" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">1</text>
+<text x="218" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Qualité</text>
+<text x="192" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ruff — style, imports morts,</text>
+<text x="206" y="162" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">motifs dangereux</text>
+<text x="192" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">pytest — 94 tests,</text>
+<text x="206" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">couverture conservée</text>
+<text x="192" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ansible-lint — profil</text>
+<text x="206" y="234" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">« production »</text>
+<path d="M 384 172 L 416 172" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="420" y="88" width="206" height="168" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<circle cx="444" cy="114" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
+<text x="444" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">2</text>
+<text x="464" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Sécurité</text>
+<text x="438" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">bandit — SAST</text>
+<text x="438" y="162" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">pip-audit — SCA</text>
+<text x="438" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">gitleaks — secrets,</text>
+<text x="452" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">historique compris</text>
+<text x="438" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">nuclei + dast.sh — DAST</text>
+<text x="452" y="234" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">sur l'app en marche</text>
+<path d="M 630 172 L 662 172" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="666" y="88" width="206" height="168" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<circle cx="690" cy="114" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
+<text x="690" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">3</text>
+<text x="710" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Intégration</text>
+<text x="684" y="144" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">la pile compose est montée</text>
+<text x="684" y="162" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">en vrai, puis parcourue :</text>
+<text x="684" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">inscription, location, SSH,</text>
+<text x="684" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">expiration, reprise après</text>
+<text x="684" y="216" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">panne d'un nœud</text>
+<rect x="174" y="358" width="206" height="168" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<circle cx="198" cy="384" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
+<text x="198" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">4</text>
+<text x="218" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Images</text>
+<text x="192" y="414" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">hadolint — 4 Dockerfiles</text>
+<text x="192" y="432" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">les images sont construites</text>
+<text x="192" y="450" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Trivy — aucune faille</text>
+<text x="206" y="468" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">corrigeable HIGH</text>
+<text x="206" y="486" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ou CRITICAL ne passe</text>
+<path d="M 384 442 L 416 442" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="420" y="358" width="206" height="168" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<circle cx="444" cy="384" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
+<text x="444" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">5</text>
+<text x="464" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Publication</text>
+<text x="438" y="414" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ghcr.io</text>
+<text x="438" y="432" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">étiquettes :</text>
+<text x="452" y="450" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">version · commit · latest</text>
+<text x="438" y="468" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">SBOM (Syft) conservé</text>
+<text x="452" y="486" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">en artefact</text>
+<path d="M 630 442 L 662 442" fill="none" stroke="#8b9098" stroke-width="1.6" marker-end="url(#arrow)"/>
+<rect x="666" y="358" width="206" height="168" rx="10" fill="#f7f8fa" stroke="#d8dce2" stroke-width="1.5"/>
+<circle cx="690" cy="384" r="11" fill="#fdecef" stroke="#c8102e" stroke-width="1.2"/>
+<text x="690" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">6</text>
+<text x="710" y="388" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="12.5" font-weight="600" fill="#15171c">Déploiement</text>
+<text x="684" y="414" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">ansible-playbook deploy.yml</text>
+<text x="684" y="432" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">sur le contrôleur</text>
+<text x="684" y="450" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">puis GET /health :</text>
+<text x="698" y="468" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">un déploiement qui ne</text>
+<text x="698" y="486" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">sert pas fait échouer</text>
+<rect x="174" y="280" width="698" height="42" rx="10" fill="#fdecef" stroke="#c8102e" stroke-width="1.5"/>
+<text x="523" y="306" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="11.5" font-weight="600" fill="#c8102e" text-anchor="middle">Verrou — publication et déploiement n'ont lieu que si tout ce qui précède est au vert</text>
+<path d="M 790 258 L 790 276" fill="none" stroke="#c8102e" stroke-width="1.6" marker-end="url(#arrowA)"/>
+<path d="M 256 324 L 256 354" fill="none" stroke="#c8102e" stroke-width="1.6" marker-end="url(#arrowA)"/>
+<text x="28" y="554" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Les deux derniers travaux ne s'exécutent que sur un envoi vers « main », et seulement si les neuf précédents sont au vert.</text>
+<text x="28" y="571" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Le déploiement s'annonce ignoré, plutôt que de faire croire à un déploiement, si les secrets DEPLOY_* ou ANSIBLE_VAULT_PASSWORD manquent.</text>
+<text x="28" y="588" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif" font-size="10.5" fill="#5b616b">Chaque commande de la chaîne est rejouable telle quelle sur un poste : rien n'y est spécifique à l'agent d'intégration.</text>
 </svg>
