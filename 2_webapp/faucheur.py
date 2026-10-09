@@ -99,6 +99,7 @@ def reap_expired() -> int:
             "Instance #%s expirée (user=%s, conteneur=%s, nœud=%s, port=%s) -> destruction",
             inst["id"], inst["username"], inst["container_name"], inst["worker"], inst["port"],
         )
+        services.archiver_avant_destruction(inst)
         if remove_container(inst["container_id"], inst["worker"]):
             db.set_instance_status(inst["id"], db.STATUS_EXPIRED)
             log.info("Instance #%s marquée 'expired'.", inst["id"])
