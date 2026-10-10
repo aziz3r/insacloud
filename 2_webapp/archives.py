@@ -23,8 +23,8 @@ import os
 import secrets
 import subprocess  # nosec B404 - le flux tar vient de la CLI Docker, comme dans docker_ops
 import threading
+import time
 from pathlib import Path
-
 import workers as wk
 from config import ARCHIVE_DIR, ARCHIVE_MAX_BYTES, ARCHIVE_PATHS, ARCHIVE_TIMEOUT
 
@@ -117,3 +117,48 @@ def archiver_conteneur(container_id: str, worker: str, user_id: int, instance_id
         partiel.unlink(missing_ok=True)
         log.warning("Archive non conservée pour %s : %s", container_id, resultat)
     return resultat
+
+
+def supprimer_fichier(chemin_relatif: str) -> bool:
+    """
+    Efface une archive du disque. Retourne True si elle n'y est plus ensuite
+    (effacée maintenant, ou déjà absente) et False si on ne doit pas ou ne peut pas.
+
+    Le chemin vient de la base de données : il est donc revérifié ici, comme au
+    téléchargement. Un chemin qui sortirait du dossier des archives (« ../ »,
+    lien symbolique) est refusé : cette fonction ne doit jamais pouvoir effacer
+    autre chose qu'une archive.
+    """
+    racine = Path(ARCHIVE_DIR).resolve()
+    cible = (racine / chemin_relatif).resolve()
+    if cible == racine or not cible.is_relative_to(racine):
+        log.error("Refus d'effacer hors du dossier des archives : %s", chemin_relatif)
+        return False
+    try:
+        cible.unlink(missing_ok=True)
+    except OSError as erreur:
+        log.error("Impossible d'effacer l'archive %s : %s", chemin_relatif, erreur)
+        return False
+    return True
+
+
+def nettoyer_partiels(age_max: int = 3600) -> int:
+    """
+    Efface les fichiers `.part` abandonnés (arrêt brutal pendant un archivage).
+
+    Un `.part` récent est peut-être en cours d'écriture : seuls ceux plus vieux
+    que `age_max` secondes sont effacés. Retourne le nombre de fichiers effacés.
+    """
+    racine = Path(ARCHIVE_DIR)
+    if not racine.is_dir():
+        return 0
+    limite = time.time() - age_max
+    effaces = 0
+    for partiel in racine.glob("*/*.part"):
+        try:
+            if partiel.stat().st_mtime < limite:
+                partiel.unlink()
+                effaces += 1
+        except OSError as erreur:
+            log.warning("Fichier partiel %s non effacé : %s", partiel, erreur)
+    return effaces

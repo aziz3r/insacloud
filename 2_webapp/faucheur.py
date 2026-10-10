@@ -222,6 +222,9 @@ def run_forever() -> None:
                 log.warning("%d machine(s) reprises sur un autre nœud.", reprises)
             if cycle % RECONCILE_EVERY == 0:
                 reconcile()
+                purgees = services.purger_archives_perimees()
+                if purgees:
+                    log.info("%d archive(s) périmée(s) effacée(s).", purgees)
         except Exception:  # noqa: BLE001 - le démon ne doit jamais mourir
             log.exception("Erreur inattendue dans le cycle du Faucheur")
         # wait() se réveille immédiatement si un arrêt est demandé

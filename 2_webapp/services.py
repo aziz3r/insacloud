@@ -221,6 +221,25 @@ def archiver_avant_destruction(instance: dict) -> None:
         db.create_archive(instance["user_id"], instance["id"], resultat, ARCHIVE_RETENTION_DAYS)
     except Exception:  # noqa: BLE001 - jamais d'obstacle à la destruction
         log.exception("Archivage abandonné pour %s", instance.get("container_name"))
+def purger_archives_perimees() -> int:
+    """
+    Efface (fichier puis ligne en base) les archives dont la conservation est
+    écoulée, ainsi que les fichiers partiels abandonnés. Retourne le nombre
+    d'archives purgées. Appelée régulièrement par le Faucheur.
+
+    Si un fichier ne peut pas être effacé, sa ligne est conservée : on
+    réessaiera au prochain passage, au lieu de laisser sur le disque une copie
+    des fichiers d'un utilisateur dont plus rien ne garde la trace.
+    """
+    purgees = 0
+    for archive in db.get_expired_archives():
+        if archive["path"] and not archives.supprimer_fichier(archive["path"]):
+            continue
+        db.delete_archive(archive["id"])
+        purgees += 1
+    archives.nettoyer_partiels()
+    return purgees
+
 
 def arreter(instance_id: int, user_id: int) -> Resultat:
     """Détruit la machine et clôt la location. Idempotent."""
