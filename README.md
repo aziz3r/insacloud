@@ -77,7 +77,13 @@ Sans worker dans l'inventaire, tout retombe automatiquement sur une seule machin
   <source media="(prefers-color-scheme: dark)" srcset="docs/cycle-de-vie-dark.svg">
   <img src="docs/cycle-de-vie.svg" alt="Cycle de vie d'une machine louée">
 </picture>
-
+**Le travail n'est pas perdu avec la machine.** Juste avant la destruction d'une machine — à
+l'échéance comme à l'arrêt manuel —, le Faucheur sauvegarde son travail (`/root` et `/home`) dans
+une archive `tar.gz`, que l'utilisateur télécharge depuis son tableau de bord pendant sept jours.
+L'archive est faite **avant** le `docker rm -f` ; un archivage raté (nœud injoignable, archive trop
+lourde) est signalé à l'utilisateur mais n'empêche jamais la destruction, sans quoi une machine
+expirée sur un nœud en panne resterait en vie indéfiniment. Réglages : `INSACLOUD_ARCHIVE_ENABLED`,
+`INSACLOUD_ARCHIVE_MAX_MB` et `INSACLOUD_ARCHIVE_RETENTION_DAYS` (voir `.env.example`).
 ## Ce qu'on peut louer
 
 |  | Terminal | Bureau graphique |
@@ -407,7 +413,7 @@ Quelques problèmes qui ont demandé de creuser, et ce qu'ils ont appris :
 
 - Certificat auto-signé par défaut (remplaçable par `mkcert` ou une autorité interne).
 - Docker publie ses ports directement dans iptables : un filtrage strict des conteneurs passerait par la chaîne `DOCKER-USER`.
-- **La reprise après panne ne rend pas les fichiers** créés dans l'ancienne machine : sans stockage partagé, seul le service repart. C'est un choix, pas un oubli — un volume répliqué changerait la nature du projet.
+- **La reprise après panne ne rend pas les fichiers** créés dans l'ancienne machine : sans stockage partagé, seul le service repart. Un nœud en panne est injoignable, donc il n'y a rien à archiver non plus. En revanche, à l'expiration et à l'arrêt manuel, le travail est sauvegardé dans une archive téléchargeable. Le stockage partagé reste un choix écarté, pas un oubli — un volume répliqué changerait la nature du projet.
 - **Le contrôleur reste un point unique** : s'il tombe, le tableau de bord disparaît et les locations cessent d'expirer. Les machines louées, elles, continuent de tourner.
 - Pas d'authentification à deux facteurs, ni de quotas cumulés par utilisateur, ni de récupération de mot de passe — la suite logique.
 
