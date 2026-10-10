@@ -1,6 +1,6 @@
 # Base de données InsaCloud
 
-Six tables, décrites en SQLAlchemy dans [`2_webapp/models.py`](../2_webapp/models.py)
+Sept tables, décrites en SQLAlchemy dans [`2_webapp/models.py`](../2_webapp/models.py)
 et versionnées par Alembic dans [`2_webapp/migrations/`](../2_webapp/migrations/).
 
 Le moteur est SQLite par défaut — un fichier, aucun service à installer — ou

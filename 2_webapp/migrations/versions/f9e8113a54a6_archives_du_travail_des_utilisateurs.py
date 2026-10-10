@@ -43,7 +43,6 @@ def upgrade() -> None:
         batch_op.create_index('idx_archives_user', ['user_id', 'created_at'], unique=False)
 
 
-
 def downgrade() -> None:
     """Revient à l'état précédent."""
     with op.batch_alter_table('archives', schema=None) as batch_op:

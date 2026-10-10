@@ -88,6 +88,7 @@ def connexion_requise(vue):
 
     return enveloppe
 
+
 def _archive_publique(archive: dict) -> dict:
     """
     Représentation d'une archive renvoyée par l'API.
@@ -166,12 +167,15 @@ def liste_instances():
     return jsonify(count=len(instances),
                    instances=[_instance_publique(i) for i in instances])
 
+
 @api.route("/archives")
 @connexion_requise
 def liste_archives():
     """Sauvegardes du travail de l'utilisateur connecté (celles qui ne sont pas périmées)."""
     archives = db.get_user_archives(g.user["id"])
     return jsonify(count=len(archives), archives=[_archive_publique(a) for a in archives])
+
+
 @api.route("/instances/<int:instance_id>", methods=["GET"])
 @connexion_requise
 def detail_instance(instance_id):

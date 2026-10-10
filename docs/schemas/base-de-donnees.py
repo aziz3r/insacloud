@@ -20,12 +20,15 @@ TABLES = [
                    "root_password — chiffré (Fernet)", "mode · status", "migrations",
                    "created_at · terminated_at"], None, 1),
     ("distributions", ["id · PK", "name · unique", "docker_image · version", "status",
-                       "label · hint"], ["ubuntu · debian · alpine"], 1),
+                       "label · hint"], ["ubuntu · debian · alpine"], 0),
     ("workers", ["id · PK", "hostname · unique", "ip", "status", "cpu · memory · capacity",
                  "last_heartbeat · registered_at"],
      ["status : AVAILABLE · BUSY · OFFLINE", "tenu à jour par l'agent du nœud"], 2),
     ("rentals", ["id · PK", "user_id · FK", "instance_id · FK", "start_time · end_time",
                  "status"], ["status : ACTIVE · EXPIRED · STOPPED"], 2),
+    ("archives", ["id · PK", "user_id · FK", "instance_id · FK", "status",
+                  "path · size_bytes · sha256", "created_at · expires_at"],
+     ["status : ok · failed · too_large", "le fichier vit hors de la base"], 1),
 ]
 
 RELATIONS = [
@@ -34,6 +37,7 @@ RELATIONS = [
                                   "de recréer la machine ailleurs"),
     ("instances  n — 1  workers", "une machine s'exécute sur un nœud à la fois"),
     ("instances  n — 1  distributions", "le catalogue est en base, pas en dur"),
+    ("archives  n — 1  instances", "le travail sauvegardé avant la destruction"),
 ]
 
 NOTES = [
@@ -82,11 +86,11 @@ def construire(nom_fichier, p):
     h = bas + h_relations + 16 + len(NOTES) * 17 + 18
 
     s = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {L} {h}" width="{L}" '
-         f'height="{h}" role="img" aria-label="Modèle de données InsaCloud : six tables, '
+         f'height="{h}" role="img" aria-label="Modèle de données InsaCloud : sept tables, '
          f'dont Instance et Rental séparées pour permettre la reprise sur un autre nœud">',
          f'<rect width="{L}" height="{h}" rx="12" fill="{p["fond"]}"/>',
          texte(28, 40, "InsaCloud — modèle de données", 15, "titre", gras=True, p=p),
-         texte(28, 60, "Six tables. Instance décrit un conteneur, Rental l'engagement de "
+         texte(28, 60, "Sept tables. Instance décrit un conteneur, Rental l'engagement de "
                        "location : les séparer permet de recréer la machine ailleurs sans "
                        "toucher à la location.", 10.5, "discret", p=p)]
     for x, y, table in places:

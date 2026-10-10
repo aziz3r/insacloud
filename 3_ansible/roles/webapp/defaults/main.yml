@@ -33,6 +33,7 @@ insacloud_archive_dir: /var/lib/insacloud/archives    # privé : copies des fich
 insacloud_archive_max_mb: 100                         # au-delà, l'archive est refusée
 insacloud_archive_retention_days: 7                   # puis le Faucheur l'efface
 insacloud_archive_timeout: 45                         # secondes ; doit rester sous insacloud_gunicorn_timeout
+
 # --- Nœuds Docker (workers) : "worker1=IP,worker2=IP" ; vide = Docker local ------
 # Calculé par le rôle depuis le groupe [workers] de l'inventaire (voir tasks).
 insacloud_workers_env: ""

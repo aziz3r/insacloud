@@ -493,8 +493,8 @@ Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pou
 \midrule
 Gestion des secrets & Ansible Vault, chiffrement Fernet en base, fichier d'environnement \texttt{0600}, secret effacé de l'environnement du PID 1. & \plus\\
 Sécurité des conteneurs & \texttt{-{}-cap-drop ALL} et capacités minimales, \texttt{no-new-privileges}, limites PID et CPU, TLS jusqu'aux machines. & \plus\\
-Pipeline CI/CD, SAST, SCA, DAST & \texttt{.github/workflows/ci.yml} : huit travaux à chaque envoi ---
-lint (ruff, ansible-lint, hadolint), 94 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
+Pipeline CI/CD, SAST, SCA, DAST & \texttt{.github/workflows/ci.yml} : onze travaux à chaque envoi ---
+lint (ruff, ansible-lint, hadolint), 145 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
 fuite de secrets (gitleaks), DAST (18 contrôles sur l'application en fonctionnement, puis nuclei),
 scan de l'image Docker (Trivy). & \plus\\
 Kubernetes & Hors périmètre du projet 3. & ---\\
@@ -513,12 +513,18 @@ redémarrage complet d'un worker.
 \item \textbf{Durcissement applicatif} : CSRF, anti-force-brute, CSP stricte sans ressource externe,
 HTTPS de bout en bout, coffre à secrets chiffré.
 \item \textbf{Chaîne de démonstration} : vidéo du parcours complet et captures d'écran versionnées.
-\item \textbf{Chaîne d'intégration continue} de huit travaux couvrant le cycle DevSecOps complet :
+\item \textbf{Chaîne d'intégration continue} de onze travaux couvrant le cycle DevSecOps complet :
 lint, tests, SAST, SCA, recherche de secrets, DAST et scan d'image.
-\item \textbf{94 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne) exécutés sans Docker
+\item \textbf{145 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne) exécutés sans Docker
 ni réseau, donc rejouables sur n'importe quel poste.
 \item \textbf{Inventaire dynamique} interrogeant Vagrant, ce qui rend le déploiement indépendant du
 \emph{provider} de virtualisation.
+\item \textbf{Sauvegarde du travail} avant la destruction d'une machine : \texttt{/root} et
+\texttt{/home} sont archivés en \texttt{tar.gz} à l'échéance comme à l'arrêt manuel, puis
+proposés en téléchargement pendant sept jours. Un archivage raté n'empêche jamais la
+destruction --- sans quoi une machine expirée sur un n\oe{}ud en panne resterait en vie
+indéfiniment --- et il est retenté au cycle suivant si le n\oe{}ud redevient joignable.
+Contribution de Youssef Farjallah, reprise et complétée.
 \end{itemize}
 
 \section{Conformité au document \og{}PROJET 3\fg{} (17 fonctionnalités)}
@@ -763,7 +769,7 @@ les quatre supports sont satisfaits, six d'entre eux au-delà de ce qui était e
 un cluster réel plutôt que simplement déclarée.
 
 Le projet dépasse enfin le périmètre du cours sur un point : une chaîne d'intégration continue
-rejoue à chaque envoi l'analyse statique, les 94 tests, l'audit des dépendances, la recherche de
+rejoue à chaque envoi l'analyse statique, les 145 tests, l'audit des dépendances, la recherche de
 secrets, l'analyse dynamique de l'application et le scan de l'image Docker. C'est la garantie que
 les propriétés décrites dans ce dossier restent vraies, et non qu'elles l'ont été une fois.
 

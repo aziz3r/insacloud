@@ -20,7 +20,7 @@
   <a href="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml">
     <img src="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml/badge.svg" alt="Intégration continue">
   </a>
-  <img src="https://img.shields.io/badge/tests-94-success" alt="94 tests">
+  <img src="https://img.shields.io/badge/tests-145-success" alt="145 tests">
   <img src="https://img.shields.io/badge/SAST%20·%20SCA%20·%20DAST-vert-success" alt="Analyses de sécurité">
   <img src="https://img.shields.io/badge/ansible--lint-production-success" alt="ansible-lint profil production">
 </p>
@@ -77,6 +77,7 @@ Sans worker dans l'inventaire, tout retombe automatiquement sur une seule machin
   <source media="(prefers-color-scheme: dark)" srcset="docs/cycle-de-vie-dark.svg">
   <img src="docs/cycle-de-vie.svg" alt="Cycle de vie d'une machine louée">
 </picture>
+
 **Le travail n'est pas perdu avec la machine.** Juste avant la destruction d'une machine — à
 l'échéance comme à l'arrêt manuel —, le Faucheur sauvegarde son travail (`/root` et `/home`) dans
 une archive `tar.gz`, que l'utilisateur télécharge depuis son tableau de bord pendant sept jours.
@@ -84,6 +85,7 @@ L'archive est faite **avant** le `docker rm -f` ; un archivage raté (nœud injo
 lourde) est signalé à l'utilisateur mais n'empêche jamais la destruction, sans quoi une machine
 expirée sur un nœud en panne resterait en vie indéfiniment. Réglages : `INSACLOUD_ARCHIVE_ENABLED`,
 `INSACLOUD_ARCHIVE_MAX_MB` et `INSACLOUD_ARCHIVE_RETENTION_DAYS` (voir `.env.example`).
+
 ## Ce qu'on peut louer
 
 |  | Terminal | Bureau graphique |
@@ -172,15 +174,15 @@ curl -s -c biscuits -b biscuits -H 'Content-Type: application/json' \
 Les agents des workers passent par les mêmes routes (`/workers/register`, `/workers/heartbeat`),
 authentifiés par un jeton partagé comparé en temps constant plutôt que par un mot de passe de compte.
 
-Les onze points d'entrée, leurs paramètres et leurs codes de retour : [docs/API.md](docs/API.md).
+Toutes les routes, leurs paramètres et leurs codes de retour : [docs/API.md](docs/API.md).
 </details>
 
 <details>
-<summary><b>Six tables, dont deux qu'on aurait pu confondre</b></summary>
+<summary><b>Sept tables, dont deux qu'on aurait pu confondre</b></summary>
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/base-de-donnees-dark.svg">
-  <img src="docs/base-de-donnees.svg" alt="Modèle de données : six tables, Instance et Rental séparées">
+  <img src="docs/base-de-donnees.svg" alt="Modèle de données : sept tables, Instance et Rental séparées">
 </picture>
 
 Le choix qui structure tout le reste : `Instance` décrit un conteneur, `Rental` l'engagement pris
@@ -239,7 +241,7 @@ envoi de code déclenche onze vérifications indépendantes, toutes reproductibl
 | Vérification | Outil | Ce qu'elle attrape |
 |---|---|---|
 | Style et erreurs réelles | `ruff` | imports morts, noms inconnus, motifs douteux |
-| Tests | `pytest` — **94 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur, parc de nœuds, reprise sur panne |
+| Tests | `pytest` — **145 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur, parc de nœuds, reprise sur panne, archivage avant destruction |
 | SAST | `bandit` | injection, secrets en dur, appels système risqués |
 | SCA | `pip-audit` | CVE connues des dépendances épinglées |
 | Fuite de secrets | `gitleaks` | clés et jetons commis par erreur, **y compris dans l'historique** |
@@ -266,7 +268,7 @@ shell avant de démarrer.
 ```bash
 cd 2_webapp
 pip install -r requirements-dev.txt
-pytest                       # 94 tests
+pytest                       # 145 tests
 ruff check . && bandit -c pyproject.toml -r .
 ./tests/dast.sh http://127.0.0.1:5000      # application démarrée à côté
 ./tests/integration.sh http://127.0.0.1:8088   # les 6 scénarios de bout en bout
@@ -384,7 +386,7 @@ Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansi
 2_webapp/            Flask : API, services, ORM, Faucheur, agent, interface
   ├── Dockerfile     image de la plateforme (compte sans privilège)
   ├── migrations/    schéma versionné par Alembic
-  └── tests/         94 tests + contrôles dynamiques + 6 tests d'intégration
+  └── tests/         145 tests + contrôles dynamiques + 6 tests d'intégration
 3_ansible/           9 rôles, 4 playbooks, inventaires statique et dynamique, Vault
 .github/             chaîne d'intégration continue (11 travaux)
 docker-compose.yml   la pile complète : PostgreSQL, application, Faucheur, images

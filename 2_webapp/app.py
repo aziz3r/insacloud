@@ -227,6 +227,8 @@ def veut_json() -> bool:
     # le HTML est traité comme un client d'API.
     accepte = request.accept_mimetypes
     return accepte.accept_json and not accepte.accept_html
+
+
 def taille_lisible(octets) -> str:
     """12345678 -> « 11.8 Mo » : une taille que l'utilisateur sait lire."""
     if octets is None:
@@ -448,7 +450,7 @@ def dashboard():
     history = [i for i in instances if not i["is_running"]]
     distros_ok = catalogue
     modes_ok = services.modes_disponibles(catalogue)
-        # Sauvegardes du travail faites avant la destruction des machines
+    # Sauvegardes du travail faites avant la destruction des machines
     archives = []
     for archive in db.get_user_archives(g.user["id"]):
         archive["size_label"] = taille_lisible(archive["size_bytes"])
@@ -545,6 +547,7 @@ def create_instance():
     reveal_secret(resultat.donnees["instance_id"])
     flash(resultat.message, "success")
     return redirect(url_for("dashboard"))
+
 
 @app.route("/archives/<int:archive_id>/telecharger")
 @login_required
