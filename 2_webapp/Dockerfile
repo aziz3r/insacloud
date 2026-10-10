@@ -58,11 +58,15 @@ RUN apt-get update \
 
 COPY --from=dockercli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=builder /install /usr/local
-
+# Compte sans privilège : rien dans cette image ne tourne en root.
+# Le dossier des archives de travail est créé ici, avec le bon propriétaire :
+# un volume nommé monté dessus en hérite. Sans cela, il serait créé pour root
 # Compte sans privilège : rien dans cette image ne tourne en root.
 RUN groupadd --gid 10001 insacloud \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin insacloud
-
+    && mkdir -p /var/lib/insacloud/archives \
+    && chown -R insacloud:insacloud /var/lib/insacloud \
+    && chmod 700 /var/lib/insacloud/archives
 WORKDIR /app
 COPY --chown=insacloud:insacloud . /app
 # Les clés et la base sont fournies par l'environnement ou un volume : rien
