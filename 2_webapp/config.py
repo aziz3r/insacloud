@@ -84,6 +84,18 @@ HEARTBEAT_INTERVAL = int(os.environ.get("INSACLOUD_HEARTBEAT_INTERVAL", "30"))
 # Recréer automatiquement sur un autre worker les instances d'un nœud tombé
 AUTO_RECOVERY = _bool("INSACLOUD_AUTO_RECOVERY", "1")
 
+
+# --- Archivage du travail avant destruction -----------------------------------
+# Désactivé par défaut : Ansible et docker-compose l'activent. Les tests n'ont
+# ainsi aucun archivage à gérer, sauf ceux qui le demandent explicitement.
+ARCHIVE_ENABLED = _bool("INSACLOUD_ARCHIVE_ENABLED")
+ARCHIVE_DIR = os.environ.get("INSACLOUD_ARCHIVE_DIR", os.path.join(BASE_DIR, "archives"))
+ARCHIVE_MAX_BYTES = int(os.environ.get("INSACLOUD_ARCHIVE_MAX_MB", "100")) * 1024 * 1024
+ARCHIVE_RETENTION_DAYS = int(os.environ.get("INSACLOUD_ARCHIVE_RETENTION_DAYS", "7"))
+# Doit rester inférieur au timeout de Gunicorn (60 s) : l'arrêt manuel archive pendant la requête.
+ARCHIVE_TIMEOUT = int(os.environ.get("INSACLOUD_ARCHIVE_TIMEOUT", "45"))    # secondes
+# Dossiers de la machine louée à sauvegarder, relatifs à « / »
+ARCHIVE_PATHS = os.environ.get("INSACLOUD_ARCHIVE_PATHS", "root home").split()
 # --- Validation des entrées ---------------------------------------------------
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$")   # compatible noms Docker
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s.]+(\.[^@\s.]+)+$")

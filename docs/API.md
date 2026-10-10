@@ -166,6 +166,47 @@ renvoie `200`.
 
 `{"minutes": 10}` — prolonge à partir de la date de fin actuelle.
 
+## Archives
+
+Juste avant la destruction d'une machine (à l'échéance ou à l'arrêt manuel), le
+Faucheur sauvegarde son travail — les dossiers `/root` et `/home` — dans une
+archive `tar.gz`. Elle reste téléchargeable pendant sept jours
+(`INSACLOUD_ARCHIVE_RETENTION_DAYS`), puis le Faucheur l'efface.
+
+### `GET /archives`
+
+Archives de l'utilisateur connecté qui ne sont pas périmées, les plus récentes
+d'abord. **Le chemin du fichier sur le serveur n'y figure jamais.**
+
+```json
+{
+  "count": 1,
+  "archives": [
+    {
+      "id": 4,
+      "machine": "insacloud_etudiant_a1b2c3",
+      "status": "ok",
+      "size_bytes": 20480,
+      "sha256": "9f2c…",
+      "created_at": "2026-10-09 17:54:10",
+      "expires_at": "2026-10-16 17:54:10",
+      "download_url": "/archives/4/telecharger"
+    }
+  ]
+}
+```
+
+`status` vaut `ok`, `too_large` (l'archive dépasse `INSACLOUD_ARCHIVE_MAX_MB`) ou
+`failed` (nœud injoignable, délai dépassé…). `download_url` n'est renseigné que
+pour `ok`. Un archivage raté n'empêche jamais la destruction de la machine.
+
+### `GET /archives/{id}/telecharger`
+
+Télécharge l'archive (`Content-Disposition: attachment`). `404` si elle n'existe
+pas, si elle est périmée, si son archivage a échoué **ou** si elle appartient à
+quelqu'un d'autre : la réponse est la même dans tous les cas, pour ne pas
+révéler l'existence des archives d'un autre compte.
+
 ---
 
 ## Parc de nœuds

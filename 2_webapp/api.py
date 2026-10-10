@@ -27,7 +27,7 @@ import hmac
 import logging
 import os
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, jsonify, request, url_for
 
 import database as db
 import services
@@ -87,6 +87,24 @@ def connexion_requise(vue):
         return vue(*args, **kwargs)
 
     return enveloppe
+
+def _archive_publique(archive: dict) -> dict:
+    """
+    Représentation d'une archive renvoyée par l'API.
+    Le chemin du fichier sur le serveur n'y figure jamais : seul le lien de
+    téléchargement, qui revérifie le propriétaire, en permet l'accès.
+    """
+    telechargeable = archive["status"] == "ok"
+    return {
+        "id": archive["id"],
+        "machine": archive["container_name"],
+        "status": archive["status"],
+        "size_bytes": archive["size_bytes"],
+        "sha256": archive["sha256"],
+        "created_at": str(archive["created_at"]),
+        "expires_at": str(archive["expires_at"]),
+        "download_url": url_for("telecharger_archive", archive_id=archive["id"]) if telechargeable else None,
+    }
 
 
 def _instance_publique(instance: dict) -> dict:
@@ -148,7 +166,12 @@ def liste_instances():
     return jsonify(count=len(instances),
                    instances=[_instance_publique(i) for i in instances])
 
-
+@api.route("/archives")
+@connexion_requise
+def liste_archives():
+    """Sauvegardes du travail de l'utilisateur connecté (celles qui ne sont pas périmées)."""
+    archives = db.get_user_archives(g.user["id"])
+    return jsonify(count=len(archives), archives=[_archive_publique(a) for a in archives])
 @api.route("/instances/<int:instance_id>", methods=["GET"])
 @connexion_requise
 def detail_instance(instance_id):

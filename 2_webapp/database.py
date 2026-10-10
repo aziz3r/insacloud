@@ -26,10 +26,10 @@ from sqlalchemy.exc import (IntegrityError, OperationalError,
                             ProgrammingError)
 from sqlalchemy.orm import Session, sessionmaker
 
-from models import (DISTRIBUTION_ACTIVE, INSTANCE_EXPIRED, INSTANCE_RUNNING,
+from models import (ARCHIVE_OK, DISTRIBUTION_ACTIVE, INSTANCE_EXPIRED, INSTANCE_RUNNING,
                     INSTANCE_STOPPED, RENTAL_ACTIVE, RENTAL_EXPIRED,
                     RENTAL_STOPPED, WORKER_AVAILABLE, WORKER_BUSY,
-                    WORKER_OFFLINE, Base, Distribution, Instance, LoginAttempt,
+                    WORKER_OFFLINE, Archive, Base, Distribution, Instance, LoginAttempt,
                     Rental, User, Worker, utc_now)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -695,3 +695,73 @@ def get_statistics() -> dict:
 if __name__ == "__main__":
     init_db()
     print(f"Base de données initialisée : {DATABASE_URL}")
+
+
+def instance_archivee(instance_id: int) -> bool:
+    """Vrai si un archivage (réussi ou non) a déjà été tenté pour cette machine."""
+    with SessionLocal() as session:
+        total = session.scalar(select(func.count()).select_from(Archive)
+                               .where(Archive.instance_id == instance_id))
+        return total > 0
+
+
+# =============================================================================
+#  Archives du travail des utilisateurs
+# =============================================================================
+def create_archive(user_id: int, instance_id: int, resultat: dict, retention_days: int) -> int:
+    """
+    Enregistre le résultat d'un archivage (réussi ou non) et retourne son id.
+
+    `resultat` est le dictionnaire rendu par archives.archiver_conteneur :
+    `status`, et pour un succès `path`, `size` et `sha256`. Un échec est
+    conservé aussi, pour que l'utilisateur sache pourquoi il n'a rien à
+    télécharger ; sa ligne disparaît avec les autres à l'échéance.
+    """
+    maintenant = utc_now()
+    with SessionLocal() as session:
+        archive = Archive(
+            user_id=user_id, instance_id=instance_id, status=resultat["status"],
+            path=resultat.get("path"), size_bytes=resultat.get("size"),
+            sha256=resultat.get("sha256"), created_at=maintenant,
+            expires_at=maintenant + timedelta(days=retention_days))
+        session.add(archive)
+        session.commit()
+        return archive.id
+
+
+def get_user_archives(user_id: int) -> list:
+    """Archives non périmées d'un utilisateur, les plus récentes d'abord."""
+    requete = (select(Archive, Instance.container_name)
+               .join(Instance, Instance.id == Archive.instance_id)
+               .where(Archive.user_id == user_id, Archive.expires_at > utc_now())
+               .order_by(Archive.created_at.desc(), Archive.id.desc()))
+    with SessionLocal() as session:
+        return [_en_dict(a, {"container_name": nom}) for a, nom in session.execute(requete).all()]
+
+
+def get_archive(archive_id: int, user_id: int):
+    """
+    Une archive TÉLÉCHARGEABLE de cet utilisateur, sinon None.
+
+    Le filtre sur `user_id` est dans la requête elle-même : l'archive d'un autre
+    compte est indiscernable d'une archive inexistante (l'appelant répond 404
+    dans les deux cas, ce qui ne révèle rien sur les comptes voisins).
+    """
+    requete = select(Archive).where(
+        Archive.id == archive_id, Archive.user_id == user_id,
+        Archive.status == ARCHIVE_OK, Archive.expires_at > utc_now())
+    with SessionLocal() as session:
+        return _en_dict(session.scalar(requete))
+
+
+def get_expired_archives() -> list:
+    """Archives dont la durée de conservation est écoulée : à effacer (fichier et ligne)."""
+    with SessionLocal() as session:
+        lignes = session.scalars(select(Archive).where(Archive.expires_at <= utc_now())).all()
+        return [_en_dict(a) for a in lignes]
+
+
+def delete_archive(archive_id: int) -> None:
+    with SessionLocal() as session:
+        session.execute(delete(Archive).where(Archive.id == archive_id))
+        session.commit()

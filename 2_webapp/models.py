@@ -17,8 +17,8 @@ après une panne sans que la location change.
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, Integer, String,
-                        Text, text)
+from sqlalchemy import (BigInteger, Boolean, DateTime, ForeignKey, Index, Integer,
+                        String, Text, text)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -208,3 +208,42 @@ class Rental(Base):
 
     def __repr__(self) -> str:
         return f"<Rental user={self.user_id} instance={self.instance_id} {self.status}>"
+
+
+# =============================================================================
+#  Archives du travail des utilisateurs
+# =============================================================================
+ARCHIVE_OK = "ok"                  # archive créée, téléchargeable
+ARCHIVE_FAILED = "failed"          # nœud injoignable, délai dépassé, tar en erreur...
+ARCHIVE_TOO_LARGE = "too_large"    # dépasse la taille maximale : rien n'est conservé
+
+
+class Archive(Base):
+    """
+    Sauvegarde du travail d'une machine, faite juste avant sa destruction.
+
+    Une ligne existe aussi quand l'archivage a échoué : l'utilisateur voit alors
+    pourquoi il n'a rien à télécharger, au lieu d'un silence. Le fichier est
+    rangé sous ARCHIVE_DIR ; `path` est relatif à ce dossier et n'est jamais
+    issu d'une saisie utilisateur.
+    """
+
+    __tablename__ = "archives"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    instance_id: Mapped[int] = mapped_column(ForeignKey("instances.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    path: Mapped[str] = mapped_column(String(255), nullable=True)        # None si pas de fichier
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index("idx_archives_user", "user_id", "created_at"),
+        Index("idx_archives_expiry", "expires_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Archive user={self.user_id} instance={self.instance_id} {self.status}>"

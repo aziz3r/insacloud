@@ -125,6 +125,25 @@ bloquent.
 
 ---
 
+### `archives`
+
+Septième table, ajoutée après les six du schéma ci-dessus : la sauvegarde du
+travail d'une machine, faite juste avant sa destruction. Une ligne existe aussi
+quand l'archivage a échoué, pour que l'utilisateur sache pourquoi il n'a rien à
+télécharger.
+
+| Colonne | Notes |
+|---|---|
+| `user_id` | clé étrangère ; le propriétaire, **seul** à pouvoir télécharger |
+| `instance_id` | clé étrangère ; la machine d'origine |
+| `status` | `ok` · `failed` · `too_large` |
+| `path` | **relatif** au dossier des archives ; jamais issu d'une saisie |
+| `size_bytes`, `sha256` | taille et empreinte du fichier |
+| `created_at`, `expires_at` | le Faucheur efface l'archive après `expires_at` |
+
+Deux index : `idx_archives_user (user_id, created_at)` pour la liste d'un
+utilisateur, `idx_archives_expiry (expires_at)` pour la purge.
+
 ## Index et contraintes
 
 | Index | Rôle |
