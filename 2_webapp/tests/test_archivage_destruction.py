@@ -4,7 +4,9 @@ test_archivage_destruction.py - L'archivage se déclenche juste avant la destruc
 Trois garanties à tenir :
   1. l'archive est faite AVANT `docker rm -f` (après, il n'y a plus rien à sauvegarder) ;
   2. un archivage raté ne bloque JAMAIS la destruction de la machine ;
-  3. une machine n'est archivée qu'une fois, même si sa destruction est retentée.
+  3. une archive RÉUSSIE n'est jamais refaite, même si la destruction est retentée ;
+  4. un archivage RATÉ est retenté — un nœud brièvement muet ne doit pas coûter
+     le travail de l'utilisateur — mais pas à chaque cycle du Faucheur.
 """
 
 import subprocess
@@ -122,6 +124,41 @@ def test_destruction_retentee_n_archive_qu_une_fois(espion, docker, journal):
     assert len(espion.appels) == 1, "pas une archive par cycle du Faucheur"
     assert len(db.get_user_archives(utilisateur)) == 1
     assert db.get_instance(identifiant)["status"] == db.STATUS_EXPIRED
+
+
+def test_archivage_rate_est_retente_au_cycle_suivant(espion, docker, journal, monkeypatch):
+    """Un nœud brièvement injoignable ne doit pas coûter le travail de l'utilisateur."""
+    docker.code = 1                                  # docker rm échoue : la machine reste
+    espion.resultat = {"status": "failed", "detail": "ssh injoignable"}
+    utilisateur, identifiant = louer()
+
+    faucheur.reap_expired()
+    assert [a["status"] for a in db.get_user_archives(utilisateur)] == ["failed"]
+
+    # Le nœud revient. Sans délai d'attente, le Faucheur doit retenter.
+    espion.resultat = {"status": "ok", "path": "1/1-bbbb.tar.gz", "size": 20, "sha256": "cd" * 32}
+    docker.code = 0
+    monkeypatch.setattr(services, "ARCHIVE_RETRY_AFTER", 0)
+    faucheur.reap_expired()
+
+    assert len(espion.appels) == 2, "l'échec devait être retenté"
+    archives = db.get_user_archives(utilisateur)
+    assert [a["status"] for a in archives] == ["ok"], "la reprise remplace la tentative ratée"
+    assert db.get_instance(identifiant)["status"] == db.STATUS_EXPIRED
+
+
+def test_archivage_rate_pas_retente_a_chaque_cycle(espion, docker, journal):
+    """Sinon un nœud durablement muet ferait attendre le délai maximal toutes les 10 s."""
+    docker.code = 1
+    espion.resultat = {"status": "failed", "detail": "ssh injoignable"}
+    utilisateur, _ = louer()
+
+    faucheur.reap_expired()
+    faucheur.reap_expired()
+    faucheur.reap_expired()
+
+    assert len(espion.appels) == 1, "le délai de reprise n'a pas été respecté"
+    assert len(db.get_user_archives(utilisateur)) == 1
 
 
 def test_noeud_hors_ligne_pas_d_attente_inutile(espion, docker, journal):

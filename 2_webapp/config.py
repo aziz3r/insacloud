@@ -96,6 +96,10 @@ ARCHIVE_RETENTION_DAYS = int(os.environ.get("INSACLOUD_ARCHIVE_RETENTION_DAYS", 
 ARCHIVE_TIMEOUT = int(os.environ.get("INSACLOUD_ARCHIVE_TIMEOUT", "45"))    # secondes
 # Dossiers de la machine louée à sauvegarder, relatifs à « / »
 ARCHIVE_PATHS = os.environ.get("INSACLOUD_ARCHIVE_PATHS", "root home").split()
+# Délai avant de retenter un archivage raté. Assez court pour rattraper un
+# nœud brièvement muet, assez long pour ne pas rejouer le délai maximal à
+# chaque cycle du Faucheur quand un nœud ne répond plus du tout.
+ARCHIVE_RETRY_AFTER = int(os.environ.get("INSACLOUD_ARCHIVE_RETRY_AFTER", "600"))  # secondes
 # --- Validation des entrées ---------------------------------------------------
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$")   # compatible noms Docker
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s.]+(\.[^@\s.]+)+$")

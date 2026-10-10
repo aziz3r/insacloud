@@ -18,9 +18,9 @@ import archives
 import database as db
 import docker_ops as docker
 import workers as wk
-from config import (ARCHIVE_ENABLED, ARCHIVE_RETENTION_DAYS, DEFAULT_MODE,
-                    DEFAULT_OS, MAX_DURATION_MINUTES, MAX_INSTANCES_PER_USER,
-                    MIN_DURATION_MINUTES, MODES)
+from config import (ARCHIVE_ENABLED, ARCHIVE_RETENTION_DAYS, ARCHIVE_RETRY_AFTER,
+                    DEFAULT_MODE, DEFAULT_OS, MAX_DURATION_MINUTES,
+                    MAX_INSTANCES_PER_USER, MIN_DURATION_MINUTES, MODES)
 from crypto import encrypt_secret
 
 log = logging.getLogger("insacloud.services")
@@ -203,10 +203,12 @@ def archiver_avant_destruction(instance: dict) -> None:
     quand même. Sans cette règle, une machine expirée sur un nœud en panne
     resterait en vie indéfiniment.
 
-    Une machine n'est archivée qu'une fois : si la destruction échoue et qu'on
-    réessaie au cycle suivant, on ne refait pas une archive à chaque passage.
+    Une archive réussie n'est jamais refaite : si la destruction échoue et
+    qu'on réessaie au cycle suivant, le travail n'est pas recopié. Un
+    archivage raté, lui, est retenté passé ARCHIVE_RETRY_AFTER — un nœud
+    brièvement muet ne doit pas coûter le travail de l'utilisateur.
     """
-    if not ARCHIVE_ENABLED or db.instance_archivee(instance["id"]):
+    if not ARCHIVE_ENABLED or db.archivage_deja_fait(instance["id"], ARCHIVE_RETRY_AFTER):
         return
     try:
         noeud = db.get_worker_by_hostname(instance["worker"])
@@ -221,6 +223,8 @@ def archiver_avant_destruction(instance: dict) -> None:
         db.create_archive(instance["user_id"], instance["id"], resultat, ARCHIVE_RETENTION_DAYS)
     except Exception:  # noqa: BLE001 - jamais d'obstacle à la destruction
         log.exception("Archivage abandonné pour %s", instance.get("container_name"))
+
+
 def purger_archives_perimees() -> int:
     """
     Efface (fichier puis ligne en base) les archives dont la conservation est

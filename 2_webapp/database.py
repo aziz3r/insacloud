@@ -692,22 +692,32 @@ def get_statistics() -> dict:
         }
 
 
-if __name__ == "__main__":
-    init_db()
-    print(f"Base de données initialisée : {DATABASE_URL}")
-
-
-def instance_archivee(instance_id: int) -> bool:
-    """Vrai si un archivage (réussi ou non) a déjà été tenté pour cette machine."""
-    with SessionLocal() as session:
-        total = session.scalar(select(func.count()).select_from(Archive)
-                               .where(Archive.instance_id == instance_id))
-        return total > 0
-
-
 # =============================================================================
 #  Archives du travail des utilisateurs
 # =============================================================================
+def archivage_deja_fait(instance_id: int, delai_avant_reprise: int = 600) -> bool:
+    """
+    Vrai s'il ne faut pas (re)lancer d'archivage pour cette machine.
+
+    Une archive réussie n'est jamais refaite : la destruction peut être
+    retentée pendant plusieurs cycles du Faucheur, le travail n'est copié
+    qu'une fois.
+
+    Un échec, en revanche, vient parfois d'un incident passager — un nœud
+    brièvement injoignable. On retente alors, mais pas à chaque cycle : sans ce
+    délai, un nœud durablement muet ferait attendre le délai maximal
+    d'archivage toutes les dix secondes, et le Faucheur n'avancerait plus.
+    """
+    limite = utc_now() - timedelta(seconds=delai_avant_reprise)
+    with SessionLocal() as session:
+        derniere = session.scalar(
+            select(Archive).where(Archive.instance_id == instance_id)
+            .order_by(Archive.created_at.desc(), Archive.id.desc()).limit(1))
+    if derniere is None:
+        return False
+    return derniere.status == ARCHIVE_OK or derniere.created_at > limite
+
+
 def create_archive(user_id: int, instance_id: int, resultat: dict, retention_days: int) -> int:
     """
     Enregistre le résultat d'un archivage (réussi ou non) et retourne son id.
@@ -719,6 +729,11 @@ def create_archive(user_id: int, instance_id: int, resultat: dict, retention_day
     """
     maintenant = utc_now()
     with SessionLocal() as session:
+        # Une reprise après échec remplace la tentative ratée : l'utilisateur
+        # voit un état par machine, pas la liste de nos essais. La ligne
+        # remplacée est forcément un échec (une réussite n'est jamais refaite),
+        # donc sans fichier à effacer.
+        session.execute(delete(Archive).where(Archive.instance_id == instance_id))
         archive = Archive(
             user_id=user_id, instance_id=instance_id, status=resultat["status"],
             path=resultat.get("path"), size_bytes=resultat.get("size"),
@@ -765,3 +780,8 @@ def delete_archive(archive_id: int) -> None:
     with SessionLocal() as session:
         session.execute(delete(Archive).where(Archive.id == archive_id))
         session.commit()
+
+
+if __name__ == "__main__":
+    init_db()
+    print(f"Base de données initialisée : {DATABASE_URL}")
