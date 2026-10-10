@@ -42,6 +42,13 @@ x-application: &application
     INSACLOUD_PORT_MIN: ${INSACLOUD_PORT_MIN:-8000}
     INSACLOUD_PORT_MAX: ${INSACLOUD_PORT_MAX:-9000}
     INSACLOUD_HEARTBEAT_TIMEOUT: ${INSACLOUD_HEARTBEAT_TIMEOUT:-90}
+    # Sauvegarde du travail avant la destruction d'une machine. Le Faucheur
+    # écrit l'archive, l'application la sert au téléchargement : les deux
+    # services doivent donc voir le MÊME dossier, d'où le volume partagé.
+    INSACLOUD_ARCHIVE_ENABLED: ${INSACLOUD_ARCHIVE_ENABLED:-1}
+    INSACLOUD_ARCHIVE_DIR: /var/lib/insacloud/archives
+    INSACLOUD_ARCHIVE_MAX_MB: ${INSACLOUD_ARCHIVE_MAX_MB:-100}
+    INSACLOUD_ARCHIVE_RETENTION_DAYS: ${INSACLOUD_ARCHIVE_RETENTION_DAYS:-7}
   depends_on:
     db:
       condition: service_healthy
@@ -95,6 +102,7 @@ services:
       # elle est nécessaire — et donne au conteneur un pouvoir équivalent à
       # root sur l'hôte. À n'utiliser que sur une machine de développement.
       - /var/run/docker.sock:/var/run/docker.sock
+      - archives_travail:/var/lib/insacloud/archives
     # Le conteneur tourne sans privilège (uid 10001). Pour atteindre la socket
     # il lui faut le groupe qui la possède, et non le compte root : voir
     # DOCKER_GID dans .env.example pour relever sa valeur sur votre machine.
@@ -120,6 +128,7 @@ services:
     command: ["python", "faucheur.py"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - archives_travail:/var/lib/insacloud/archives
     group_add:
       - "${DOCKER_GID:-999}"
     depends_on:
@@ -210,3 +219,6 @@ networks:
 
 volumes:
   donnees_postgres:
+  # Copies du travail des utilisateurs : partagé entre l'application (qui les
+  # sert) et le Faucheur (qui les écrit puis les purge).
+  archives_travail:
