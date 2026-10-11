@@ -1,0 +1,157 @@
+% =============================================================================
+%  Préambule du guide technique InsaCloud
+% =============================================================================
+\usepackage{fontspec}
+% Noms de fichiers plutôt que noms système : la police vient du paquet
+% tectonic, le document se recompile donc à l'identique sur n'importe quel poste.
+\setmainfont{lmroman10-regular.otf}[
+  BoldFont=lmroman10-bold.otf, ItalicFont=lmroman10-italic.otf,
+  BoldItalicFont=lmroman10-bolditalic.otf]
+\setsansfont{lmsans10-regular.otf}[
+  BoldFont=lmsans10-bold.otf, ItalicFont=lmsans10-oblique.otf]
+\setmonofont{lmmono10-regular.otf}[
+  BoldFont=lmmonolt10-bold.otf, ItalicFont=lmmono10-italic.otf, Scale=0.92]
+\usepackage[french]{babel}
+\usepackage{graphicx,xcolor,booktabs,array,tabularx,longtable,multirow}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes.geometric,calc,fit,backgrounds,
+                decorations.pathreplacing,patterns,shadows.blur}
+\usepackage{fancyhdr,enumitem,microtype}
+\usepackage[colorlinks=true,linkcolor=insared,urlcolor=insared,citecolor=insared]{hyperref}
+\usepackage{caption}
+\usepackage{listings}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins,breakable}
+\usepackage{titlesec}
+\usepackage{emptypage}
+
+% --- Couleurs ----------------------------------------------------------------
+\definecolor{insared}{RGB}{200,16,46}
+\definecolor{grisfond}{RGB}{247,248,250}
+\definecolor{grisligne}{RGB}{216,220,226}
+\definecolor{gristexte}{RGB}{91,97,107}
+\definecolor{vertok}{RGB}{26,127,75}
+\definecolor{vertfond}{RGB}{238,247,241}
+\definecolor{orangepartiel}{RGB}{178,106,5}
+\definecolor{orangefond}{RGB}{254,246,231}
+\definecolor{rougeko}{RGB}{198,40,40}
+\definecolor{bleufond}{RGB}{238,243,250}
+\definecolor{bleutrait}{RGB}{43,91,158}
+
+% --- Mise en page ------------------------------------------------------------
+\captionsetup{font=small,labelfont={bf,color=insared}}
+\setlist[itemize]{leftmargin=1.3em,itemsep=2pt,topsep=3pt,parsep=0pt}
+\setlist[enumerate]{leftmargin=1.5em,itemsep=2pt,topsep=3pt,parsep=0pt}
+\setlist[description]{leftmargin=1.3em,itemsep=3pt,topsep=3pt,parsep=0pt}
+
+% LaTeX refuse par defaut qu'une figure occupe plus de 70 % d'une page et
+% exige 20 % de texte : avec beaucoup de schemas, cela repousse les flottants
+% et laisse des pages a moitie vides. On relache ces seuils.
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.85}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.75}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{4}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textcolor{gristexte}{\leftmark}}
+\fancyhead[R]{\small\textcolor{gristexte}{InsaCloud}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{grisligne}\leaders\hrule height \headrulewidth\hfill}}
+
+\titleformat{\chapter}[display]
+  {\normalfont\huge\bfseries}
+  {\textcolor{insared}{\normalsize\MakeUppercase{\chaptertitlename} \thechapter}}
+  {6pt}{\Huge}
+\titlespacing*{\chapter}{0pt}{-20pt}{24pt}
+
+% --- Extraits de code --------------------------------------------------------
+\lstdefinestyle{insacloud}{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{grisfond},
+  frame=single, rulecolor=\color{grisligne},
+  breaklines=true, breakatwhitespace=false,
+  postbreak=\mbox{\textcolor{gristexte}{$\hookrightarrow$}\space},
+  showstringspaces=false,
+  keywordstyle=\color{insared}\bfseries,
+  commentstyle=\color{gristexte}\itshape,
+  stringstyle=\color{vertok},
+  numberstyle=\tiny\color{gristexte},
+  xleftmargin=6pt, framexleftmargin=6pt, aboveskip=8pt, belowskip=8pt,
+  extendedchars=true, inputencoding=utf8,
+  literate=%
+    {é}{{\'e}}1 {è}{{\`e}}1 {ê}{{\^e}}1 {ë}{{\"e}}1
+    {à}{{\`a}}1 {â}{{\^a}}1 {ä}{{\"a}}1
+    {î}{{\^i}}1 {ï}{{\"i}}1
+    {ô}{{\^o}}1 {ö}{{\"o}}1
+    {û}{{\^u}}1 {ù}{{\`u}}1 {ü}{{\"u}}1
+    {ç}{{\c c}}1 {É}{{\'E}}1 {È}{{\`E}}1 {À}{{\`A}}1 {Ç}{{\c C}}1
+    {œ}{{\oe}}1 {Œ}{{\OE}}1 {æ}{{\ae}}1
+    {—}{{---}}1 {–}{{--}}1 {’}{{'}}1 {‘}{{'}}1
+    {«}{{\guillemotleft}}1 {»}{{\guillemotright}}1
+    {·}{{\textperiodcentered}}1 {→}{{$\rightarrow$}}1 {←}{{$\leftarrow$}}1
+    {✔}{{\checkmark}}1 {°}{{\textdegree}}1 {€}{{\texteuro}}1
+}
+\lstset{style=insacloud}
+
+\lstdefinelanguage{yamlplus}{
+  keywords={true,false,null,name,hosts,become,roles,tasks,vars,when,loop,with_items,
+            state,mode,owner,group,path,src,dest,notify,handlers,services,image,
+            environment,volumes,networks,ports,depends_on,build,command,restart},
+  keywordstyle=\color{insared}\bfseries,
+  sensitive=false,
+  comment=[l]{\#},
+  morestring=[b]",
+  morestring=[b]',
+}
+
+\lstdefinelanguage{dockerfile}{
+  keywords={FROM,RUN,CMD,LABEL,EXPOSE,ENV,ADD,COPY,ENTRYPOINT,VOLUME,USER,
+            WORKDIR,ARG,ONBUILD,STOPSIGNAL,HEALTHCHECK,SHELL,AS},
+  keywordstyle=\color{insared}\bfseries,
+  sensitive=true,
+  comment=[l]{\#},
+  morestring=[b]",
+}
+
+% --- Encadrés pédagogiques ---------------------------------------------------
+\newtcolorbox{notion}[1]{
+  breakable, enhanced, colback=bleufond, colframe=bleutrait,
+  boxrule=0pt, leftrule=3pt, arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small, title={Notion — #1},
+  coltitle=bleutrait, titlerule=0pt, colbacktitle=bleufond,
+  attach title to upper=\par\smallskip
+}
+
+\newtcolorbox{piege}[1]{
+  breakable, enhanced, colback=orangefond, colframe=orangepartiel,
+  boxrule=0pt, leftrule=3pt, arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small, title={Piège — #1},
+  coltitle=orangepartiel, titlerule=0pt, colbacktitle=orangefond,
+  attach title to upper=\par\smallskip
+}
+
+\newtcolorbox{retenir}{
+  breakable, enhanced, colback=vertfond, colframe=vertok,
+  boxrule=0pt, leftrule=3pt, arc=2pt, left=8pt, right=8pt, top=6pt, bottom=6pt,
+  fonttitle=\bfseries\small, title={À retenir},
+  coltitle=vertok, titlerule=0pt, colbacktitle=vertfond,
+  attach title to upper=\par\smallskip
+}
+
+% --- Raccourcis --------------------------------------------------------------
+\newcommand{\ok}{\textcolor{vertok}{\textbf{Conforme}}}
+\newcommand{\partiel}{\textcolor{orangepartiel}{\textbf{Partiel}}}
+\newcommand{\plus}{\textcolor{insared}{\textbf{Au-delà}}}
+\newcommand{\fichier}[1]{\textcolor{insared}{\texttt{#1}}}
+\newcommand{\cmd}[1]{\texttt{#1}}
+
+% Les paragraphes techniques enchaînent de longues suites en \texttt{} que TeX
+% ne peut pas couper : sans marge de manœuvre, elles débordent dans la marge.
+\emergencystretch=3em
+\hbadness=6000
+\tolerance=2000

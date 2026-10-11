@@ -394,6 +394,7 @@ docker-compose.yml   la pile complète : PostgreSQL, application, Faucheur, imag
 Vagrantfile          controller .10 · worker1 .11 · worker2 .12 · worker3 .13
 docs/                vidéo, captures, API et base ; schemas/ engendre les SVG
 rapport/             rapport de projet et dossier technique (LaTeX + PDF)
+guide/               guide technique de 93 pages : la théorie, le code, le déploiement
 CONTRIBUTING.md      stratégie de branches et contrôles avant une fusion
 ```
 

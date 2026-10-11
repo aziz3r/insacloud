@@ -1,0 +1,407 @@
+\part{Le déploiement}
+\label{part:deploiement}
+
+\chapter{Monter le parc avec Vagrant}
+
+\section{Quatre machines décrites en un fichier}
+
+\begin{lstlisting}[language=Ruby,caption={\fichier{Vagrantfile} --- le parc, paramétrable}]
+# Trois workers, comme le demande le cahier des charges. Sur un poste modeste,
+# WORKERS=2 (ou 1) reduit le parc sans toucher au fichier :
+#   WORKERS=2 vagrant up
+NB_WORKERS = (ENV["WORKERS"] || "3").to_i.clamp(1, 9)
+
+MACHINES = {
+  "controller" => { "ip" => "192.168.56.10", "memory" => 2048, "cpus" => 2 },
+}
+(1..NB_WORKERS).each do |n|
+  MACHINES["worker#{n}"] = { "ip" => "192.168.56.#{10 + n}",
+                             "memory" => 3072, "cpus" => 2 }
+end
+\end{lstlisting}
+
+\begin{retenir}
+Rendre le nombre de workers paramétrable coûte trois lignes et change tout
+pour qui lit le projet : on peut le faire tourner sur un portable avec un
+seul worker, ou monter à neuf pour une démonstration. Un fichier qui n'offre
+qu'une seule taille finit toujours par être modifié à la main --- et donc
+désynchronisé.
+\end{retenir}
+
+\section{Plusieurs providers, et pourquoi}
+
+\begin{lstlisting}[language=Ruby]
+node.vm.provider "vmware_desktop" do |v| ... end
+node.vm.provider "parallels"      do |p| ... end
+node.vm.provider "qemu"           do |q, override| ... end
+node.vm.provider "virtualbox"     do |v| ... end
+\end{lstlisting}
+
+VirtualBox, le provider par défaut, ne fonctionne pas sur les Mac à puce
+Apple. Déclarer plusieurs providers permet au même fichier de marcher sur une
+machine Intel, un Mac ARM et un poste Windows.
+
+\begin{piege}{QEMU ne gère pas les réseaux privés}
+Chaque provider a ses limites. \cmd{vagrant-qemu} ne sait pas créer de réseau
+privé : l'accès SSH est redirigé sur \cmd{localhost}. Le \cmd{Vagrantfile} le
+détecte et ajuste la configuration. Sans cela, le déploiement réussirait et
+rien ne serait joignable.
+\end{piege}
+
+\section{Les commandes du quotidien}
+
+\begin{lstlisting}[language=bash]
+vagrant up                  # cree et demarre tout le parc
+vagrant up worker2          # une seule machine
+vagrant status              # qui tourne
+vagrant ssh controller      # entrer dans une machine
+vagrant halt worker1        # eteindre (le test de panne du cahier des charges)
+vagrant reload worker1      # redemarrer
+vagrant destroy -f          # tout effacer, pour repartir de zero
+\end{lstlisting}
+
+\chapter{Configurer avec Ansible}
+\label{chap:ansible}
+
+\section{La partition : quatre plays, neuf rôles}
+
+\begin{lstlisting}[language=yamlplus,caption={\fichier{3\_ansible/site.yml} --- la structure}]
+- name: 1. Durcissement de tous les noeuds (UFW)
+  hosts: insacloud
+  become: true
+  roles:
+    - role: security_hardening
+
+- name: 2. Controleur — compte de service et cle SSH de pilotage
+  hosts: controllers
+  roles:
+    - role: controller_key
+
+- name: 3. Workers — Docker, certificat, acces du controleur, images
+  hosts: workers
+  roles:
+    - role: docker
+    - role: tls_cert
+    - role: worker
+    - role: docker_images
+    - role: worker_agent
+
+- name: 4. Controleur — client Docker, certificat, nginx, application
+  hosts: controllers
+  roles:
+    - role: docker
+    - role: tls_cert
+    - role: reverse_proxy
+    - role: webapp
+\end{lstlisting}
+
+\begin{notion}{Pourquoi cet ordre}
+L'ordre n'est pas arbitraire. Le contrôleur doit avoir sa clé SSH
+\emph{avant} que les workers n'autorisent cette clé ; les workers doivent
+avoir Docker \emph{avant} qu'on y construise les images ; nginx doit être
+configuré \emph{avant} que l'application démarre derrière lui.
+
+Un playbook est une suite de dépendances. Les écrire explicitement évite les
+« ça marche une fois sur deux ».
+\end{notion}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Rôle} & \textbf{Ce qu'il fait} \\
+\midrule
+\cmd{security\_hardening} & pare-feu UFW, ports ouverts selon le groupe \\
+\cmd{controller\_key} & compte de service et clé SSH de pilotage \\
+\cmd{docker} & Docker Engine sur les workers, client seul sur le contrôleur \\
+\cmd{tls\_cert} & certificat auto-signé propre à chaque nœud \\
+\cmd{worker} & accès SSH restreint du contrôleur, appartenance au groupe docker \\
+\cmd{docker\_images} & construction des images des machines louées \\
+\cmd{worker\_agent} & l'agent d'inscription et de battement de cœur \\
+\cmd{reverse\_proxy} & nginx HTTPS devant Gunicorn \\
+\cmd{webapp} & Flask, Gunicorn, Faucheur, watchdog, secrets \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Un piège réel : la déduplication des rôles}
+
+Ansible n'exécute un rôle qu'une fois par play. Sauf si on l'appelle avec des
+\emph{paramètres différents} : il le considère alors comme deux rôles
+distincts et l'exécute deux fois.
+
+Le rôle \cmd{docker} était appelé directement par le play du contrôleur, et
+tiré en dépendance par \cmd{docker\_images}. Avec un paramètre différent à
+chaque appel, il s'exécutait deux fois --- installant puis désinstallant le
+démon.
+
+\begin{lstlisting}[language=yamlplus,caption={La correction : une variable de play, pas un paramètre de rôle}]
+- name: 4. Controleur
+  hosts: controllers
+  vars:
+    single_host: "{{ groups['workers'] | default([]) | length == 0 }}"
+    # Defini ici (et non en parametre de role) : un role appele avec des
+    # parametres differents n'est pas dedoublonne par Ansible, et `docker` est
+    # aussi tire comme dependance par `docker_images`. Une variable de play
+    # s'applique aux deux appels, qui sont donc fusionnes en une execution.
+    docker_cli_only: "{{ not single_host }}"
+  roles:
+    - role: docker
+    - role: docker_images
+      when: single_host
+\end{lstlisting}
+
+\begin{retenir}
+Quand un comportement d'outil vous surprend, vérifiez-le par l'expérience
+plutôt que par la documentation. Nous avons prouvé celui-ci en instrumentant
+le rôle pour qu'il journalise chaque exécution.
+\end{retenir}
+
+\section{Les secrets : Ansible Vault}
+
+\begin{lstlisting}[language=bash]
+# Creer ou editer un fichier chiffre
+ansible-vault create group_vars/insacloud/vault.yml
+ansible-vault edit   group_vars/insacloud/vault.yml
+
+# Jouer le playbook en fournissant la phrase de passe
+ansible-playbook site.yml --ask-vault-pass
+\end{lstlisting}
+
+Le fichier est chiffré en AES-256 et peut être versionné sans danger. Il
+contient la clé de session Flask, la clé du coffre Fernet, le mot de passe
+PostgreSQL et le jeton des agents.
+
+\begin{piege}{Un secret déposé dans une unité systemd}
+Mettre \cmd{Environment=INSACLOUD\_VAULT\_KEY=...} dans un fichier d'unité le
+rend lisible par n'importe qui : les unités sont en lecture pour tous, et
+\cmd{systemctl show} les affiche.
+
+La bonne façon : un fichier séparé en \cmd{0600}, appartenant au compte de
+service, référencé par \cmd{EnvironmentFile=}. Le secret n'est alors ni dans
+l'unité, ni dans les journaux.
+\end{piege}
+
+\section{Prouver l'idempotence}
+
+\begin{lstlisting}[language=bash]
+ansible-playbook site.yml --ask-vault-pass        # premier passage
+ansible-playbook site.yml --ask-vault-pass        # second passage
+\end{lstlisting}
+
+Le second passage doit afficher \cmd{changed=0} sur chaque nœud. C'est mesuré
+sur les quatre machines après chaque modification du projet.
+
+\begin{center}
+\small
+\begin{verbatim}
+PLAY RECAP ****************************************************************
+controller : ok=71  changed=0  unreachable=0  failed=0  skipped=9
+worker1    : ok=43  changed=0  unreachable=0  failed=0  skipped=4
+worker2    : ok=43  changed=0  unreachable=0  failed=0  skipped=4
+worker3    : ok=43  changed=0  unreachable=0  failed=0  skipped=4
+\end{verbatim}
+\end{center}
+
+\begin{piege}{\texttt{command} et \texttt{shell} ne sont jamais idempotents}
+Les modules \cmd{ansible.builtin.command} et \cmd{shell} exécutent ce qu'on
+leur donne, sans rien vérifier : ils sont donc \emph{toujours} signalés
+\cmd{changed}. Si vous devez les employer, ajoutez \cmd{creates:},
+\cmd{removes:} ou \cmd{changed\_when:} pour leur apprendre à se taire quand il
+n'y a rien à faire.
+\end{piege}
+
+\section{L'inventaire dynamique}
+
+L'inventaire statique liste les machines à la main. Un inventaire
+\emph{dynamique} les découvre.
+
+\begin{lstlisting}[language=bash]
+./inventaire_vagrant.py --list      # interroge Vagrant, produit du JSON
+ansible-playbook -i inventaire_vagrant.py site.yml
+\end{lstlisting}
+
+Le script interroge \cmd{vagrant status} et construit les groupes. Changer le
+nombre de VM ne demande plus de toucher à l'inventaire, et le déploiement
+devient indépendant du provider de virtualisation.
+
+\chapter{Servir l'application}
+
+\section{nginx devant Gunicorn}
+
+\begin{lstlisting}[language=bash,caption={Le principe de la configuration nginx}]
+server {
+    listen 443 ssl http2;
+    ssl_protocols TLSv1.3;
+
+    add_header Strict-Transport-Security "max-age=63072000" always;
+    add_header X-Content-Type-Options nosniff always;
+
+    location /static/ {
+        alias /opt/insacloud/static/;    # servi par nginx, pas par Python
+        expires 7d;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+\end{lstlisting}
+
+\begin{notion}{\texttt{X-Forwarded-For} et \texttt{ProxyFix}}
+Derrière un proxy, toutes les requêtes semblent venir de \cmd{127.0.0.1}.
+L'adresse réelle du client est placée par nginx dans l'en-tête
+\cmd{X-Forwarded-For}.
+
+Côté Flask, le \emph{middleware} \cmd{ProxyFix} lit ces en-têtes et rétablit
+la bonne adresse. Sans lui, notre verrouillage anti-force-brute compterait
+toutes les tentatives comme venant de la même IP --- et bloquerait tout le
+monde au cinquième échec de n'importe qui.
+\end{notion}
+
+\section{systemd : faire tourner les services}
+
+\begin{lstlisting}[caption={Le principe d'une unité systemd}]
+[Unit]
+Description=InsaCloud - application web
+After=network-online.target
+
+[Service]
+User=insacloud
+WorkingDirectory=/opt/insacloud
+EnvironmentFile=/etc/insacloud/insacloud.env     # secrets, en 0600
+ExecStart=/opt/insacloud/.venv/bin/gunicorn --preload -w 4 -b 127.0.0.1:5000 app:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+\end{lstlisting}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Directive} & \textbf{Effet} \\
+\midrule
+\cmd{User=} & le service ne tourne pas en root \\
+\cmd{EnvironmentFile=} & les secrets viennent d'un fichier protégé, pas de l'unité \\
+\cmd{Restart=always} & systemd relance le service s'il meurt \\
+\cmd{After=network-online} & ne pas démarrer avant que le réseau soit prêt \\
+\cmd{--preload} & Gunicorn importe l'application une fois, puis duplique \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Le watchdog}
+
+Un \emph{timer} systemd vérifie chaque minute que nginx répond, que le site
+renvoie bien du HTTPS, et que le Faucheur tourne. Il redémarre ce qui est
+tombé et journalise les workers injoignables.
+
+\begin{notion}{Timer plutôt que cron}
+Un timer systemd s'intègre aux journaux (\cmd{journalctl -u ...}), connaît
+l'état du service qu'il surveille, et ne démarre pas avant que ses
+dépendances soient prêtes. Cron ne sait rien de tout cela.
+\end{notion}
+
+\chapter{La pile \texttt{docker compose}}
+
+\section{Pourquoi une seconde façon de déployer}
+
+Monter quatre VM demande du temps, de la mémoire et un hyperviseur. Pour
+développer, démontrer, ou faire tourner les tests d'intégration en
+intégration continue, on veut une pile en une commande.
+
+\begin{lstlisting}[language=bash]
+cp .env.example .env         # puis renseigner les secrets
+docker compose up -d
+\end{lstlisting}
+
+\section{Un bloc partagé par deux services}
+
+\begin{lstlisting}[language=yamlplus,caption={\fichier{docker-compose.yml} --- l'ancre YAML}]
+x-application: &application
+  build:
+    context: ./2_webapp
+  image: insacloud_web:latest
+  restart: unless-stopped
+  environment:
+    INSACLOUD_ENV: production
+    INSACLOUD_CLUSTER: ${INSACLOUD_CLUSTER:-compose}
+    DATABASE_URL: "postgresql+psycopg://...:${POSTGRES_PASSWORD:?manquant}@db:5432/..."
+    INSACLOUD_SECRET_KEY: ${INSACLOUD_SECRET_KEY:?definissez INSACLOUD_SECRET_KEY}
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  web:
+    <<: *application              # reprend tout le bloc ci-dessus
+    ports: ["127.0.0.1:8088:5000"]
+  faucheur:
+    <<: *application
+    command: ["python", "faucheur.py"]
+\end{lstlisting}
+
+\begin{notion}{Les ancres YAML}
+\cmd{\&application} donne un nom à un bloc ; \cmd{<<: *application} le
+recopie. L'application et le Faucheur partagent ainsi exactement la même
+configuration --- il devient impossible qu'ils divergent sur une variable.
+\end{notion}
+
+\begin{notion}{\texttt{\$\{VAR:?message\}}}
+Cette syntaxe refuse de démarrer si la variable n'est pas définie, en
+affichant le message. La pile ne peut donc pas tourner avec un mot de passe
+vide ou une clé par défaut : l'erreur arrive au démarrage, pas trois semaines
+plus tard.
+\end{notion}
+
+\section{Le volume partagé, et pourquoi il ne s'invente pas}
+
+\begin{lstlisting}[language=yamlplus]
+  web:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - archives_travail:/var/lib/insacloud/archives
+  faucheur:
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - archives_travail:/var/lib/insacloud/archives
+
+volumes:
+  donnees_postgres:
+  archives_travail:
+\end{lstlisting}
+
+\begin{piege}{Deux services, un seul dossier}
+Le Faucheur \emph{écrit} l'archive ; l'application la \emph{sert} au
+téléchargement. Si chacun avait son propre volume, l'utilisateur verrait dans
+son tableau de bord une archive que le serveur ne trouverait pas.
+
+Le même volume nommé doit donc être monté dans les deux services. C'est le
+genre d'erreur qui ne se voit pas à la lecture du fichier, et qui saute aux
+yeux au premier essai réel.
+\end{piege}
+
+\begin{piege}{La socket Docket donne les pleins pouvoirs}
+Monter \cmd{/var/run/docker.sock} dans un conteneur lui donne un pouvoir
+équivalent à root sur l'hôte : il peut créer un conteneur privilégié qui monte
+le disque entier. C'est acceptable sur un poste de développement, jamais en
+production --- où le contrôleur pilote des workers distants par SSH et n'a
+plus besoin de cette ligne.
+\end{piege}
+
+\section{Les profils}
+
+\begin{lstlisting}[language=bash]
+docker compose up -d                        # la plateforme seule
+docker compose --profile build build        # + construire les six images
+docker compose --profile demo up -d         # + une machine de demonstration
+\end{lstlisting}
+
+Un service marqué d'un profil ne démarre que si on le demande. Cela permet de
+décrire dans un seul fichier la pile minimale et tous ses compléments.

@@ -1,0 +1,278 @@
+\part{Annexes}
+
+\chapter{Refaire le projet depuis zéro}
+
+Voici l'ordre dans lequel aborder un projet de ce type. Chaque étape produit
+quelque chose qui marche : c'est ce qui permet de ne jamais se retrouver avec
+mille lignes dont rien ne fonctionne.
+
+\begin{enumerate}
+\item \textbf{Un conteneur SSH à la main.} Écrivez un Dockerfile qui installe
+  \cmd{openssh-server}, lancez-le avec \cmd{-p 2222:22}, connectez-vous.
+  Objectif : comprendre la publication de port.
+\item \textbf{Plusieurs services dedans.} Ajoutez \cmd{supervisord} et un
+  terminal web. Objectif : comprendre PID 1.
+\item \textbf{Une page Flask qui lance ce conteneur.} Un bouton, un
+  \cmd{subprocess}, un message. Pas de base, pas de comptes.
+\item \textbf{Une base.} Enregistrez ce que vous créez. Séparez dès maintenant
+  la machine de la location : ce choix est difficile à rattraper après coup.
+\item \textbf{Des comptes.} Inscription, connexion, et surtout le cloisonnement
+  --- un utilisateur ne voit que ses machines.
+\item \textbf{L'expiration.} Un script séparé qui boucle et détruit. Testez-le
+  avec des locations d'une minute.
+\item \textbf{Les tests.} Maintenant, pas plus tard : vous avez assez de code
+  pour que les régressions commencent.
+\item \textbf{Un second nœud.} C'est là que tout change : SSH, ordonnanceur,
+  agent. Faites-le avant d'avoir trop de code supposant un hôte unique.
+\item \textbf{Ansible.} Automatisez ce que vous faites à la main depuis le
+  début. Visez \cmd{changed=0} au second passage dès le premier jour.
+\item \textbf{La chaîne d'intégration.} Commencez par lint et tests, ajoutez
+  le reste progressivement.
+\item \textbf{La haute disponibilité.} Éteignez un nœud et regardez ce qui se
+  passe. Corrigez. Recommencez.
+\end{enumerate}
+
+\begin{retenir}
+L'ordre compte plus qu'on ne croit. Ajouter le multi-nœuds à la fin oblige à
+réécrire tout le code qui appelait \cmd{docker} sans se demander « sur quelle
+machine ? ». Ajouter les tests à la fin revient à ne pas les ajouter.
+\end{retenir}
+
+\chapter{Commandes utiles}
+
+\section{Le projet}
+
+\begin{lstlisting}[language=bash]
+# --- Pile complete en local --------------------------------------------------
+cp .env.example .env                     # puis renseigner les secrets
+docker compose up -d
+docker compose --profile build build     # construire les six images
+docker compose logs -f web
+docker compose down -v                   # tout effacer, volumes compris
+
+# --- Developpement -----------------------------------------------------------
+cd 2_webapp
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python app.py                  # serveur de developpement
+
+# --- Controles, les memes que la chaine --------------------------------------
+pytest                                   # 145 tests
+ruff check .
+bandit -c pyproject.toml -r .
+pip-audit -r requirements.txt
+alembic check
+./tests/dast.sh http://127.0.0.1:5000
+./tests/integration.sh http://127.0.0.1:8088
+
+# --- Cluster -----------------------------------------------------------------
+vagrant up
+cd 3_ansible && ansible-playbook site.yml --ask-vault-pass
+ansible-playbook site.yml --ask-vault-pass    # doit donner changed=0
+vagrant halt worker1                     # le test de panne
+\end{lstlisting}
+
+\section{Diagnostiquer}
+
+\begin{lstlisting}[language=bash]
+# Que fait reellement un conteneur ?
+docker inspect <conteneur> | jq '.[0].HostConfig | {Memory, NanoCpus, CapDrop, PidsLimit}'
+
+# Pourquoi ne demarre-t-il pas ?
+docker logs <conteneur>
+
+# Quelles machines la plateforme reconnait-elle comme siennes ?
+docker ps -a --filter "label=insacloud.role=rented-machine"
+
+# Les services sur le controleur
+systemctl status insacloud insacloud-faucheur nginx
+journalctl -u insacloud-faucheur -f
+
+# L'etat du parc, vu de l'exterieur
+curl -s http://127.0.0.1:8088/health | jq
+curl -s -H 'Accept: application/json' http://127.0.0.1:8088/workers | jq
+\end{lstlisting}
+
+\chapter{Erreurs fréquentes}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}XX@{}}
+\toprule
+\textbf{Symptôme} & \textbf{Cause probable} \\
+\midrule
+\cmd{exec format error} ou \cmd{no such file or directory} sur un script qui
+existe pourtant &
+Le script a des fins de ligne Windows (CRLF). Le \cmd{\textbackslash r} fait
+partie du nom de l'interpréteur dans le shebang. Corriger avec un
+\cmd{.gitattributes} : \cmd{* text=auto eol=lf} \\
+\addlinespace
+\cmd{port is already allocated} &
+Un conteneur précédent n'a pas été nettoyé, ou deux requêtes ont choisi le même
+port. L'index unique partiel règle le second cas \\
+\addlinespace
+\cmd{table users already exists} au démarrage &
+Plusieurs processus Gunicorn créent le schéma en même temps. Utiliser
+\cmd{--preload} et tolérer l'erreur \\
+\addlinespace
+Le conteneur démarre puis s'arrête aussitôt &
+Son processus principal s'est terminé. Un conteneur vit tant que son PID 1 vit \\
+\addlinespace
+\cmd{permission denied} sur \cmd{/var/run/docker.sock} &
+Le compte n'est pas dans le groupe \cmd{docker}. En conteneur, utiliser
+\cmd{group\_add} avec le GID de l'hôte \\
+\addlinespace
+Ansible affiche \cmd{changed} à chaque passage &
+Un module \cmd{command} ou \cmd{shell} sans \cmd{creates:} ni
+\cmd{changed\_when:} \\
+\addlinespace
+Le site répond en HTTP mais pas en HTTPS &
+Certificat absent ou illisible par nginx, ou port 443 fermé par UFW \\
+\addlinespace
+Tout le monde est bloqué par l'anti-force-brute &
+\cmd{ProxyFix} n'est pas actif : toutes les requêtes semblent venir du proxy \\
+\addlinespace
+Les tests passent ensemble mais échouent seuls (ou l'inverse) &
+Un test laisse des données derrière lui. Remettre la base à zéro avec une
+fixture \cmd{autouse} \\
+\addlinespace
+La connexion SSH échoue juste après la location &
+Docker publie le port avant que \cmd{sshd} écoute. Réessayer avec une limite,
+plutôt qu'attendre une durée fixe \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\chapter{Conformité au cahier des charges}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}llX@{}}
+\toprule
+\textbf{\#} & \textbf{Fonctionnalité} & \textbf{Réalisation} \\
+\midrule
+1 & Préparation et environnement & dépôt Git, environnement virtuel, dépendances épinglées \\
+2 & API Web Flask & modules séparés, comptes, sessions, tableau de bord \\
+3 & Base de données & 7 tables en SQLAlchemy, migrations Alembic, index métier \\
+4 & Conteneurisation Docker & 4 Dockerfiles, 6 images, durcissement complet \\
+5 & Infrastructure Vagrant & 4 VM, réseau privé, 4 providers \\
+6 & Automatisation Ansible & 9 rôles, 4 playbooks, Vault, idempotence mesurée \\
+7 & Worker Agent & inscription spontanée, battement de cœur, 3 états \\
+8 & Ordonnanceur & nœud joignable le moins chargé, départage déterministe \\
+9 & Service de location & durée 1--120 min, prolongation, arrêt \\
+10 & Déploiement des instances & la commande imposée, par \cmd{subprocess} \\
+11 & Accès SSH & par mot de passe ou par clé, plus terminal web et bureau \\
+12 & Expiration & le Faucheur, toutes les 10 s, avec réconciliation \\
+13 & Haute disponibilité & 3 niveaux, scénario de l'énoncé vérifié \\
+14 & Sécurité DevSecOps & SAST, SCA, secrets, DAST, scan d'image, SBOM \\
+15 & CI/CD & 11 travaux, publication conditionnelle, déploiement vérifié \\
+16 & Tests d'intégration & 145 tests unitaires + 6 scénarios de bout en bout \\
+17 & Documentation & README, guide d'API, schéma de base, ce guide \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Au-delà de l'énoncé}
+
+\begin{itemize}
+\item Architecture distribuée à trois workers, alors qu'un seul hôte suffisait.
+\item Terminal web et bureau graphique complet dans le navigateur, en plus du
+  SSH demandé.
+\item Coffre à secrets : mot de passe root chiffré, réaffichable après
+  re-authentification.
+\item Watchdog systemd d'auto-réparation du service.
+\item Inventaire dynamique interrogeant Vagrant.
+\item Sauvegarde du travail avant destruction, téléchargeable sept jours.
+\item Schémas engendrés depuis leur description, et contrôlés par la chaîne.
+\end{itemize}
+
+\chapter{Glossaire}
+
+\begin{description}
+\item[Agent] petit programme tournant sur chaque worker, qui l'inscrit auprès
+  du contrôleur et signale régulièrement sa présence.
+\item[Alembic] outil de migration de schéma pour SQLAlchemy.
+\item[Ansible] outil de configuration qui applique un état décrit en YAML, par
+  SSH, de façon idempotente.
+\item[Capacité (\emph{capability})] fraction des pouvoirs de root, attribuable
+  indépendamment des autres.
+\item[cgroup] mécanisme du noyau Linux limitant les ressources qu'un groupe de
+  processus peut consommer.
+\item[CSP] \emph{Content Security Policy} : en-tête qui restreint les sources
+  de scripts, styles et images qu'une page peut charger.
+\item[CSRF] attaque où un site tiers fait exécuter une action au nom d'un
+  utilisateur connecté ailleurs.
+\item[CVE] identifiant mondial d'une faille de sécurité connue.
+\item[DAST] analyse de sécurité de l'application \emph{en fonctionnement}.
+\item[Faucheur] le démon du projet qui détruit les machines expirées,
+  réconcilie Docker et la base, et surveille le parc.
+\item[Fernet] recette de chiffrement symétrique authentifié de la bibliothèque
+  \cmd{cryptography}.
+\item[Gunicorn] serveur WSGI multi-processus qui exécute l'application Flask en
+  production.
+\item[Hachage] transformation à sens unique d'un mot de passe, non réversible.
+\item[Idempotence] propriété d'une opération dont la deuxième application ne
+  change rien de plus que la première.
+\item[Image] modèle figé en lecture seule, à partir duquel on crée des
+  conteneurs.
+\item[Namespace] mécanisme du noyau Linux qui cloisonne ce qu'un processus peut
+  voir.
+\item[ORM] bibliothèque faisant correspondre classes Python et tables SQL.
+\item[Proxy inverse] serveur placé devant l'application, qui reçoit les
+  requêtes à sa place.
+\item[SAST] analyse de sécurité du code source, sans l'exécuter.
+\item[SBOM] inventaire exhaustif des composants d'un logiciel livré.
+\item[SCA] confrontation des dépendances aux bases de vulnérabilités connues.
+\item[supervisord] gestionnaire de processus utilisé comme PID 1 dans les
+  machines louées.
+\item[Vagrant] outil de création de machines virtuelles décrites dans un
+  fichier.
+\item[Vault] fichier de secrets chiffré par Ansible, versionnable sans danger.
+\item[WSGI] contrat d'interface entre un serveur Python et une application
+  Python.
+\end{description}
+
+\chapter{Pour aller plus loin}
+
+\section{Ce que ce projet ne fait pas}
+
+\begin{description}
+\item[Pas de stockage partagé] la reprise après panne ne rend pas les fichiers.
+  Un volume répliqué (NFS, Ceph, Longhorn) le permettrait, au prix d'une
+  complexité bien supérieure.
+\item[Le contrôleur reste un point unique] s'il tombe, le tableau de bord
+  disparaît et les locations cessent d'expirer. Les machines louées, elles,
+  continuent de tourner. Une vraie haute disponibilité demanderait plusieurs
+  contrôleurs et une base répliquée.
+\item[Certificat auto-signé] remplaçable par \cmd{mkcert} ou une autorité
+  interne ; Let's Encrypt exigerait un nom de domaine public.
+\item[Pas d'authentification à deux facteurs], ni de quotas cumulés par
+  utilisateur, ni de récupération de mot de passe.
+\item[Docker publie ses ports directement dans iptables] : un filtrage strict
+  des conteneurs passerait par la chaîne \cmd{DOCKER-USER}.
+\end{description}
+
+\section{Les suites naturelles}
+
+\begin{itemize}
+\item Remplacer l'ordonnanceur maison par Kubernetes, et comprendre au passage
+  ce que Kubernetes résout vraiment.
+\item Ajouter de la métrologie : Prometheus pour les mesures, Grafana pour les
+  courbes, et des alertes sur la saturation du parc.
+\item Centraliser les journaux des quatre nœuds, pour pouvoir enquêter sans se
+  connecter machine par machine.
+\item Facturer à la minute, ce qui suppose de fiabiliser la mesure du temps
+  réellement consommé.
+\end{itemize}
+
+\section{Le dépôt}
+
+\begin{center}
+\url{https://github.com/aziz3r/insacloud}
+\end{center}
+
+\vspace{1cm}
+\begin{center}
+\color{gristexte}\small
+Ce guide décrit l'état du projet au \today.\\
+Les extraits de code sont tirés du dépôt sans retouche.
+\end{center}

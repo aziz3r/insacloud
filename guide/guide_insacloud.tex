@@ -1,0 +1,65 @@
+% =============================================================================
+%  InsaCloud — Guide technique complet
+%  Compilation :  tectonic -X compile guide_insacloud.tex
+% =============================================================================
+\documentclass[a4paper,11pt,oneside]{report}
+\input{preambule}
+
+\title{InsaCloud}
+\author{Mohamed Aziz Baoueb}
+\date{\today}
+
+\begin{document}
+
+% --- Couverture --------------------------------------------------------------
+\begin{titlepage}
+\centering
+\vspace*{1.2cm}
+
+{\Huge\bfseries InsaCloud\par}
+\vspace{5pt}
+{\color{insared}\rule{4cm}{2pt}\par}
+\vspace{12pt}
+{\LARGE Construire un mini-fournisseur de cloud, de zéro\par}
+
+\vspace{10pt}
+{\large\itshape Guide technique complet\par}
+\vspace{2pt}
+{\color{gristexte} De la théorie au déploiement, pour qui n'a jamais fait ça\par}
+
+\vspace{0.9cm}
+\includegraphics[width=0.95\textwidth]{figures/architecture.pdf}
+\vspace{0.9cm}
+
+\begin{minipage}{0.88\textwidth}
+\color{gristexte}\small
+Ce document explique \emph{tout} un projet réel : une plateforme qui loue des
+machines Linux à la minute, accessibles en SSH, en terminal web ou en bureau
+graphique dans le navigateur. On y part des notions --- qu'est-ce qu'un
+conteneur, pourquoi un proxy inverse, ce que veut dire « idempotent » --- pour
+arriver au code exact qui tourne en production.
+\end{minipage}
+
+\vfill
+{\color{gristexte}\small
+Projet 3 --- \textit{Outils de déploiement de plateformes}\\
+INSA Centre-Val de Loire, STI 4A FISE, 2026/2027 --- Dr.~Nadia Fettah\\[6pt]
+\today\par}
+\end{titlepage}
+
+% --- Sommaire ----------------------------------------------------------------
+\pagenumbering{roman}
+\setcounter{tocdepth}{1}
+\tableofcontents
+\cleardoublepage
+\pagenumbering{arabic}
+
+\input{00-avant-propos}
+\input{01-theorie}
+\input{02-architecture}
+\input{03-construction}
+\input{04-deploiement}
+\input{05-verification}
+\input{06-annexes}
+
+\end{document}
