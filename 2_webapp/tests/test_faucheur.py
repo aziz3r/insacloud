@@ -162,3 +162,23 @@ def test_signal_d_arret_stoppe_la_boucle():
     faucheur.stop()
     assert faucheur._stop_event.is_set()
     faucheur._stop_event.clear()
+
+
+# =============================================================================
+#  Témoin de vie : c'est lui que surveille la sonde du conteneur
+# =============================================================================
+def test_le_temoin_de_vie_est_horodate(tmp_path, monkeypatch):
+    """Sans ce fichier, la sonde du conteneur declare le Faucheur en panne."""
+    temoin = tmp_path / "faucheur-vivant"
+    monkeypatch.setattr(faucheur, "LIVENESS_FILE", str(temoin))
+
+    faucheur.marquer_vivant()
+
+    assert temoin.exists(), "la sonde du conteneur n'aurait rien a surveiller"
+
+
+def test_un_temoin_inecrivable_ne_tue_pas_le_faucheur(tmp_path, monkeypatch):
+    """Un disque plein doit se voir dans la sonde, pas arreter le demon."""
+    monkeypatch.setattr(faucheur, "LIVENESS_FILE", str(tmp_path / "absent" / "temoin"))
+
+    faucheur.marquer_vivant()      # ne doit pas lever

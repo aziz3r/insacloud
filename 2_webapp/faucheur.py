@@ -22,6 +22,7 @@ Deux modes d'exécution :
 
 import logging
 import os
+import pathlib
 import signal
 import subprocess  # nosec B404 - le sujet impose de piloter Docker par la CLI
 import sys
@@ -39,6 +40,9 @@ from config import AUTO_RECOVERY
 INTERVAL = int(os.environ.get("INSACLOUD_FAUCHEUR_INTERVAL", "10"))  # secondes
 CONTAINER_PREFIX = "insacloud_"        # préfixe des conteneurs gérés par la plateforme
 RECONCILE_EVERY = 6                    # passe de réconciliation tous les N cycles (~1 min)
+# Témoin de vie horodaté à chaque cycle : c'est lui que surveille la sonde du
+# conteneur, et non la simple présence du processus.
+LIVENESS_FILE = os.environ.get("INSACLOUD_FAUCHEUR_LIVENESS", "/tmp/faucheur-vivant")  # noqa: S108
 DOCKER_TIMEOUT = 60                    # secondes max pour une commande docker
 
 log = logging.getLogger("faucheur")
@@ -201,6 +205,25 @@ def surveiller_workers() -> int:
     return reprises
 
 
+def marquer_vivant() -> None:
+    """
+    Horodate un fichier témoin à la fin de chaque cycle.
+
+    C'est ce que surveille la sonde du conteneur. Vérifier que le processus
+    existe ne prouverait rien : un Faucheur dont la boucle est bloquée sur un
+    nœud muet est toujours là, mais ne fauche plus. Le témoin, lui, cesse de
+    vieillir dès que la boucle s'arrête de tourner.
+
+    L'écriture est faite hors du bloc « try » du cycle : elle ne doit jamais
+    empêcher le cycle suivant, mais elle ne doit pas non plus mentir si elle
+    échoue — un disque plein est un vrai problème, et la sonde doit le voir.
+    """
+    try:
+        pathlib.Path(LIVENESS_FILE).touch()
+    except OSError as erreur:
+        log.warning("Témoin de vie non écrit (%s) : %s", LIVENESS_FILE, erreur)
+
+
 def run_forever() -> None:
     """Boucle principale : tourne jusqu'à réception d'un signal d'arrêt."""
     log.info("Faucheur démarré (intervalle = %ss, base = %s, reprise auto = %s)",
@@ -227,6 +250,7 @@ def run_forever() -> None:
                     log.info("%d archive(s) périmée(s) effacée(s).", purgees)
         except Exception:  # noqa: BLE001 - le démon ne doit jamais mourir
             log.exception("Erreur inattendue dans le cycle du Faucheur")
+        marquer_vivant()
         # wait() se réveille immédiatement si un arrêt est demandé
         _stop_event.wait(INTERVAL)
     log.info("Faucheur arrêté proprement.")

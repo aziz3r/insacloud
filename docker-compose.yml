@@ -126,6 +126,17 @@ services:
     <<: *application
     container_name: insacloud-faucheur
     command: ["python", "faucheur.py"]
+    # Le Faucheur n'est pas un serveur web : la sonde heritee du bloc partage
+    # interrogeait un port 5000 qu'il n'ouvre jamais, et le conteneur restait
+    # « unhealthy » a vie. On surveille ici que sa BOUCLE tourne — un demon
+    # bloque est toujours present, mais ne fauche plus.
+    healthcheck:
+      test: ["CMD-SHELL",
+             "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/faucheur-vivant) )) -lt 60"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - archives_travail:/var/lib/insacloud/archives
