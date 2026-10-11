@@ -24,7 +24,8 @@
       <a href="#nouvelle"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Nouvelle machine</a>
       <a href="#cle-ssh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>Clé SSH</a>
       <a href="#aide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Aide</a>
-      {% if history_instances %}<a href="#historique"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>Historique</a>{% endif %}
+               {% if archives %}<a href="#archives"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Archives</a>{% endif %}
+     {% if history_instances %}<a href="#historique"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg>Historique</a>{% endif %}
     </nav>
     <div class="sidebar-footer">
       <div class="flex items-center gap-2 min-w-0">
@@ -295,7 +296,32 @@
           <div class="step"><span class="step-num">3</span><h3>SSH</h3><p>Copiez la commande de la machine. Avec une clé enregistrée la connexion est immédiate ; sinon, saisissez le mot de passe.</p></div>
         </div>
       </section>
-
+      <!-- ===================== Archives ===================== -->
+      {% if archives %}
+        <section id="archives" class="panel section-anchor">
+          <div class="panel-head"><div><h2>Archives de mon travail</h2><p>Copie des fichiers de vos machines, faite juste avant leur destruction. Conservée {{ archive_retention_days }} jours.</p></div></div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead><tr><th>Machine</th><th>Créée le</th><th>Taille</th><th>Disponible jusqu'au</th><th></th></tr></thead>
+              <tbody>
+                {% for a in archives %}
+                  <tr>
+                    <td class="mono">{{ a.container_name }}</td>
+                    <td>{{ a.created_at_local }}</td>
+                    <td>{{ a.size_label }}</td>
+                    <td>{{ a.expires_date_local }}</td>
+                    <td>
+                      {% if a.status == 'ok' %}<a href="{{ url_for('telecharger_archive', archive_id=a.id) }}" class="btn btn-secondary btn-sm">Télécharger</a>
+                      {% elif a.status == 'too_large' %}<span class="status status-warn"><span class="dot"></span>Trop volumineuse</span>
+                      {% else %}<span class="status status-warn"><span class="dot"></span>Archivage échoué</span>{% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      {% endif %}
       <!-- ===================== Historique ===================== -->
       {% if history_instances %}
         <section id="historique" class="panel section-anchor">

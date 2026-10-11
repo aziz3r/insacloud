@@ -25,6 +25,14 @@ insacloud_faucheur_interval: 10
 insacloud_container_memory: 256m
 insacloud_gui_memory: 1g            # machines "bureau graphique"
 
+# --- Sauvegarde du travail avant la destruction d'une machine -----------------
+# Le Faucheur archive /root et /home de la machine juste avant de la détruire ;
+# l'utilisateur télécharge l'archive depuis son tableau de bord.
+insacloud_archive_enabled: true
+insacloud_archive_dir: /var/lib/insacloud/archives    # privé : copies des fichiers des utilisateurs
+insacloud_archive_max_mb: 100                         # au-delà, l'archive est refusée
+insacloud_archive_retention_days: 7                   # puis le Faucheur l'efface
+insacloud_archive_timeout: 45                         # secondes ; doit rester sous insacloud_gunicorn_timeout
 # --- Nœuds Docker (workers) : "worker1=IP,worker2=IP" ; vide = Docker local ------
 # Calculé par le rôle depuis le groupe [workers] de l'inventaire (voir tasks).
 insacloud_workers_env: ""
@@ -56,6 +64,7 @@ webapp_files:
   # Application et couches métier
   - app.py
   - api.py
+  - archives.py
   - services.py
   - config.py
   - crypto.py

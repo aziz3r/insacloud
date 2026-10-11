@@ -99,6 +99,7 @@ def reap_expired() -> int:
             "Instance #%s expirée (user=%s, conteneur=%s, nœud=%s, port=%s) -> destruction",
             inst["id"], inst["username"], inst["container_name"], inst["worker"], inst["port"],
         )
+        services.archiver_avant_destruction(inst)
         if remove_container(inst["container_id"], inst["worker"]):
             db.set_instance_status(inst["id"], db.STATUS_EXPIRED)
             log.info("Instance #%s marquée 'expired'.", inst["id"])
@@ -221,6 +222,9 @@ def run_forever() -> None:
                 log.warning("%d machine(s) reprises sur un autre nœud.", reprises)
             if cycle % RECONCILE_EVERY == 0:
                 reconcile()
+                purgees = services.purger_archives_perimees()
+                if purgees:
+                    log.info("%d archive(s) périmée(s) effacée(s).", purgees)
         except Exception:  # noqa: BLE001 - le démon ne doit jamais mourir
             log.exception("Erreur inattendue dans le cycle du Faucheur")
         # wait() se réveille immédiatement si un arrêt est demandé

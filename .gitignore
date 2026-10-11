@@ -36,3 +36,5 @@ rapport/*.synctex.gz
 
 # Secrets de la pile compose (voir .env.example)
 .env
+# Archives de travail des utilisateurs (données privées)
+2_webapp/archives/

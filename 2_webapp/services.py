@@ -14,11 +14,13 @@ exceptions Docker.
 import logging
 from dataclasses import dataclass, field
 
+import archives
 import database as db
 import docker_ops as docker
 import workers as wk
-from config import (DEFAULT_MODE, DEFAULT_OS, MAX_DURATION_MINUTES,
-                    MAX_INSTANCES_PER_USER, MIN_DURATION_MINUTES, MODES)
+from config import (ARCHIVE_ENABLED, ARCHIVE_RETENTION_DAYS, DEFAULT_MODE,
+                    DEFAULT_OS, MAX_DURATION_MINUTES, MAX_INSTANCES_PER_USER,
+                    MIN_DURATION_MINUTES, MODES)
 from crypto import encrypt_secret
 
 log = logging.getLogger("insacloud.services")
@@ -191,6 +193,54 @@ def _supprimer_sans_bruit(identifiant: str, noeud: str) -> None:
 # =============================================================================
 #  Cycle de vie d'une location
 # =============================================================================
+def archiver_avant_destruction(instance: dict) -> None:
+    """
+    Sauvegarde le travail d'une machine juste avant de la détruire.
+
+    Appelée par le Faucheur (expiration) et par `arreter` (arrêt manuel). Ne
+    lève jamais et ne bloque jamais la destruction : si l'archivage échoue,
+    l'échec est enregistré (l'utilisateur le voit) et la machine est détruite
+    quand même. Sans cette règle, une machine expirée sur un nœud en panne
+    resterait en vie indéfiniment.
+
+    Une machine n'est archivée qu'une fois : si la destruction échoue et qu'on
+    réessaie au cycle suivant, on ne refait pas une archive à chaque passage.
+    """
+    if not ARCHIVE_ENABLED or db.instance_archivee(instance["id"]):
+        return
+    try:
+        noeud = db.get_worker_by_hostname(instance["worker"])
+        if noeud and noeud["status"] == db.WORKER_OFFLINE:
+            # Inutile d'attendre le délai maximal sur un nœud qu'on sait mort.
+            log.warning("Nœud %s hors ligne : pas d'archive pour %s",
+                        instance["worker"], instance["container_name"])
+            resultat = {"status": "failed", "detail": "nœud hors ligne"}
+        else:
+            resultat = archives.archiver_conteneur(
+                instance["container_id"], instance["worker"], instance["user_id"], instance["id"])
+        db.create_archive(instance["user_id"], instance["id"], resultat, ARCHIVE_RETENTION_DAYS)
+    except Exception:  # noqa: BLE001 - jamais d'obstacle à la destruction
+        log.exception("Archivage abandonné pour %s", instance.get("container_name"))
+def purger_archives_perimees() -> int:
+    """
+    Efface (fichier puis ligne en base) les archives dont la conservation est
+    écoulée, ainsi que les fichiers partiels abandonnés. Retourne le nombre
+    d'archives purgées. Appelée régulièrement par le Faucheur.
+
+    Si un fichier ne peut pas être effacé, sa ligne est conservée : on
+    réessaiera au prochain passage, au lieu de laisser sur le disque une copie
+    des fichiers d'un utilisateur dont plus rien ne garde la trace.
+    """
+    purgees = 0
+    for archive in db.get_expired_archives():
+        if archive["path"] and not archives.supprimer_fichier(archive["path"]):
+            continue
+        db.delete_archive(archive["id"])
+        purgees += 1
+    archives.nettoyer_partiels()
+    return purgees
+
+
 def arreter(instance_id: int, user_id: int) -> Resultat:
     """Détruit la machine et clôt la location. Idempotent."""
     instance = db.get_instance(instance_id, user_id)
@@ -198,6 +248,7 @@ def arreter(instance_id: int, user_id: int) -> Resultat:
         return Resultat.echec("Machine introuvable.", code=404)
     if instance["status"] != db.STATUS_RUNNING:
         return Resultat.succes("Cette machine est déjà arrêtée.")
+    archiver_avant_destruction(instance)
     try:
         docker.docker_remove_container(instance["container_id"], instance["worker"])
     except docker.DockerError as exc:

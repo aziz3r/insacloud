@@ -38,7 +38,7 @@ import sys
 import time
 
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   request, send_from_directory, session, url_for)
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -53,6 +53,7 @@ from config import (BEHIND_PROXY, COMMON_PASSWORDS, DEFAULT_MODE, DEFAULT_OS,
                     MAX_INSTANCES_PER_USER, MODES,
                     PASSWORD_MIN_LENGTH, SSH_HOST_OVERRIDE, SSH_PUBKEY_RE,
                     TLS_DIR, USERNAME_RE, VAULT_WINDOW_MINUTES, get_config)
+from config import ARCHIVE_DIR, ARCHIVE_RETENTION_DAYS
 from crypto import decrypt_secret, load_secret_key
 from docker_ops import docker_container_state
 
@@ -226,6 +227,16 @@ def veut_json() -> bool:
     # le HTML est traité comme un client d'API.
     accepte = request.accept_mimetypes
     return accepte.accept_json and not accepte.accept_html
+def taille_lisible(octets) -> str:
+    """12345678 -> « 11.8 Mo » : une taille que l'utilisateur sait lire."""
+    if octets is None:
+        return "-"
+    valeur = float(octets)
+    for unite in ("o", "Ko", "Mo"):
+        if valeur < 1024:
+            return f"{valeur:.0f} {unite}" if unite == "o" else f"{valeur:.1f} {unite}"
+        valeur /= 1024
+    return f"{valeur:.1f} Go"
 
 
 def champs(*noms):
@@ -437,12 +448,21 @@ def dashboard():
     history = [i for i in instances if not i["is_running"]]
     distros_ok = catalogue
     modes_ok = services.modes_disponibles(catalogue)
+        # Sauvegardes du travail faites avant la destruction des machines
+    archives = []
+    for archive in db.get_user_archives(g.user["id"]):
+        archive["size_label"] = taille_lisible(archive["size_bytes"])
+        archive["created_at_local"] = db.to_local(db.parse_utc(archive["created_at"])).strftime("%d/%m/%Y %H:%M")
+        archive["expires_date_local"] = db.to_local(db.parse_utc(archive["expires_at"])).strftime("%d/%m/%Y %H:%M")
+        archives.append(archive)
     # Secret à afficher une seule fois (déposé par create/rotate, consommé ici)
     reveal = secret_a_reveler()
     return render_template(
         "dashboard.html",
         active_instances=active,
         history_instances=history,
+        archives=archives,
+        archive_retention_days=ARCHIVE_RETENTION_DAYS,
         active_count=len(active),
         max_instances=MAX_INSTANCES_PER_USER,
         duration_choices=DURATION_CHOICES,
@@ -525,6 +545,27 @@ def create_instance():
     reveal_secret(resultat.donnees["instance_id"])
     flash(resultat.message, "success")
     return redirect(url_for("dashboard"))
+
+@app.route("/archives/<int:archive_id>/telecharger")
+@login_required
+def telecharger_archive(archive_id):
+    """
+    Télécharge la sauvegarde du travail d'une machine détruite.
+
+    Trois protections :
+      - le propriétaire est vérifié dans la requête SQL elle-même : l'archive
+        d'un autre compte répond 404, exactement comme une archive inexistante ;
+      - le chemin du fichier est joint à ARCHIVE_DIR par `send_from_directory`,
+        qui refuse toute sortie du dossier (« ../ »), même si la base était altérée ;
+      - la réponse est un téléchargement (`attachment`), jamais affichée dans la page.
+    """
+    archive = db.get_archive(archive_id, g.user["id"])
+    if archive is None or not archive["path"]:
+        abort(404)
+    instance = db.get_instance(archive["instance_id"], g.user["id"])
+    nom = f"{instance['container_name']}.tar.gz" if instance else f"archive-{archive_id}.tar.gz"
+    return send_from_directory(ARCHIVE_DIR, archive["path"], as_attachment=True,
+                               download_name=nom, mimetype="application/gzip")
 
 
 @app.route("/instances/<int:instance_id>/rotate", methods=["POST"])

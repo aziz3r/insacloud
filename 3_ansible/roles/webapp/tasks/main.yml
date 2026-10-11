@@ -62,7 +62,26 @@
     - "{{ insacloud_root }}"
     - "{{ insacloud_app_dir }}"
     - "{{ insacloud_app_dir }}/templates"
+- name: Vérifier que le délai d'archivage tient dans le timeout de Gunicorn
+  # L'arrêt manuel d'une machine archive pendant la requête web : au-delà du
+  # timeout, Gunicorn tuerait le processus au milieu de l'archivage.
+  ansible.builtin.assert:
+    that:
+      - insacloud_archive_timeout | int < insacloud_gunicorn_timeout | int
+    fail_msg: >-
+      insacloud_archive_timeout ({{ insacloud_archive_timeout }} s) doit être
+      inférieur à insacloud_gunicorn_timeout ({{ insacloud_gunicorn_timeout }} s).
+    quiet: true
+  when: insacloud_archive_enabled | bool
 
+- name: Créer le dossier des archives de travail (privé, réservé au service)
+  ansible.builtin.file:
+    path: "{{ insacloud_archive_dir }}"
+    state: directory
+    owner: "{{ insacloud_user }}"
+    group: "{{ insacloud_user }}"
+    mode: "0700"
+  when: insacloud_archive_enabled | bool
 - name: Configuration SSH du service (clé, hôtes acceptés à la première connexion, délais courts)
   ansible.builtin.copy:
     dest: "{{ insacloud_root }}/.ssh/config"
