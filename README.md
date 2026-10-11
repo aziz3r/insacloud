@@ -84,6 +84,11 @@ L'archive est faite **avant** le `docker rm -f` ; un archivage raté (nœud injo
 lourde) est signalé à l'utilisateur mais n'empêche jamais la destruction, sans quoi une machine
 expirée sur un nœud en panne resterait en vie indéfiniment. Réglages : `INSACLOUD_ARCHIVE_ENABLED`,
 `INSACLOUD_ARCHIVE_MAX_MB` et `INSACLOUD_ARCHIVE_RETENTION_DAYS` (voir `.env.example`).
+
+**Pour le vérifier soi-même** — écrire un mot dans un fichier d'une machine, la détruire, puis le
+retrouver dans l'archive —, un pas-à-pas pour Linux, macOS et Windows est dans
+[docs/ARCHIVAGE.md](docs/ARCHIVAGE.md).
+
 ## Ce qu'on peut louer
 
 |  | Terminal | Bureau graphique |
