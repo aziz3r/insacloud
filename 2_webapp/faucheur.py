@@ -32,7 +32,7 @@ import database as db
 import services
 import workers as wk
 from docker_ops import MACHINE_FILTERS
-from config import AUTO_RECOVERY
+from config import AUTO_RECOVERY, BASE_DIR
 
 # -----------------------------------------------------------------------------
 # Configuration
@@ -42,7 +42,13 @@ CONTAINER_PREFIX = "insacloud_"        # préfixe des conteneurs gérés par la 
 RECONCILE_EVERY = 6                    # passe de réconciliation tous les N cycles (~1 min)
 # Témoin de vie horodaté à chaque cycle : c'est lui que surveille la sonde du
 # conteneur, et non la simple présence du processus.
-LIVENESS_FILE = os.environ.get("INSACLOUD_FAUCHEUR_LIVENESS", "/tmp/faucheur-vivant")  # noqa: S108
+#
+# Il vit dans le dossier de l'application, pas dans /tmp : le Faucheur tourne
+# aussi en service systemd sur le contrôleur, où /tmp est partagé avec tous les
+# comptes locaux. Un autre utilisateur pourrait y déposer un lien symbolique et
+# nous faire horodater un fichier qui ne nous appartient pas.
+LIVENESS_FILE = os.environ.get("INSACLOUD_FAUCHEUR_LIVENESS",
+                               os.path.join(BASE_DIR, ".faucheur-vivant"))
 DOCKER_TIMEOUT = 60                    # secondes max pour une commande docker
 
 log = logging.getLogger("faucheur")

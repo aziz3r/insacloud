@@ -132,7 +132,7 @@ services:
     # bloque est toujours present, mais ne fauche plus.
     healthcheck:
       test: ["CMD-SHELL",
-             "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/faucheur-vivant) )) -lt 60"]
+             "test $$(( $$(date +%s) - $$(stat -c %Y /app/.faucheur-vivant) )) -lt 60"]
       interval: 20s
       timeout: 5s
       retries: 3

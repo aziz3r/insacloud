@@ -7,7 +7,7 @@
 #  Installation : pip install -r requirements.txt
 # =============================================================================
 Flask==3.1.3            # micro-framework web (routes, sessions, templates)
-Werkzeug==3.1.8         # couche WSGI de Flask (hachage des mots de passe, ProxyFix)
+Werkzeug==3.1.9         # couche WSGI de Flask (hachage des mots de passe, ProxyFix)
 Jinja2==3.1.6           # moteur de templates (échappement HTML automatique)
 itsdangerous==2.2.0     # signature cryptographique des cookies de session
 click==8.5.0            # interface en ligne de commande de Flask
