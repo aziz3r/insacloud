@@ -33,11 +33,26 @@ BOX = "bento/ubuntu-22.04"   # existe en amd64 et arm64 (VMware, Parallels, Virt
 #   WORKERS=2 vagrant up
 NB_WORKERS = (ENV["WORKERS"] || "3").to_i.clamp(1, 9)
 
+# Taille des VM. Les valeurs par défaut sont confortables ; sur un poste de 8 Go
+# elles ne tiennent pas (2 + 3 x 3 = 11 Go). Elles sont donc réglables sans
+# toucher au fichier, pour pouvoir démontrer la reprise sur panne — qui exige
+# un contrôleur et DEUX workers — sur une machine modeste :
+#
+#   WORKERS=2 CTRL_MEM=1536 WORKER_MEM=1280 vagrant up
+#
+# Le contrôleur porte nginx, Gunicorn et la base ; un worker ne porte que
+# Docker et les conteneurs loués, il se contente donc de moins.
+CTRL_MEM   = (ENV["CTRL_MEM"]   || "2048").to_i.clamp(1024, 16384)
+WORKER_MEM = (ENV["WORKER_MEM"] || "3072").to_i.clamp(768, 16384)
+CTRL_CPUS   = (ENV["CTRL_CPUS"]   || "2").to_i.clamp(1, 8)
+WORKER_CPUS = (ENV["WORKER_CPUS"] || "2").to_i.clamp(1, 8)
+
 MACHINES = {
-  "controller" => { "ip" => "192.168.56.10", "memory" => 2048, "cpus" => 2 },
+  "controller" => { "ip" => "192.168.56.10", "memory" => CTRL_MEM, "cpus" => CTRL_CPUS },
 }
 (1..NB_WORKERS).each do |n|
-  MACHINES["worker#{n}"] = { "ip" => "192.168.56.#{10 + n}", "memory" => 3072, "cpus" => 2 }
+  MACHINES["worker#{n}"] = { "ip" => "192.168.56.#{10 + n}",
+                             "memory" => WORKER_MEM, "cpus" => WORKER_CPUS }
 end
 
 # Architecture du poste (le Ruby embarqué par Vagrant peut tourner sous Rosetta)
