@@ -1,0 +1,119 @@
+\chapter{Couche 0 — Le socle}
+
+Avant la première ligne de code métier, trois outils décident de ce que le
+projet pourra devenir. On les oublie vite parce qu'ils ne « font » rien de
+visible, et ce sont pourtant eux qu'on regrette quand ils manquent.
+
+% -----------------------------------------------------------------------------
+\outil{Git}{brique 1 · versionnement}
+
+\quoi
+Un système qui enregistre l'historique complet d'un dossier : qui a changé
+quoi, quand, et pourquoi. Chaque enregistrement --- un \emph{commit} --- est
+une photographie du projet entier, pas seulement des fichiers modifiés.
+
+\pourquoi
+L'alternative honnête, c'est de copier le dossier en
+\cmd{projet-v2-final-vraiment}. Ça marche jusqu'au jour où l'on veut savoir
+quand un bug est apparu, ou revenir trois jours en arrière sans perdre le
+travail d'hier.
+
+Il existe d'autres systèmes --- Subversion, Mercurial --- mais Git est celui que
+toute l'industrie utilise, et surtout le seul que les plateformes
+d'intégration continue savent lire nativement. Choisir autre chose aurait coupé
+le projet de GitHub Actions, donc de toute la couche 6.
+
+\role
+Trente-cinq commits, chacun avec un message qui explique \emph{pourquoi} et pas
+seulement \emph{quoi}. Les branches servent à isoler un travail en cours : la
+branche \cmd{aziz-youssef-modif} porte l'intégration d'une contribution
+extérieure sans toucher à \cmd{main} tant qu'elle n'est pas vérifiée.
+
+Un fichier \fichier{.gitignore} tient hors du dépôt ce qui ne doit pas y
+entrer : les clés (\cmd{.secret\_key}, \cmd{.vault\_key}), le fichier
+\cmd{.env} des secrets de la pile, les environnements virtuels, et les archives
+de travail des utilisateurs.
+
+\apport
+Sans Git, aucune des briques de la couche 6 n'existe : pas d'intégration
+continue, pas de recherche de secrets dans l'historique, pas de déploiement
+déclenché par un envoi de code. C'est la brique dont toutes les autres
+dépendent indirectement.
+
+% -----------------------------------------------------------------------------
+\outil{Python 3.10}{brique 2 · langage}
+
+\quoi
+Le langage dans lequel est écrite toute la logique du projet : l'application
+web, le démon de nettoyage, l'agent des nœuds, les scripts de génération de
+schémas.
+
+\pourquoi
+Trois contraintes ont guidé le choix.
+
+D'abord la \textbf{bibliothèque standard}. L'agent qui tourne sur chaque worker
+ne doit rien avoir à installer : il utilise \cmd{urllib} pour les appels HTTP,
+\cmd{json}, \cmd{ssl}, \cmd{subprocess}, et lit \cmd{/proc/meminfo}
+directement. En Node.js ou en Go, il aurait fallu déployer un binaire ou un
+environnement sur chaque nœud.
+
+Ensuite l'\textbf{écosystème} : Flask, SQLAlchemy, Ansible lui-même sont en
+Python. Rester dans un seul langage évite d'avoir deux chaînes d'outillage.
+
+Enfin la \textbf{version} : 3.10 précisément, parce que la cible de
+déploiement est Ubuntu 22.04, qui fournit cette version. Ce détail nous a
+coûté une panne : nous avions épinglé une bibliothèque qui n'existait pas pour
+3.10, les tests passaient sur nos postes et le déploiement échouait.
+
+\begin{piege}{La version du poste n'est pas celle de la cible}
+C'est l'erreur la plus banale et la plus coûteuse. La chaîne d'intégration
+force désormais \cmd{PYTHON\_VERSION: 3.10} : elle teste avec le Python de la
+machine de production, pas celui du développeur.
+\end{piege}
+
+\role
+Environ 3\,500 lignes pour l'application, 1\,600 pour les tests, plus les
+scripts d'outillage. Le code est séparé en modules dont chacun ignore les
+couches au-dessus de lui : \fichier{docker\_ops.py} ne sait pas que Flask
+existe, ce qui le rend testable sans serveur.
+
+\apport
+Un seul langage du navigateur au worker, et un agent déployable sans rien
+installer.
+
+% -----------------------------------------------------------------------------
+\outil{venv et requirements épinglés}{brique 3 · reproductibilité}
+
+\quoi
+Un \emph{environnement virtuel} est un dossier contenant une copie isolée de
+Python et de ses bibliothèques. Le fichier \fichier{requirements.txt} liste les
+bibliothèques avec leur \textbf{version exacte} : \cmd{Flask==3.1.3}, pas
+\cmd{Flask}.
+
+\pourquoi
+Sans isolation, installer une bibliothèque pour ce projet peut casser un autre
+projet sur la même machine. Sans versions figées, le projet marche aujourd'hui
+et casse demain parce qu'une dépendance a publié une version incompatible.
+
+L'alternative moderne serait Poetry ou uv, plus confortables. On est resté sur
+\cmd{venv} et \cmd{pip}, qui sont dans la bibliothèque standard : aucune
+installation préalable n'est nécessaire sur la machine cible, et le rôle Ansible
+peut créer l'environnement avec ce que fournit Ubuntu.
+
+\role
+Deux fichiers : \fichier{requirements.txt} pour ce qui tourne en production,
+\fichier{requirements-dev.txt} pour l'outillage de tests et d'analyse. Le rôle
+Ansible \cmd{webapp} installe exactement le premier sur le contrôleur --- pas
+une liste recopiée à la main, ce qui a déjà été une source de divergence.
+
+\apport
+C'est ce qui permet à \cmd{pip-audit} d'exister (couche 6) : on ne peut
+confronter des dépendances à une base de vulnérabilités que si l'on sait
+exactement lesquelles on utilise.
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 0}
+
+Rien d'utilisable. Mais le projet est désormais \emph{reproductible} : on peut
+le cloner, créer l'environnement, et obtenir exactement les mêmes versions. Sans
+cela, toutes les couches suivantes reposeraient sur du sable.

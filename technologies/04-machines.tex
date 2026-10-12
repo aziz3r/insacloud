@@ -1,0 +1,295 @@
+\chapter{Couche 3 — Les machines louées}
+
+C'est le cœur du produit. Sept briques pour fabriquer ce que l'utilisateur
+achète : une machine Linux à lui, joignable de trois façons.
+
+% -----------------------------------------------------------------------------
+\outil{Docker}{brique 15 · la conteneurisation}
+
+\quoi
+Un moteur qui exécute des processus isolés les uns des autres, en réutilisant le
+noyau de la machine hôte. Un \emph{conteneur} se croit seul au monde, mais ne
+porte pas de système d'exploitation complet.
+
+\pourquoi
+La vraie alternative était la machine virtuelle --- VirtualBox, KVM. Une VM
+offre une isolation plus forte, puisqu'elle a son propre noyau. Deux chiffres
+ont tranché :
+
+\begin{center}
+\small
+\begin{tabularx}{0.9\textwidth}{@{}lXX@{}}
+\toprule
+& \textbf{Machine virtuelle} & \textbf{Conteneur} \\
+\midrule
+Démarrage & 30 à 60 secondes & moins d'une seconde \\
+Mémoire minimale & plusieurs centaines de Mo & celle des processus \\
+Densité sur un serveur & quelques dizaines & plusieurs centaines \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+Pour une location \textbf{à la minute}, faire attendre l'utilisateur une minute
+est absurde. Le sujet tranche d'ailleurs explicitement : « des conteneurs dans
+notre cas ».
+
+\begin{notion}{Ce qu'un conteneur est réellement}
+Trois mécanismes du noyau Linux, pas un objet magique :
+
+\textbf{Les espaces de noms} cloisonnent ce que le processus \emph{voit} : son
+propre arbre de processus, ses propres interfaces réseau, sa propre vision du
+disque. Le port 22 du conteneur n'est pas le port 22 de l'hôte.
+
+\textbf{Les groupes de contrôle} limitent ce qu'il \emph{consomme} : mémoire,
+processeur, nombre de processus.
+
+\textbf{Les capacités} découpent les pouvoirs de root en une quarantaine de
+droits indépendants, qu'on accorde un par un.
+\end{notion}
+
+\role
+Six images, et une commande imposée par le sujet pour créer chaque machine :
+
+\begin{lstlisting}[language=bash]
+docker run -d --restart=always -p <port>:22 <image>
+\end{lstlisting}
+
+Le projet y ajoute le durcissement : \cmd{--cap-drop ALL} puis les dix capacités
+strictement nécessaires, \cmd{no-new-privileges}, une limite de processus, de
+CPU, et la mémoire en réservation \emph{et} en limite.
+
+\apport
+La plateforme sait livrer une machine en quinze secondes. C'est la brique qui
+rend le produit possible.
+
+% -----------------------------------------------------------------------------
+\outil{Dockerfile}{brique 16 · la recette des images}
+
+\quoi
+Un fichier texte qui décrit, instruction par instruction, comment construire
+une image. Chaque instruction crée une \emph{couche} empilée sur la précédente.
+
+\pourquoi
+On pourrait créer une image en lançant un conteneur, en l'installant à la main,
+puis en figeant le résultat. Personne ne saurait plus ce qu'il contient, ni
+comment le reproduire.
+
+Le Dockerfile est l'infrastructure comme code appliquée aux images : versionné,
+relu, et vérifiable par un analyseur.
+
+\role
+Quatre fichiers pour six images. Le mode bureau n'est pas un fichier séparé :
+c'est un paramètre de construction.
+
+\begin{lstlisting}[language=dockerfile]
+FROM ubuntu:22.04
+ARG DESKTOP=0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssh-server supervisor \
+    && rm -rf /var/lib/apt/lists/*
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+CMD ["/usr/local/bin/entrypoint.sh"]
+\end{lstlisting}
+
+\begin{piege}{Nettoyer dans une autre couche ne sert à rien}
+Si l'on installe des paquets dans un \cmd{RUN} et qu'on efface le cache d'apt
+dans le \cmd{RUN} suivant, le cache reste dans l'image : une couche ne peut pas
+alléger celle du dessous. Il faut enchaîner les deux dans la \emph{même}
+instruction. Sur nos images, cela représente une cinquantaine de mégaoctets.
+\end{piege}
+
+\begin{piege}{Un mot de passe par défaut dans l'image}
+Notre première version contenait \cmd{ENV ROOT\_PASSWORD=insacloud}. L'analyseur
+\cmd{hadolint} l'a signalé, et il avait raison : ce mot de passe aurait été le
+même sur \textbf{toutes} les machines louées, et visible par quiconque fait
+\cmd{docker history}. L'entrypoint en tire désormais un au hasard si la
+plateforme n'en fournit pas.
+\end{piege}
+
+\apport
+Six images reproductibles, construites par la chaîne d'intégration à chaque
+envoi, et analysées avant d'être publiées.
+
+% -----------------------------------------------------------------------------
+\outil{supervisord}{brique 17 · plusieurs services dans un conteneur}
+
+\quoi
+Un gestionnaire de processus : il en démarre plusieurs, les surveille, et
+relance celui qui meurt.
+
+\pourquoi
+C'est la brique qui résout une contradiction. Un conteneur exécute \emph{un}
+processus, et s'arrête quand celui-ci se termine. Or une machine louée doit faire
+tourner cinq services : SSH, le terminal web, le serveur d'affichage, le bureau,
+et la passerelle VNC.
+
+Les alternatives : lancer un script shell qui démarre tout en arrière-plan ---
+mais alors rien ne surveille, et un service mort le reste. Ou \cmd{systemd} dans
+le conteneur --- lourd, et il réclame des privilèges qu'on vient justement de
+retirer.
+
+\begin{notion}{Pourquoi le PID 1 n'est pas un processus comme un autre}
+Le premier processus d'un conteneur hérite d'une obligation : adopter les
+processus orphelins et récupérer leur code de sortie. Sans cela, les processus
+terminés s'accumulent à l'état \emph{zombie} et finissent par saturer la table.
+
+Un \cmd{bash} lancé comme PID 1 ne fait pas ce travail. \cmd{supervisord}, si.
+\end{notion}
+
+\role
+L'entrypoint écrit une configuration adaptée au mode choisi, puis se
+\textbf{remplace} par supervisord :
+
+\begin{lstlisting}[language=bash]
+exec "$(command -v supervisord)" -c "$CONF"
+\end{lstlisting}
+
+Le mot \cmd{exec} compte : sans lui, le shell resterait PID 1 et ne relaierait
+pas les signaux. Un \cmd{docker stop} deviendrait un arrêt brutal au bout du
+délai de grâce.
+
+\apport
+C'est le premier des trois niveaux de résilience du projet : si un service meurt
+\emph{dans} la machine, il est relancé sans que l'utilisateur s'en aperçoive.
+
+% -----------------------------------------------------------------------------
+\outil{OpenSSH}{brique 18 · l'accès demandé par le sujet}
+
+\quoi
+Le serveur SSH : il donne un terminal distant chiffré, authentifié par mot de
+passe ou par clé.
+
+\pourquoi
+Il n'y avait pas de choix à faire : c'est l'accès que le sujet impose, et c'est
+le standard universel. La question intéressante est plutôt \emph{comment} on
+l'expose.
+
+Le conteneur écoute sur son propre port 22, et Docker le publie sur un port de
+l'hôte dans la plage 8000--9000. C'est ce qui permet de faire tourner des
+dizaines de serveurs SSH sur une seule machine : chacun croit avoir le port 22.
+
+\role
+Deux modes d'authentification. Par défaut, le mot de passe root généré. Mais si
+l'utilisateur a enregistré sa clé publique sur son compte, la machine
+\textbf{n'accepte plus que} cette clé --- l'authentification par mot de passe
+est coupée.
+
+\begin{piege}{Le port est publié avant que le service écoute}
+Docker publie le port dès la création du conteneur, mais \cmd{sshd} met une
+seconde ou deux à démarrer. Un test qui se connecte immédiatement échoue de
+façon intermittente.
+
+La correction n'est pas d'attendre « assez longtemps » --- une durée fixe est
+toujours trop courte un jour --- mais de réessayer jusqu'à ce que le service
+réponde, avec une limite.
+\end{piege}
+
+\apport
+L'accès exigé par le cahier des charges, avec une option plus sûre que le mot
+de passe pour qui le souhaite.
+
+% -----------------------------------------------------------------------------
+\outil{ttyd}{brique 19 · le terminal dans le navigateur}
+
+\quoi
+Un petit serveur qui expose un terminal dans une page web, par WebSocket.
+
+\pourquoi
+Le sujet ne le demande pas. Il répond à un problème réel : un utilisateur sur un
+poste de salle de TP n'a pas toujours de client SSH, ni le droit d'en installer.
+
+Les alternatives --- Shellinabox, abandonné ; Wetty, en Node.js donc une chaîne
+d'outillage de plus --- ont été écartées. ttyd est un binaire unique, en C, de
+quelques centaines de kilooctets.
+
+\role
+Lancé par supervisord sur le port 7681 du conteneur, publié sur l'hôte. Détail
+qui compte : il ne lance pas un shell, il lance \cmd{login}.
+
+\begin{lstlisting}[language=bash]
+ttyd -p 7681 -W /bin/sh -c "cat /etc/issue; exec $(command -v login)"
+\end{lstlisting}
+
+Le port ne donne donc pas un accès ouvert : il présente une invite qui réclame
+l'identifiant et le mot de passe.
+
+\gros[0.8]{zoom-motd.png}{Ce que montre le port du terminal web : une invite de
+connexion, pas un shell.}
+
+\gros[0.8]{zoom-bienvenue.png}{Après authentification, le bandeau rappelle que
+la machine est louée pour une durée limitée.}
+
+\apport
+Un accès sans rien installer. C'est le premier des ajouts au-delà du sujet.
+
+% -----------------------------------------------------------------------------
+\outil{Xvnc, XFCE et noVNC}{brique 20 · le bureau graphique}
+
+\quoi
+Trois pièces qui s'emboîtent. \textbf{Xvnc} est un serveur d'affichage qui
+dessine dans une mémoire plutôt que sur un écran. \textbf{XFCE} est
+l'environnement de bureau qui s'y affiche. \textbf{noVNC} est une passerelle qui
+traduit le protocole VNC en WebSocket, pour qu'un navigateur puisse l'afficher.
+
+\pourquoi
+XFCE plutôt que GNOME ou KDE : il tourne correctement dans un gigaoctet de
+mémoire, là où les autres en réclament deux ou trois. Pour une machine louée,
+c'est la différence entre trois utilisateurs par serveur et dix.
+
+noVNC plutôt qu'un client VNC à installer : même raisonnement que pour ttyd ---
+l'utilisateur ne doit rien installer.
+
+\role
+Trois services de plus sous supervisord, en mode bureau seulement. Le serveur
+d'affichage \textbf{n'écoute que sur la boucle locale} : on ne peut l'atteindre
+qu'à travers la passerelle, qui est chiffrée quand un certificat est monté.
+
+Le mot de passe VNC est limité à huit caractères par le protocole : ce sont les
+huit premiers du mot de passe root, ce que l'interface explique.
+
+\gros[0.86]{zoom-bureau.png}{Le bureau XFCE d'une machine Ubuntu louée, affiché
+dans le navigateur. Cinq processus cohabitent dans ce conteneur.}
+
+\apport
+Le second ajout au-delà du sujet, et le plus spectaculaire en démonstration : un
+bureau Linux complet, dans un onglet, sans rien installer.
+
+% -----------------------------------------------------------------------------
+\outil{Le script d'entrée}{brique 21 · ce qui assemble la machine}
+
+\quoi
+\fichier{1\_docker/entrypoint.sh}, 166 lignes de shell. C'est le programme que
+Docker lance quand la machine démarre.
+
+\pourquoi
+Il fallait un endroit unique qui adapte la machine à ce que l'utilisateur a
+demandé. Mettre cette logique dans le Dockerfile aurait obligé à six images
+indépendantes ; la mettre dans l'application aurait dispersé le savoir.
+
+\role
+Trois tâches, dans l'ordre :
+
+\begin{enumerate}
+\item poser le mot de passe root et, s'il y en a une, la clé SSH --- auquel cas
+  il \textbf{coupe} l'authentification par mot de passe ;
+\item écrire la configuration supervisord correspondant au mode ;
+\item se remplacer par supervisord.
+\end{enumerate}
+
+Il sert aussi d'outil : la plateforme l'appelle pour changer le mot de passe
+d'une machine à chaud, sans la redémarrer.
+
+\begin{lstlisting}[language=bash]
+docker exec <conteneur> /usr/local/bin/entrypoint.sh setpass <nouveau>
+\end{lstlisting}
+
+\apport
+Une seule recette pour six variantes, et la rotation du mot de passe sans
+interruption de service.
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 3}
+
+Elle fabrique de vraies machines Linux, accessibles de trois façons, durcies, et
+qui se réparent toutes seules en interne. Mais quelqu'un doit encore décider
+\emph{quand} les créer et \emph{quand} les détruire --- et sur quel serveur.

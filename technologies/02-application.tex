@@ -1,0 +1,237 @@
+\chapter{Couche 1 — L'application web}
+
+Six briques pour transformer du code Python en un site que des gens peuvent
+utiliser. Chacune règle un problème que la précédente laissait ouvert.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[font=\scriptsize,
+  b/.style={draw=grisligne,fill=grisfond,rounded corners=2pt,minimum height=13mm,
+            minimum width=2.3cm,align=center},
+  f/.style={-{Stealth[length=2mm]},gristexte}]
+\node[b] (n) at (0,0) {Navigateur};
+\node[b] (x) at (3.2,0) {\textbf{nginx}\\\textcolor{gristexte}{TLS, statiques}};
+\node[b] (g) at (6.4,0) {\textbf{Gunicorn}\\\textcolor{gristexte}{4 ouvriers}};
+\node[b] (fl) at (9.6,0) {\textbf{Flask}\\\textcolor{gristexte}{routes}};
+\node[b] (j) at (12.8,0) {\textbf{Jinja2}\\\textcolor{gristexte}{gabarits}};
+\draw[f] (n) -- node[above]{HTTPS} (x);
+\draw[f] (x) -- node[above]{HTTP local} (g);
+\draw[f] (g) -- node[above]{WSGI} (fl);
+\draw[f] (fl) -- node[above]{rendu} (j);
+\end{tikzpicture}}
+\caption{Le chemin d'une requête. Chaque maillon existe parce que le suivant ne
+sait pas faire son travail.}
+\end{figure}
+
+% -----------------------------------------------------------------------------
+\outil{Flask}{brique 4 · le cadre web}
+
+\quoi
+Un \emph{micro}-framework : il fournit le routage (associer une URL à une
+fonction), les gabarits et les sessions. Il ne fournit ni base de données, ni
+administration, ni authentification --- on choisit soi-même.
+
+\pourquoi
+L'autre grand choix Python est \textbf{Django}, qui fournit tout : ORM,
+interface d'administration, comptes utilisateurs, formulaires. Pour un projet
+d'entreprise classique, Django va plus vite.
+
+Ici, c'était un mauvais choix pour une raison précise : le sujet demande de
+comprendre et de montrer chaque mécanisme. Avec Django, l'authentification est
+une boîte noire qu'on active ; avec Flask, on écrit le hachage, la session, le
+verrouillage après cinq échecs, et on peut les expliquer. Le projet est un
+exercice d'ingénierie, pas une course à la livraison.
+
+Deuxième raison : Django impose son ORM. Nous voulions pouvoir piloter la base
+finement --- notamment l'index unique partiel qui garantit l'unicité des ports.
+
+\role
+\fichier{app.py} porte les routes HTML et les sessions ;
+\fichier{api.py} porte les routes JSON. Une particularité : \textbf{les mêmes
+URL servent les deux}, selon l'en-tête \cmd{Accept} de l'appelant. Il n'y a pas
+un site d'un côté et une API de l'autre, mais une logique métier unique avec
+deux rendus.
+
+\begin{lstlisting}[language=Python,caption={\fichier{2\_webapp/app.py}}]
+def veut_json() -> bool:
+    # Un client qui accepte TOUT (Accept: */*, cas de curl sans en-tete)
+    # n'est pas un client d'API : seul celui qui demande du JSON sans accepter
+    # le HTML est traite comme tel.
+    accepte = request.accept_mimetypes
+    return accepte.accept_json and not accepte.accept_html
+\end{lstlisting}
+
+\apport
+La plateforme devient atteignable depuis un navigateur. Et, grâce à la
+négociation de contenu, elle est simultanément pilotable par \cmd{curl} sans
+une ligne de code en plus --- ce qui satisfait l'exigence d'API du sujet sans
+dédoubler le travail.
+
+% -----------------------------------------------------------------------------
+\outil{Jinja2}{brique 5 · les gabarits}
+
+\quoi
+Le moteur qui remplit des fichiers HTML avec des variables. Dans le gabarit on
+écrit \verb|{{ machine.nom }}| et \verb|{% for m in machines %}| ; Jinja2
+produit le HTML final.
+
+\pourquoi
+L'alternative serait de construire le HTML par concaténation de chaînes en
+Python. Outre l'illisibilité, c'est une faille : une variable contenant
+\cmd{<script>} serait injectée telle quelle dans la page. Jinja2
+\textbf{échappe automatiquement} tout ce qu'il insère --- c'est une protection
+contre les injections de script obtenue sans y penser.
+
+Il vient avec Flask, donc aucun choix à faire ; mais le mentionner compte,
+parce que l'échappement automatique est une des raisons pour lesquelles le
+projet n'a aucune faille XSS.
+
+\role
+Les gabarits de \fichier{2\_webapp/templates/} : la page de connexion,
+l'inscription, et le tableau de bord qui fait à lui seul 358 lignes. Les
+conditions y servent à n'afficher une section que si elle a du contenu ---
+« Archives de mon travail » n'apparaît que s'il y a des archives.
+
+\apport
+Des pages lisibles à écrire, et une classe entière d'attaques écartée par
+défaut.
+
+% -----------------------------------------------------------------------------
+\outil{Werkzeug}{brique 6 · la plomberie HTTP}
+
+\quoi
+La bibliothèque sur laquelle Flask est construit. Elle gère le détail du
+protocole HTTP, et fournit deux outils qu'on utilise directement :
+le hachage des mots de passe et le \emph{middleware} \cmd{ProxyFix}.
+
+\pourquoi
+On ne l'a pas choisie : elle arrive avec Flask. Mais deux de ses fonctions sont
+employées délibérément plutôt que réécrites.
+
+\cmd{generate\_password\_hash} applique \textbf{pbkdf2-sha256} avec un sel
+aléatoire et des milliers d'itérations. Écrire soi-même un hachage de mot de
+passe est l'erreur classique : on choisit un algorithme trop rapide, on oublie
+le sel, et la base devient exploitable en cas de fuite.
+
+\cmd{ProxyFix} règle un problème qu'on ne voit qu'en production : derrière
+nginx, toutes les requêtes semblent venir de \cmd{127.0.0.1}. Sans lui, notre
+verrouillage anti-force-brute compterait toutes les tentatives comme venant de
+la même adresse --- et bloquerait tout le monde au cinquième échec de n'importe
+qui.
+
+\role
+Hachage à l'inscription et vérification à la connexion ; \cmd{ProxyFix} activé
+dans \fichier{app.py} pour que l'adresse réelle du client remonte.
+
+\apport
+Des mots de passe stockés correctement, et un anti-force-brute qui vise la
+bonne personne.
+
+% -----------------------------------------------------------------------------
+\outil{Gunicorn}{brique 7 · le serveur d'application}
+
+\quoi
+Un serveur WSGI : il reçoit les requêtes HTTP et les passe à l'application
+Python. Il lance plusieurs processus ouvriers qui se partagent le travail.
+
+\pourquoi
+Flask embarque un serveur de développement, mais il traite \textbf{une requête
+à la fois} et affiche lui-même un avertissement : ne pas utiliser en
+production. Or créer un conteneur prend plusieurs secondes ; avec un seul
+processus, un utilisateur qui loue une machine bloquerait tous les autres.
+
+Les alternatives sont uWSGI (plus puissant, bien plus complexe à configurer) et
+Waitress (plus simple, mais mono-processus par défaut). Gunicorn est le milieu
+raisonnable : une ligne de commande suffit, et il redémarre les ouvriers qui
+plantent.
+
+\role
+Quatre ouvriers, lancés par l'unité systemd du contrôleur :
+
+\begin{lstlisting}[language=bash]
+gunicorn --preload -w 4 -b 127.0.0.1:5000 app:app
+\end{lstlisting}
+
+\begin{piege}{Quatre processus qui démarrent en même temps}
+Chacun importe l'application, qui crée les tables si elles manquent. Les quatre
+le font simultanément, et parfois l'un échoue avec \cmd{table users already
+exists}. Sur un poste mono-processus, le bug n'apparaît jamais.
+
+Deux correctifs : la création tolère désormais l'erreur « existe déjà », et
+l'option \cmd{--preload} fait importer l'application \emph{une fois} avant de
+dupliquer le processus. Nous avons reproduit la panne avec huit processus
+simultanés --- six sur huit démarraient ; après correction, huit sur huit.
+\end{piege}
+
+\apport
+La plateforme supporte plusieurs utilisateurs simultanés. Avant Gunicorn, une
+location en cours gelait le site pour tout le monde.
+
+% -----------------------------------------------------------------------------
+\outil{nginx}{brique 8 · le proxy inverse}
+
+\quoi
+Un serveur web placé \emph{devant} l'application. Le navigateur lui parle ; il
+relaie vers Gunicorn.
+
+\pourquoi
+Gunicorn sait répondre à du HTTP, mais ne sait pas faire trois choses
+essentielles : terminer le TLS, servir efficacement les fichiers statiques, et
+absorber les requêtes malformées.
+
+L'alternative est Apache, qui sait tout faire aussi mais consomme davantage et
+se configure plus lourdement. Caddy aurait apporté les certificats
+automatiques, ce qui n'a pas de sens sur un réseau privé sans nom de domaine
+public.
+
+\role
+Le rôle Ansible \cmd{reverse\_proxy} installe nginx avec :
+
+\begin{itemize}
+\item \textbf{TLS 1.3} et le certificat du nœud ;
+\item les fichiers statiques servis directement, sans réveiller Python ;
+\item les en-têtes de sécurité : \cmd{Strict-Transport-Security},
+  \cmd{X-Content-Type-Options}, \cmd{X-Frame-Options} ;
+\item \cmd{X-Forwarded-For}, que \cmd{ProxyFix} relira côté Flask.
+\end{itemize}
+
+\apport
+Le site passe en HTTPS, les images et le CSS ne coûtent plus de temps Python, et
+l'application n'est plus exposée directement au réseau.
+
+% -----------------------------------------------------------------------------
+\outil{Tailwind CSS, précompilé}{brique 9 · l'apparence}
+
+\quoi
+Une bibliothèque de style où l'on compose l'apparence avec de petites classes
+dans le HTML, plutôt qu'en écrivant du CSS à part.
+
+\pourquoi
+L'usage courant est de charger Tailwind depuis un CDN : une ligne, et ça marche.
+C'était impossible ici.
+
+La politique de sécurité de contenu du projet est \cmd{default-src 'self'} :
+\textbf{aucune ressource externe} n'a le droit d'être chargée. Un CDN est
+précisément une ressource externe. Il a donc fallu \textbf{précompiler} Tailwind
+en un fichier CSS servi par nginx, et héberger les polices localement.
+
+\role
+\fichier{2\_webapp/static/css/tailwind.css} est le résultat de la compilation ;
+\fichier{tailwind.src.css} en est la source. Les polices IBM Plex Sans sont dans
+\fichier{static/fonts/}.
+
+\apport
+Une interface soignée \emph{sans} affaiblir la politique de sécurité. C'est le
+genre de compromis où le choix facile (le CDN) aurait coûté une faille entière :
+avec un CDN autorisé, une injection de script redevient exploitable.
+
+\gros[0.55]{zoom-connexion.png}{La page de connexion. Tout le style vient d'un
+fichier CSS local : la politique de sécurité interdit toute ressource externe.}
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 1}
+
+Elle a un site en HTTPS, capable de servir plusieurs utilisateurs, avec des
+comptes et des sessions. Mais elle ne retient rien : à chaque redémarrage, tout
+disparaît. C'est l'objet de la couche suivante.

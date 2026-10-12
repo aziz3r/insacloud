@@ -1,0 +1,77 @@
+\chapter*{Comment lire ce document}
+\addcontentsline{toc}{chapter}{Comment lire ce document}
+\markboth{COMMENT LIRE CE DOCUMENT}{}
+
+\section*{Le principe : un empilement}
+
+On ne présente pas les outils par ordre alphabétique ni par importance. On les
+pose dans l'ordre où il a fallu les poser, et chaque couche ne peut exister que
+parce que la précédente est là.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[font=\small,
+  c/.style={draw=grisligne,fill=grisfond,rounded corners=3pt,minimum width=11cm,
+            minimum height=9mm,align=center},
+  n/.style={font=\scriptsize\bfseries,insared}]
+\foreach \y/\t/\o in {
+  0/{Le socle}/{Git · Python · venv},
+  1/{L'application web}/{Flask · Jinja2 · Werkzeug · Gunicorn · nginx · Tailwind},
+  2/{Les données}/{SQLAlchemy · Alembic · SQLite · PostgreSQL · Fernet},
+  3/{Les machines louées}/{Docker · supervisord · OpenSSH · ttyd · Xvnc · XFCE · noVNC},
+  4/{Le pilotage du parc}/{subprocess · étiquettes · agent · Faucheur · systemd},
+  5/{L'infrastructure}/{Vagrant · VMware · Ansible · Vault · inventaire dynamique},
+  6/{La qualité}/{pytest · ruff · bandit · Trivy · Syft · GitHub Actions}} {
+  \node[c] at (0,\y*1.15) {\textbf{\t}\\[1pt]\textcolor{gristexte}{\scriptsize\o}};
+  \node[n] at (-6.3,\y*1.15) {\y};
+}
+\draw[-{Stealth[length=3mm]},insared,thick] (6.3,-0.45) -- (6.3,7.4)
+  node[midway,right=4pt,insared,font=\scriptsize,align=left]
+  {chaque couche\\suppose\\la précédente};
+\end{tikzpicture}}
+\caption{Les sept couches. On ne peut pas conteneuriser avant d'avoir une
+application, ni automatiser le déploiement avant d'avoir quelque chose à
+déployer.}
+\end{figure}
+
+\section*{Chaque outil, quatre questions}
+
+Toutes les fiches ont la même forme. Vous pouvez lire le document en entier,
+ou n'en consulter qu'une fiche.
+
+\begin{description}
+\item[C'est quoi] en une ou deux phrases, sans supposer qu'on connaît.
+\item[Pourquoi celui-là] quelles étaient les autres possibilités, et ce qui a
+  fait pencher. C'est la partie la plus utile : un outil se comprend par ce
+  qu'on a écarté.
+\item[Son rôle ici] précisément, dans ce projet, avec le fichier concerné.
+\item[Ce que ça a changé] ce que la plateforme savait faire avant, et après.
+\end{description}
+
+\begin{retenir}
+Si vous ne devez retenir qu'une chose par outil, retenez le \textbf{pourquoi
+celui-là}. Savoir qu'on utilise Gunicorn ne vaut rien ; savoir pourquoi le
+serveur de développement de Flask ne suffit pas, si.
+\end{retenir}
+
+\section*{Ce que la plateforme doit savoir faire}
+
+Pour mesurer l'apport de chaque brique, il faut savoir où l'on va. La
+plateforme finale doit :
+
+\begin{enumerate}
+\item accueillir des comptes utilisateurs et les authentifier ;
+\item proposer un catalogue de systèmes Linux ;
+\item créer une machine à la demande, en quinze secondes ;
+\item en donner l'accès par SSH, par un terminal web et par un bureau
+  graphique ;
+\item la détruire toute seule à l'échéance ;
+\item répartir les machines sur plusieurs serveurs ;
+\item survivre à la panne de l'un d'eux ;
+\item et se redéployer entièrement en une commande.
+\end{enumerate}
+
+Aucune de ces huit capacités n'est apportée par un seul outil. Chacune naît de
+la rencontre de plusieurs briques --- et c'est précisément ce que ce document
+cherche à rendre lisible.

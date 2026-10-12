@@ -1,0 +1,357 @@
+\chapter{Couche 6 — La qualité}
+
+La plateforme marche. Reste à garantir qu'elle marchera encore après la
+prochaine modification --- et qu'elle ne livre pas de faille connue. Treize
+briques, dont onze tournent à chaque envoi de code.
+
+% -----------------------------------------------------------------------------
+\outil{pytest}{brique 34 · les tests}
+
+\quoi
+Le cadre de test de Python. Une fonction dont le nom commence par \cmd{test\_}
+est un test ; une assertion fausse le fait échouer.
+
+\pourquoi
+L'alternative dans la bibliothèque standard est \cmd{unittest}, qui impose
+d'écrire des classes et des méthodes à noms imposés. pytest accepte des
+fonctions simples, et surtout il apporte les \emph{fixtures} : des morceaux de
+préparation réutilisables, dont l'un est central ici.
+
+\role
+147 tests, en vingt secondes, répartis en six fichiers. Deux mécanismes font
+tout le travail.
+
+\textbf{La base vierge à chaque test.} Une fixture marquée \cmd{autouse=True}
+efface et recrée la base avant chaque test, sans qu'on ait à y penser.
+
+\begin{piege}{Des tests qui dépendent de leur ordre}
+Si un test laisse des données derrière lui, le suivant peut réussir pour la
+mauvaise raison --- ou échouer quand on le lance seul. Le symptôme : « ça passe
+en entier mais pas tout seul », ou l'inverse. C'est le genre de bug qui fait
+abandonner une suite de tests.
+\end{piege}
+
+\textbf{L'espion sur Docker.} Les tests ne lancent aucun conteneur :
+\cmd{run\_docker} est remplacé par une fonction qui note ce qu'on lui demande.
+On vérifie ainsi que la commande imposée par le sujet part bien telle quelle,
+sur une machine qui n'a même pas Docker.
+
+\apport
+Les tests tournent partout, en vingt secondes. C'est ce qui permet de les lancer
+à chaque envoi plutôt qu'une fois par mois.
+
+% -----------------------------------------------------------------------------
+\outil{ruff}{brique 35 · l'analyse de style et d'erreurs}
+
+\quoi
+Un analyseur qui lit le code sans l'exécuter et signale ce qui est douteux :
+import jamais utilisé, variable inconnue, tournure obsolète, motif dangereux.
+
+\pourquoi
+Les outils historiques sont \cmd{flake8} pour le style et \cmd{pylint} pour
+l'analyse, plus \cmd{isort} pour les imports. Ruff fait les trois, est écrit en
+Rust, et tourne en moins d'une seconde sur tout le projet --- contre plusieurs
+dizaines pour pylint. Cette vitesse change l'usage : on le lance avant chaque
+commit au lieu de l'éviter.
+
+\role
+Configuré dans \fichier{pyproject.toml}, avec six familles de règles
+sélectionnées. Une seule est désactivée --- la longueur de ligne --- parce que
+les commentaires pédagogiques du projet dépassent parfois.
+
+Il vérifie aussi \cmd{target-version = "py310"} : il refuse les tournures que le
+Python de la machine cible ne comprendrait pas.
+
+\apport
+Le code reste lisible et cohérent sans discussion de style, et les fautes
+d'inattention sont attrapées avant l'exécution.
+
+% -----------------------------------------------------------------------------
+\outil{bandit}{brique 36 · l'analyse de sécurité du code (SAST)}
+
+\quoi
+\emph{Static Application Security Testing} : il cherche dans le code source des
+motifs connus pour être dangereux.
+
+\pourquoi
+Un relecteur humain oublie. bandit connaît une liste de pièges classiques et ne
+se fatigue pas : concaténation SQL, \cmd{shell=True}, secret en dur, algorithme
+de hachage obsolète, fichier temporaire prévisible.
+
+\role
+Lancé avec \cmd{--severity-level low --confidence-level low} : on veut tout
+voir. Le projet ne désactive \textbf{aucune règle globalement} ; les rares cas
+légitimes sont annotés ligne à ligne avec leur justification --- par exemple
+\cmd{\# nosec B404} sur l'import de \cmd{subprocess}, puisque le sujet impose de
+piloter Docker par sa ligne de commande.
+
+\begin{piege}{Le témoin de vie dans \texttt{/tmp}}
+Le Faucheur horodate un fichier à chaque cycle, pour que la sonde du conteneur
+sache que sa boucle tourne. Nous l'avions mis dans \cmd{/tmp} ; bandit a
+signalé la règle B108, et il avait raison.
+
+Le Faucheur tourne aussi en service systemd sur le contrôleur, où \cmd{/tmp} est
+partagé avec tous les comptes locaux : un lien symbolique y suffirait à nous
+faire horodater un fichier qui ne nous appartient pas. Le témoin vit désormais
+dans le dossier de l'application.
+\end{piege}
+
+\apport
+Une famille entière d'erreurs est attrapée automatiquement, y compris celles
+qu'on vient d'introduire sans y penser.
+
+% -----------------------------------------------------------------------------
+\outil{pip-audit}{brique 37 · l'audit des dépendances (SCA)}
+
+\quoi
+\emph{Software Composition Analysis} : il confronte la liste des dépendances
+épinglées aux bases de vulnérabilités publiques.
+
+\pourquoi
+On écrit soi-même quelques milliers de lignes, mais on en importe des
+centaines de milliers. Une faille dans Flask ou dans Werkzeug est une faille du
+projet, et on ne l'apprend pas en relisant son propre code.
+
+L'alternative est \cmd{safety}, dont la base complète est payante. pip-audit est
+publié par l'autorité de packaging Python et utilise les bases publiques.
+
+\role
+Lancé sur \fichier{requirements.txt} avec \cmd{--strict}. C'est la brique qui
+rend l'épinglage des versions (brique 3) exploitable : on ne peut auditer que ce
+qu'on connaît exactement.
+
+\begin{retenir}
+Ce travail trouve des failles \textbf{sans qu'on ait rien changé}. Werkzeug
+3.1.8 est devenu vulnérable (CVE-2026-102598) entre deux exécutions de la
+chaîne : notre code n'avait pas bougé, le monde si. Sans ce contrôle
+automatique, nous l'aurions appris trop tard.
+\end{retenir}
+
+\apport
+Les failles des dépendances sont vues le jour de leur publication, pas le jour
+de l'incident.
+
+% -----------------------------------------------------------------------------
+\outil{gitleaks}{brique 38 · la recherche de secrets}
+
+\quoi
+Un outil qui parcourt le dépôt \textbf{et tout son historique} à la recherche de
+clés, jetons et mots de passe.
+
+\pourquoi
+C'est la brique qui corrige une illusion : effacer un secret dans un commit
+ultérieur ne l'efface pas du dépôt. Il reste dans l'historique, consultable par
+quiconque clone.
+
+\role
+Lancé sur l'historique complet à chaque envoi. C'est ce qui permet au Vault
+d'être versionné sans crainte : s'il était un jour commis en clair, la chaîne le
+verrait immédiatement.
+
+\apport
+Une erreur humaine --- commettre un fichier de configuration contenant un mot de
+passe --- est détectée avant qu'elle ne devienne publique.
+
+% -----------------------------------------------------------------------------
+\outil{nuclei et dast.sh}{brique 39 · l'analyse dynamique (DAST)}
+
+\quoi
+\emph{Dynamic Application Security Testing} : on attaque l'application
+\textbf{en fonctionnement}, par le réseau, comme le ferait un attaquant.
+
+\pourquoi
+bandit lit le code ; il ne peut pas savoir si l'en-tête de sécurité est
+réellement envoyé, ni si une page protégée l'est vraiment une fois déployée.
+Seul un test contre le service qui tourne le dit.
+
+\cmd{nuclei} est un scanner générique avec des milliers de signatures.
+\fichier{tests/dast.sh} est un script maison qui vérifie ce que nuclei ne
+connaît pas : les règles propres à ce projet.
+
+\role
+La chaîne démarre l'application avec Gunicorn, puis lance les deux. Dix-huit
+contrôles : en-têtes de sécurité, pages protégées inaccessibles sans session,
+jetons CSRF exigés, attributs des cookies.
+
+\apport
+On vérifie le comportement réel, pas l'intention du code.
+
+% -----------------------------------------------------------------------------
+\outil{hadolint et ansible-lint}{brique 40 · l'analyse de l'infrastructure}
+
+\quoi
+Deux analyseurs spécialisés : \cmd{hadolint} pour les Dockerfiles,
+\cmd{ansible-lint} pour les rôles Ansible.
+
+\pourquoi
+Le code d'infrastructure est du code, avec ses propres pièges. Un Dockerfile
+peut figer un mot de passe dans une couche, installer une version non épinglée,
+ou tourner en root sans raison. Un rôle Ansible peut être non idempotent sans
+que cela se voie.
+
+\role
+\cmd{hadolint} analyse les quatre Dockerfiles. C'est lui qui a trouvé le mot de
+passe par défaut de la brique 16.
+
+\cmd{ansible-lint} tourne au profil \cmd{production}, le plus strict. Il vérifie
+notamment que les tâches ont un nom, que les modules sont qualifiés
+(\cmd{ansible.builtin.*}), et signale les usages non idempotents.
+
+\begin{piege}{\texttt{command} et \texttt{shell} ne sont jamais idempotents}
+Ces deux modules exécutent ce qu'on leur donne sans rien vérifier : ils sont
+donc \emph{toujours} signalés \cmd{changed}. Il faut leur apprendre à se taire
+avec \cmd{creates:}, \cmd{removes:} ou \cmd{changed\_when:}.
+\end{piege}
+
+\apport
+L'infrastructure est relue avec la même exigence que le code applicatif.
+
+% -----------------------------------------------------------------------------
+\outil{Trivy}{brique 41 · le scan des images}
+
+\quoi
+Un scanner qui inventorie les paquets d'une image Docker et cherche leurs
+vulnérabilités connues.
+
+\pourquoi
+pip-audit couvre les dépendances Python. Mais une image contient aussi un
+système de base --- Debian, Ubuntu, Alpine --- avec ses centaines de paquets.
+Une faille OpenSSL dans l'image de base est une faille livrée.
+
+\role
+La chaîne inventorie \emph{toutes} les failles sans bloquer, puis relance Trivy
+avec un verrou : aucune faille \cmd{HIGH} ou \cmd{CRITICAL}
+\textbf{corrigeable} ne passe.
+
+\begin{retenir}
+Le mot « corrigeable » fait tout. L'option \cmd{--ignore-unfixed} écarte les
+failles sans correctif disponible : les refuser ne protégerait de rien et
+bloquerait tout, ce qui finirait par faire désactiver le contrôle.
+\end{retenir}
+
+Ce verrou a bloqué nos propres images : la base \cmd{docker:28-cli} traînait
+163 failles corrigeables liées à sa version de Go. Il a fallu passer à
+\cmd{docker:29-cli} --- deux failles au lieu de 163 --- et ajouter un
+\cmd{apt-get upgrade} pour OpenSSL.
+
+\apport
+Aucune image vulnérable ne part au registre. Et la preuve que le contrôle sert :
+il nous a refusé les nôtres.
+
+% -----------------------------------------------------------------------------
+\outil{Syft}{brique 42 · l'inventaire de ce qu'on livre (SBOM)}
+
+\quoi
+\emph{Software Bill of Materials} : la liste exhaustive des composants d'une
+image livrée, avec leurs versions.
+
+\pourquoi
+Quand une faille majeure est annoncée, la première question est : « sommes-nous
+touchés ? ». Sans inventaire, il faut reconstruire l'image et chercher. Avec un
+SBOM archivé, on lit un fichier.
+
+C'est aussi une exigence réglementaire croissante pour tout logiciel livré.
+
+\role
+Généré à chaque publication et conservé en artefact de la chaîne --- environ
+340 Ko décrivant tout ce que contiennent les images.
+
+\apport
+Le projet peut répondre, des mois plus tard, à une question sur une faille
+publiée après sa livraison.
+
+% -----------------------------------------------------------------------------
+\outil{GitHub Actions}{brique 43 · l'orchestration de tout cela}
+
+\quoi
+Le service qui exécute automatiquement une suite de travaux à chaque envoi de
+code, sur des machines neuves.
+
+\pourquoi
+Les onze contrôles précédents ne valent que s'ils tournent. Lancés à la main,
+ils sont oubliés le jour où l'on est pressé --- c'est-à-dire le jour où l'on en
+a le plus besoin.
+
+Les alternatives --- GitLab CI, Jenkins --- auraient demandé un serveur à
+administrer. GitHub Actions est intégré au dépôt, et son exécution sur une
+machine neuve à chaque fois garantit qu'on ne dépend pas d'un reste de
+configuration locale.
+
+\role
+Onze travaux dans \fichier{.github/workflows/ci.yml}, 601 lignes. Et surtout une
+\textbf{barrière} : la publication et le déploiement ne s'exécutent que si les
+neuf précédents sont au vert, et seulement sur la branche principale.
+
+\begin{retenir}
+Sans dépendance déclarée (\cmd{needs:}), GitHub Actions lance tous les travaux
+en parallèle --- et publierait l'image pendant que les tests échouent. C'est la
+dépendance explicite qui transforme une liste de contrôles en véritable
+barrière.
+\end{retenir}
+
+\begin{piege}{La chaîne vérifie sa propre syntaxe}
+Une erreur de syntaxe shell dans un bloc \cmd{run:} ne se voit qu'au moment où
+l'étape s'exécute, parfois après dix minutes. Trois exécutions ont échoué pour
+deux guillemets déséquilibrées.
+
+Un contrôle a été ajouté : il extrait chaque bloc \cmd{run:}, neutralise les
+expressions de modèle, et passe le tout à \cmd{bash -n} avant que quoi que ce
+soit ne démarre.
+\end{piege}
+
+\apport
+Onze contrôles qui tournent vraiment, à chaque fois, sur une machine neuve.
+
+% -----------------------------------------------------------------------------
+\outil{ghcr.io et docker compose}{brique 44 · livrer et faire tourner}
+
+\quoi
+\textbf{ghcr.io} est le registre d'images de GitHub : l'endroit où les images
+construites sont publiées. \textbf{docker compose} décrit une pile de
+conteneurs dans un fichier et la démarre en une commande.
+
+\pourquoi
+Pour le registre : il est intégré au dépôt, l'authentification est celle de
+GitHub Actions, et les images sont versionnées avec le commit qui les a
+produites.
+
+Pour compose : monter quatre machines virtuelles demande du temps et de la
+mémoire. Pour développer, pour démontrer, et pour faire tourner les tests
+d'intégration dans la chaîne, on veut la pile complète en une commande.
+
+\role
+Les images sont étiquetées trois fois : par version, par commit, et
+\cmd{latest}. Le fichier \fichier{docker-compose.yml} décrit la base,
+l'application, le Faucheur, et les six constructions d'images sous un profil
+séparé.
+
+Deux mécanismes y méritent d'être signalés.
+
+\textbf{L'ancre YAML} : un bloc nommé une fois, repris par l'application et le
+Faucheur. Il devient impossible qu'ils divergent sur une variable.
+
+\textbf{Le refus de démarrer sans secret} : la syntaxe
+\cmd{\$\{POSTGRES\_PASSWORD:?manquant\}} fait échouer le démarrage si la
+variable n'est pas définie. L'erreur arrive tout de suite, pas trois semaines
+plus tard.
+
+\begin{piege}{Un volume par service là où il en fallait un partagé}
+Le Faucheur \emph{écrit} les archives, l'application les \emph{sert} au
+téléchargement. Avec un volume par service, l'utilisateur verrait dans son
+tableau de bord une archive que le serveur ne trouverait pas. Le même volume
+nommé doit être monté dans les deux.
+\end{piege}
+
+\gros[0.86]{zoom-archives.png}{Les archives servies par l'application, écrites
+par le Faucheur : deux services, un seul volume.}
+
+\apport
+Le projet se livre et se lance en une commande, en développement comme en
+intégration continue.
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 6}
+
+Elle se vérifie elle-même. Onze contrôles à chaque envoi, dont six de sécurité,
+et aucune livraison si l'un échoue. Elle a trouvé dix défauts réels que la
+relecture n'avait pas vus.

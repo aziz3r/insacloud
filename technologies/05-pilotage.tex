@@ -1,0 +1,302 @@
+\chapter{Couche 4 — Le pilotage du parc}
+
+Les machines existent, mais rien ne décide quand les créer, où les placer, ni
+quand les détruire. Sept briques pour transformer un démon Docker en un service
+de location.
+
+% -----------------------------------------------------------------------------
+\outil{subprocess}{brique 22 · piloter Docker depuis Python}
+
+\quoi
+Le module de la bibliothèque standard qui lance un programme externe et récupère
+sa sortie. Ici, il lance la commande \cmd{docker}.
+
+\pourquoi
+Il existe une bibliothèque Python officielle, \cmd{docker-py}, qui parle à
+l'API Docker sans passer par la ligne de commande. Elle est plus élégante.
+
+On l'a écartée pour une raison de \textbf{conformité et de lisibilité}. Le sujet
+impose une commande précise :
+
+\begin{center}
+\cmd{docker run -d --restart=always -p <port>:22 <image>}
+\end{center}
+
+Avec un SDK, cette commande n'apparaît nulle part : elle devient un appel de
+méthode avec des paramètres nommés. Avec \cmd{subprocess}, chaque option se lit
+telle quelle dans le code, et l'on peut montrer à la prof la ligne exacte qui
+part.
+
+\role
+Une seule fonction centralise tous les appels, dans
+\fichier{2\_webapp/docker\_ops.py} :
+
+\begin{lstlisting}[language=Python]
+def run_docker(*args, worker="local", timeout=DOCKER_TIMEOUT) -> str:
+    cmd = [*wk.docker_command(worker), *args]
+    # Appel sans shell : les arguments sont passes en liste, donc jamais
+    # re-interpretes par un interpreteur de commandes.
+    res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+\end{lstlisting}
+
+\begin{piege}{\texttt{shell=True} est une porte ouverte}
+Écrire \cmd{subprocess.run(f"docker run ... \{nom\}", shell=True)} laisserait un
+utilisateur nommer sa machine \cmd{x; rm -rf /} et faire exécuter n'importe quoi
+au serveur. C'est une \emph{injection de commande}.
+
+Passer une \textbf{liste} d'arguments, sans shell, supprime le problème à la
+racine : il n'y a aucun interpréteur pour relire la chaîne. Chaque élément de la
+liste est un argument, point.
+\end{piege}
+
+\apport
+La commande imposée est visible et vérifiable. Et les tests peuvent espionner
+cette unique fonction pour vérifier ce qui part, sans Docker.
+
+% -----------------------------------------------------------------------------
+\outil{Les étiquettes Docker}{brique 23 · l'identité des machines}
+
+\quoi
+Des paires clé-valeur attachées à un conteneur à sa création, et sur lesquelles
+on peut filtrer.
+
+\pourquoi
+C'est la brique née d'un incident. Le Faucheur doit savoir quels conteneurs lui
+appartiennent. La première version les reconnaissait à leur nom, qui commence
+par \cmd{insacloud\_}.
+
+Puis la pile \cmd{docker compose} est arrivée, avec des conteneurs nommés
+\cmd{insacloud-web}, \cmd{insacloud-db}, \cmd{insacloud-faucheur}. Le Faucheur
+les a pris pour des machines louées orphelines et les a détruits.
+\textbf{Il s'est supprimé lui-même.}
+
+\role
+Deux étiquettes, apposées à toute machine louée :
+
+\begin{lstlisting}[language=Python]
+MACHINE_LABEL = "insacloud.role"          # = "rented-machine"
+CLUSTER_LABEL = "insacloud.cluster"       # = nom du deploiement
+\end{lstlisting}
+
+Les deux filtres sont combinés : une machine doit être une machine louée
+\textbf{et} appartenir à ce déploiement. Le second a été ajouté après un
+deuxième incident : deux déploiements partageant un démon se détruisaient
+mutuellement leurs conteneurs.
+
+\begin{retenir}
+Un nom est une commodité d'affichage ; une étiquette est une identité. Dès
+qu'un programme doit décider de \textbf{détruire} quelque chose, il doit se
+fonder sur une marque qu'il a lui-même apposée, jamais sur une convention de
+nommage.
+\end{retenir}
+
+\apport
+Le Faucheur ne peut plus se tromper de cible. Deux plateformes peuvent
+cohabiter sur un même démon Docker.
+
+% -----------------------------------------------------------------------------
+\outil{Le transport SSH de Docker}{brique 24 · piloter les nœuds distants}
+
+\quoi
+Le client Docker sait parler à un démon distant à travers une connexion SSH :
+\cmd{docker -H ssh://utilisateur@machine ps}.
+
+\pourquoi
+L'autre façon de commander un démon distant est d'exposer son API sur le réseau,
+port 2375 en clair ou 2376 en TLS. C'est plus direct, et c'est une très mauvaise
+idée : \textbf{qui parle au démon Docker d'une machine en est root}. Une erreur
+de pare-feu, et toute la plateforme est compromise.
+
+Le transport SSH ne demande aucun port supplémentaire, réutilise une
+authentification par clé déjà éprouvée, et chiffre tout.
+
+\role
+Une fonction construit le préfixe de commande selon le nœud visé :
+
+\begin{lstlisting}[language=Python]
+def docker_command(worker: str = "local") -> list:
+    host = worker_host(worker)
+    if host is None:
+        return ["docker"]
+    return ["docker", "-H", f"ssh://{DOCKER_SSH_USER}@{host}"]
+\end{lstlisting}
+
+Conséquence heureuse : \textbf{le code est le même} en mono-hôte et en cluster.
+Seul le préfixe change. C'est ce qui permet de développer sur un portable sans
+monter quatre machines virtuelles.
+
+\apport
+Un parc distribué sans ouvrir un seul port Docker sur le réseau.
+
+% -----------------------------------------------------------------------------
+\outil{L'agent des nœuds}{brique 25 · l'inscription spontanée}
+
+\quoi
+Un programme Python de 263 lignes qui tourne sur chaque worker. Au démarrage il
+se présente au contrôleur ; ensuite il signale sa présence toutes les trente
+secondes.
+
+\pourquoi
+Sans lui, il faudrait écrire la liste des workers dans la configuration du
+contrôleur. Ajouter un nœud deviendrait : modifier un fichier, redéployer. Et un
+nœud en panne resterait dans la liste jusqu'à ce qu'un humain l'en retire.
+
+L'agent inverse la responsabilité : c'est le nœud qui se déclare. Le contrôleur
+ne contient \textbf{aucune adresse de worker}.
+
+Il n'utilise que la bibliothèque standard --- \cmd{urllib} pour les appels,
+\cmd{/proc/meminfo} pour la mémoire --- précisément pour qu'il n'y ait rien à
+installer sur les workers.
+
+\role
+Deux routes de l'API : \cmd{POST /workers/register} et
+\cmd{POST /workers/heartbeat}, protégées par un jeton partagé comparé en temps
+constant. L'inscription est retentée avec un recul exponentiel : au démarrage
+d'un cluster, un worker peut être prêt avant le contrôleur.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{État} & \textbf{Signification} \\
+\midrule
+\cmd{AVAILABLE} & le nœud bat, Docker répond, il reste de la place \\
+\cmd{BUSY} & le nœud bat, mais il est plein : on ne lui envoie plus rien \\
+\cmd{OFFLINE} & plus de battement depuis 90 s : ses machines sont recréées ailleurs \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{retenir}
+La distinction \cmd{BUSY} / \cmd{OFFLINE} est essentielle. Un nœud saturé est en
+bonne santé : migrer ses machines serait coûteux et inutile. Confondre « plein »
+et « mort » déclencherait des reprises à répétition.
+\end{retenir}
+
+\apport
+Pour ajouter un worker, on l'allume. C'est tout. C'est la Fonctionnalité 7 du
+sujet, et c'est ce qui rend le parc élastique.
+
+% -----------------------------------------------------------------------------
+\outil{L'ordonnanceur}{brique 26 · choisir le nœud}
+
+\quoi
+La fonction qui décide sur quel worker placer une nouvelle machine.
+
+\pourquoi
+Les stratégies possibles sont nombreuses : tourniquet, aléatoire, par
+pondération de ressources. On a choisi la plus simple qui soit défendable ---
+le nœud joignable le \textbf{moins chargé} --- pour une raison précise : elle
+est \textbf{déterministe}, donc testable.
+
+\begin{retenir}
+Un ordonnanceur dont le départage en cas d'égalité est aléatoire donne un test
+intermittent. Et un test intermittent finit toujours par être ignoré. Ici,
+l'égalité se tranche par ordre alphabétique.
+\end{retenir}
+
+\role
+Trois règles : ne considérer que les nœuds \cmd{AVAILABLE} ; parmi eux, prendre
+celui qui héberge le moins de machines ; départager par le nom. Puis réserver un
+port libre, dont l'unicité est garantie par l'index partiel de la couche 2.
+
+\apport
+La charge se répartit, et le comportement est reproductible --- donc
+vérifiable par un test.
+
+% -----------------------------------------------------------------------------
+\outil{Le Faucheur}{brique 27 · le démon de nettoyage}
+
+\quoi
+Un processus séparé qui tourne en boucle, toutes les dix secondes, avec trois
+missions : détruire ce qui a expiré, réconcilier Docker et la base, et
+surveiller le parc.
+
+\pourquoi
+Personne ne viendra cliquer sur « supprimer » à trois heures du matin. Il faut
+un service qui surveille les horloges.
+
+Pourquoi un \textbf{processus séparé} plutôt qu'un fil d'exécution dans
+l'application ? Parce que Gunicorn lance quatre processus : il y aurait quatre
+Faucheurs qui se marcheraient dessus. Un service distinct, démarré une fois par
+systemd, évite le problème et peut être redémarré sans couper le site.
+
+\role
+Trois tâches à chaque cycle.
+
+\textbf{Expirer} : une seule requête SQL, celle que sert l'index
+\cmd{(status, end\_time)}.
+
+\textbf{Réconcilier} : la base dit ce qui \emph{devrait} exister, Docker ce qui
+existe \emph{vraiment}. Un conteneur orphelin est supprimé ; une instance sans
+conteneur passe à « arrêtée ».
+
+\textbf{Surveiller le parc} : déclarer hors ligne les nœuds muets, et faire
+recréer leurs machines ailleurs.
+
+\begin{piege}{Un nœud injoignable n'est pas un nœud vide}
+C'est le piège le plus dangereux de la réconciliation. Si le nœud ne répond pas,
+\cmd{docker ps} renvoie une liste vide. Un code naïf en conclurait que toutes
+ses machines ont disparu et les marquerait « arrêtées » --- alors qu'elles
+tournent parfaitement.
+
+D'où la règle : un nœud injoignable est \textbf{ignoré}, jamais interprété.
+\end{piege}
+
+\apport
+Les machines disparaissent toutes seules à l'échéance, les ports se libèrent, et
+la base ne dérive plus de la réalité. C'est la Fonctionnalité 12, et la moitié
+de la 13.
+
+% -----------------------------------------------------------------------------
+\outil{systemd}{brique 28 · faire tourner les services, et les réparer}
+
+\quoi
+Le gestionnaire de services de Linux : il démarre les programmes au bon moment,
+les redémarre s'ils meurent, et collecte leurs journaux.
+
+\pourquoi
+L'alternative serait de lancer les processus à la main dans un \cmd{screen}, ou
+d'écrire des scripts d'init. systemd apporte trois choses qu'on ne veut pas
+réécrire : le redémarrage automatique, l'ordre de démarrage selon les
+dépendances, et les journaux consultables par \cmd{journalctl}.
+
+\role
+Deux unités et un \emph{timer}.
+
+L'unité de l'application lance Gunicorn sous un compte sans privilège, avec les
+secrets lus dans un fichier séparé :
+
+\begin{lstlisting}
+[Service]
+User=insacloud
+EnvironmentFile=/etc/insacloud/insacloud.env     # secrets, en 0600
+ExecStart=/opt/insacloud/.venv/bin/gunicorn --preload -w 4 ...
+Restart=always
+\end{lstlisting}
+
+\begin{piege}{Un secret dans une unité systemd est public}
+Mettre \cmd{Environment=INSACLOUD\_VAULT\_KEY=...} dans le fichier d'unité le
+rend lisible par tous : les unités sont en lecture pour tout le monde, et
+\cmd{systemctl show} les affiche. La bonne façon est un fichier séparé en
+\cmd{0600}, référencé par \cmd{EnvironmentFile=}.
+\end{piege}
+
+\textbf{Le watchdog} est un \emph{timer} qui se déclenche chaque minute. Il
+vérifie que nginx répond, que le site renvoie bien du HTTPS, et que le Faucheur
+tourne. Il redémarre ce qui est tombé et journalise les workers injoignables.
+
+Pourquoi un timer systemd plutôt que cron ? Parce qu'il s'intègre aux journaux,
+connaît l'état du service qu'il surveille, et ne démarre pas avant que ses
+dépendances soient prêtes. Cron ne sait rien de tout cela.
+
+\apport
+Le service se relance seul après une panne ou un redémarrage du serveur. C'est
+le troisième ajout au-delà du sujet.
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 4}
+
+Elle loue, place, surveille et détruit. Elle survit à la panne d'un nœud. Elle
+se répare elle-même. Mais tout cela n'existe que sur des machines que
+quelqu'un a installées à la main --- et ça, ce n'est pas tenable.

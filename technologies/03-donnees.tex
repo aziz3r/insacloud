@@ -1,0 +1,200 @@
+\chapter{Couche 2 — Les données}
+
+L'application a des comptes et des sessions, mais elle oublie tout au
+redémarrage. Cinq briques pour qu'elle se souvienne --- et pour que ce dont elle
+se souvient reste secret.
+
+% -----------------------------------------------------------------------------
+\outil{SQLAlchemy 2.0}{brique 10 · l'ORM}
+
+\quoi
+Un \emph{Object-Relational Mapper} : il fait correspondre une classe Python à
+une table SQL. On écrit des objets, il écrit le SQL.
+
+\pourquoi
+L'alternative est d'écrire le SQL à la main. Trois raisons l'ont écartée.
+
+\textbf{Les injections SQL.} Écrire
+\cmd{f"SELECT * FROM users WHERE nom='\{saisie\}'"} laisse un utilisateur nommé
+\cmd{' OR '1'='1} lire toute la table. L'ORM passe toujours par des paramètres
+liés : l'injection devient structurellement impossible, pas seulement évitée par
+discipline.
+
+\textbf{Deux moteurs.} Le projet tourne sur SQLite en développement et sur
+PostgreSQL en production. Leur SQL diffère sur les dates, les types, les
+clauses. L'ORM écrit le dialecte qui convient.
+
+\textbf{La vérification.} Une faute de frappe dans un nom de colonne devient une
+erreur Python immédiate, au lieu d'une erreur SQL découverte en production.
+
+On aurait pu prendre l'ORM de Django, mais il impose Django. Celui de SQLAlchemy
+est le standard du monde Python hors Django, et sa version 2.0 apporte une
+écriture typée que les analyseurs comprennent.
+
+\role
+\fichier{2\_webapp/models.py} décrit les sept tables. Chaque colonne est annotée
+pour que \cmd{ruff} et l'éditeur sachent son type :
+
+\begin{lstlisting}[language=Python]
+class Rental(Base):
+    __tablename__ = "rentals"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    end_time: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    __table_args__ = (Index("idx_rentals_end", "status", "end_time"),)
+\end{lstlisting}
+
+L'index de la dernière ligne n'est pas décoratif : c'est exactement la requête
+que le Faucheur exécute toutes les dix secondes.
+
+\apport
+La plateforme se souvient. Et une famille entière d'attaques --- l'injection
+SQL --- disparaît du périmètre.
+
+% -----------------------------------------------------------------------------
+\outil{Alembic}{brique 11 · les migrations}
+
+\quoi
+L'outil qui fait évoluer le schéma d'une base \emph{sans perdre les données}.
+Chaque changement devient un fichier numéroté qui connaît son prédécesseur ; la
+base retient où elle en est.
+
+\pourquoi
+Tant qu'on développe, on efface la base et on recommence. Dès qu'il y a des
+données réelles --- des comptes, des locations en cours --- c'est impossible.
+
+Sans Alembic, la seule option serait d'écrire les \cmd{ALTER TABLE} à la main et
+de se souvenir lesquels ont été appliqués où. C'est exactement le genre de
+mémoire humaine qui échoue au pire moment.
+
+\role
+\fichier{2\_webapp/migrations/} contient deux révisions : le schéma initial, puis
+l'ajout de la table \cmd{archives}. La chaîne d'intégration exécute
+\cmd{alembic check}, qui échoue si les modèles et les migrations divergent ---
+impossible d'oublier de générer une migration.
+
+\begin{piege}{SQLite ne sait pas modifier une colonne}
+PostgreSQL accepte \cmd{ALTER TABLE ... ALTER COLUMN}. SQLite, non : il faut
+créer une table neuve, recopier, supprimer, renommer. Alembic sait le faire,
+mais seulement si on le lui demande par \cmd{render\_as\_batch=True}. Sans cette
+option, les migrations passent sur un moteur et échouent sur l'autre.
+\end{piege}
+
+\apport
+Le schéma peut évoluer en production. C'est ce qui a permis d'ajouter la
+sauvegarde du travail --- une table de plus --- sur une base contenant déjà des
+comptes et un historique.
+
+% -----------------------------------------------------------------------------
+\outil{SQLite}{brique 12 · la base de développement}
+
+\quoi
+Une base de données contenue dans un seul fichier, sans serveur à lancer.
+
+\pourquoi
+Pour développer et pour les tests, démarrer un serveur PostgreSQL est une
+friction : il faut l'installer, le configurer, le lancer. SQLite est déjà dans
+Python.
+
+Le projet l'utilise en mode \textbf{WAL} (\emph{write-ahead logging}), qui
+permet à plusieurs processus de lire pendant qu'un autre écrit --- nécessaire
+puisque l'application et le Faucheur touchent la même base.
+
+\role
+Base par défaut quand \cmd{DATABASE\_URL} n'est pas défini. Les 147 tests
+l'utilisent : chacun part d'un fichier vierge dans un dossier temporaire, ce qui
+garantit qu'aucun test n'hérite de l'état d'un autre.
+
+\apport
+Les tests tournent en vingt secondes sur n'importe quelle machine, sans service
+à installer. C'est ce qui rend l'intégration continue légère.
+
+% -----------------------------------------------------------------------------
+\outil{PostgreSQL 16}{brique 13 · la base de production}
+
+\quoi
+Un serveur de base de données complet, conçu pour plusieurs clients simultanés.
+
+\pourquoi
+SQLite suffit à un processus, pas à quatre ouvriers Gunicorn plus le Faucheur
+qui écrivent en même temps. Son verrouillage porte sur le fichier entier : sous
+charge, les écritures s'attendent.
+
+MySQL aurait fait l'affaire ; PostgreSQL a été préféré pour deux raisons
+concrètes ici : les \textbf{index partiels} --- la clause \cmd{WHERE} sur un
+index unique, qui garantit l'unicité des ports sans bloquer leur
+réutilisation --- et le respect strict des types.
+
+\role
+Service \cmd{db} de la pile compose, image \cmd{postgres:16-alpine}. Son port
+\textbf{n'est pas publié} : seuls les services du réseau interne y accèdent. Il
+démarre avec \cmd{--data-checksums}, qui détecte une corruption silencieuse du
+disque.
+
+\apport
+La plateforme supporte la concurrence réelle. Et l'index unique partiel devient
+une garantie du moteur, pas une intention du code.
+
+% -----------------------------------------------------------------------------
+\outil{cryptography · Fernet}{brique 14 · le coffre}
+
+\quoi
+Fernet est une recette de chiffrement symétrique authentifié : elle combine AES
+en mode CBC et un HMAC. On ne peut ni lire sans la clé, ni modifier sans que
+cela se voie.
+
+\pourquoi
+Le problème est particulier : le mot de passe root d'une machine louée doit
+pouvoir être \textbf{réaffiché}. On ne peut donc pas le hacher --- le hachage est
+à sens unique. Il faut un chiffrement réversible.
+
+Écrire soi-même du chiffrement est l'erreur classique : on choisit mal le mode,
+on réutilise un vecteur d'initialisation, on oublie l'authentification. Fernet
+n'a \textbf{aucun paramètre à choisir} : c'est précisément son intérêt pour qui
+n'est pas cryptographe.
+
+\begin{notion}{Hacher ou chiffrer : deux besoins, deux outils}
+Le mot de passe d'un \textbf{compte} est \textbf{haché} : on ne doit jamais
+pouvoir le retrouver, seulement vérifier qu'un essai donne la même empreinte.
+
+Le mot de passe \textbf{root d'une machine louée} est \textbf{chiffré} : il doit
+pouvoir être réaffiché à son propriétaire.
+
+Hacher le second le rendrait inutilisable ; chiffrer le premier serait une
+faute.
+\end{notion}
+
+\role
+\fichier{2\_webapp/crypto.py} charge deux clés \textbf{distinctes} : celle qui
+signe les sessions Flask, et celle qui chiffre les mots de passe root. Les
+séparer garantit qu'un vol de la première ne donne pas accès aux machines.
+
+Les clés viennent de l'environnement --- Ansible les injecte depuis son Vault ---
+ou, à défaut, d'un fichier local en permissions \cmd{0600}.
+
+\gros[0.86]{zoom-secret.png}{Le mot de passe root, affiché une seule fois. Après
+cet instant il n'existe plus qu'en base, chiffré.}
+
+\gros[0.86]{zoom-coffre.png}{Le coffre rouvert après re-saisie du mot de passe
+de compte : les accès redeviennent visibles cinq minutes, puis se remasquent.}
+
+\begin{piege}{Une session Flask est signée, pas chiffrée}
+Notre première version déposait le mot de passe root dans le cookie de session,
+le temps de l'afficher. Or le contenu d'un cookie de session Flask est encodé en
+base64 : \textbf{n'importe qui peut le lire} sans la clé. La signature empêche
+seulement de le modifier.
+
+On ne stocke plus que l'identifiant de la machine ; le secret est relu en base
+et déchiffré au moment de l'affichage, après vérification du propriétaire.
+\end{piege}
+
+\apport
+Un secret qu'on peut revoir sans jamais le stocker en clair, et qui ne transite
+plus par le navigateur.
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 2}
+
+Elle retient les comptes, les locations et les machines ; elle sait faire
+évoluer son schéma sans perdre de données ; et elle garde des secrets qu'elle
+peut réafficher. Il lui manque l'essentiel : les machines à louer.

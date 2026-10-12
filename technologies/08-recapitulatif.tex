@@ -1,0 +1,171 @@
+\chapter{Récapitulatif}
+
+\section{Les quarante-quatre briques, d'un coup d'œil}
+
+\begin{center}
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}clXX@{}}
+\toprule
+\textbf{\#} & \textbf{Outil} & \textbf{Son rôle ici} & \textbf{Écarté au profit de lui} \\
+\midrule
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 0 — Le socle}} \\
+1 & Git & historique, branches, base de la CI & copier le dossier \\
+2 & Python 3.10 & tout le code, version de la cible & Node, Go (agent à déployer) \\
+3 & venv + épinglage & versions identiques partout & installation globale \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 1 — L'application web}} \\
+4 & Flask & routes HTML et JSON, sessions & Django (trop de boîtes noires) \\
+5 & Jinja2 & gabarits, échappement automatique & concaténation de chaînes \\
+6 & Werkzeug & hachage pbkdf2, ProxyFix & hachage écrit à la main \\
+7 & Gunicorn & 4 ouvriers, production & serveur de dév. de Flask \\
+8 & nginx & TLS, statiques, en-têtes & Apache, Caddy \\
+9 & Tailwind précompilé & apparence sans CDN & Tailwind par CDN (interdit par la CSP) \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 2 — Les données}} \\
+10 & SQLAlchemy & 7 tables, pas d'injection SQL & SQL à la main \\
+11 & Alembic & migrations versionnées & \cmd{ALTER TABLE} manuels \\
+12 & SQLite & développement et tests & un serveur à lancer \\
+13 & PostgreSQL & production, index partiels & MySQL \\
+14 & Fernet & coffre des mots de passe root & chiffrement maison \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 3 — Les machines louées}} \\
+15 & Docker & machines en moins d'une seconde & machines virtuelles \\
+16 & Dockerfile & 6 images reproductibles & image figée à la main \\
+17 & supervisord & 5 services, PID 1 correct & script shell, systemd \\
+18 & OpenSSH & l'accès imposé par le sujet & --- \\
+19 & ttyd & terminal sans rien installer & Shellinabox, Wetty \\
+20 & Xvnc + XFCE + noVNC & bureau dans le navigateur & GNOME, KDE (trop lourds) \\
+21 & entrypoint.sh & assemble la machine selon le mode & six images distinctes \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 4 — Le pilotage}} \\
+22 & subprocess & la commande imposée, visible & SDK docker-py \\
+23 & étiquettes Docker & identité des machines louées & préfixe de nom \\
+24 & \cmd{docker -H ssh://} & piloter sans ouvrir de port & API Docker exposée \\
+25 & l'agent & inscription et battement de cœur & liste de workers en dur \\
+26 & l'ordonnanceur & nœud le moins chargé, déterministe & tirage aléatoire \\
+27 & le Faucheur & expiration, réconciliation, reprise & fil dans l'application \\
+28 & systemd + watchdog & services relancés, auto-réparation & cron, lancement manuel \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 5 — L'infrastructure}} \\
+29 & Vagrant & 4 VM en une commande & création à la main \\
+30 & VMware et 3 autres & fonctionne sur Intel et Apple & VirtualBox seul \\
+31 & Ansible & 9 rôles idempotents & scripts shell \\
+32 & Ansible Vault & secrets versionnables & secrets en clair, Vault externe \\
+33 & inventaire dynamique & découvre les VM et leur clé & inventaire figé \\
+\addlinespace
+\multicolumn{4}{@{}l}{\textbf{\color{insared}Couche 6 — La qualité}} \\
+34 & pytest & 147 tests en 20 s, sans Docker & unittest \\
+35 & ruff & style et erreurs, en moins d'1 s & flake8 + pylint + isort \\
+36 & bandit & motifs dangereux (SAST) & relecture humaine \\
+37 & pip-audit & CVE des dépendances (SCA) & safety (base payante) \\
+38 & gitleaks & secrets, historique compris & recherche manuelle \\
+39 & nuclei + dast.sh & l'application en marche (DAST) & analyse statique seule \\
+40 & hadolint + ansible-lint & l'infrastructure relue & relecture humaine \\
+41 & Trivy & CVE des images, verrou & publication sans scan \\
+42 & Syft & SBOM conservé & aucun inventaire \\
+43 & GitHub Actions & 11 travaux, barrière & GitLab CI, Jenkins \\
+44 & ghcr.io + compose & livrer, et lancer en une commande & registre tiers \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Qui réalise quoi dans le cahier des charges}
+
+\begin{center}
+\scriptsize
+\begin{tabularx}{\textwidth}{@{}clX@{}}
+\toprule
+\textbf{\#} & \textbf{Fonctionnalité} & \textbf{Briques mobilisées} \\
+\midrule
+1 & Préparation, environnement & Git · Python · venv \\
+2 & API Web Flask & Flask · Jinja2 · Werkzeug · Gunicorn · nginx · Tailwind \\
+3 & Base de données & SQLAlchemy · Alembic · SQLite · PostgreSQL \\
+4 & Conteneurisation Docker & Docker · Dockerfile · supervisord · entrypoint \\
+5 & Infrastructure Vagrant & Vagrant · les quatre providers \\
+6 & Automatisation Ansible & Ansible · Vault · inventaire dynamique \\
+7 & Worker Agent & l'agent · les étiquettes · l'API des nœuds \\
+8 & Resource Manager & l'ordonnanceur · l'index partiel de PostgreSQL \\
+9 & Service de location & Flask · services.py · SQLAlchemy \\
+10 & Déploiement des instances & subprocess · Docker · \cmd{docker -H ssh://} \\
+11 & Accès SSH & OpenSSH · ttyd · Xvnc + XFCE + noVNC \\
+12 & Gestion de l'expiration & le Faucheur · l'index \cmd{(status, end\_time)} \\
+13 & Haute disponibilité & supervisord · \cmd{restart=always} · live-restore · l'agent · le Faucheur \\
+14 & Sécurité DevSecOps & Fernet · bandit · pip-audit · gitleaks · nuclei · Trivy · Vault \\
+15 & CI/CD & GitHub Actions · ghcr.io · Syft \\
+16 & Tests d'intégration & pytest · docker compose · integration.sh \\
+17 & Documentation & les schémas engendrés · ce document · le guide de 93 pages \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{retenir}
+Aucune fonctionnalité n'est portée par un seul outil. La haute disponibilité,
+par exemple, naît de cinq briques posées dans trois couches différentes :
+supervisord dans la machine, \cmd{--restart=always} et \cmd{live-restore} sur le
+nœud, l'agent et le Faucheur dans le parc. C'est pour cela qu'on ne peut pas
+« ajouter la résilience à la fin ».
+\end{retenir}
+
+\section{Les sept ajouts au-delà du sujet}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}XX@{}}
+\toprule
+\textbf{Ajout} & \textbf{Briques qui le rendent possible} \\
+\midrule
+Parc distribué à trois workers, alors qu'un hôte suffisait &
+l'agent · l'ordonnanceur · \cmd{docker -H ssh://} \\
+\addlinespace
+Terminal web, en plus du SSH demandé &
+ttyd · supervisord \\
+\addlinespace
+Bureau graphique complet dans le navigateur &
+Xvnc · XFCE · noVNC · supervisord \\
+\addlinespace
+Coffre à secrets réaffichable après re-authentification &
+Fernet · les sessions Flask · Ansible Vault \\
+\addlinespace
+Watchdog d'auto-réparation du service &
+systemd · un timer d'une minute \\
+\addlinespace
+Inventaire dynamique indépendant du provider &
+Vagrant · un script Python de 140 lignes \\
+\addlinespace
+Sauvegarde du travail avant destruction &
+Docker \cmd{exec} · \cmd{tar} en flux · une table de plus \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Ce qu'il faut retenir}
+
+\begin{description}
+\item[Un outil se comprend par ce qu'on a écarté.] Savoir qu'on utilise Gunicorn
+  ne vaut rien ; savoir que le serveur de Flask traite une requête à la fois,
+  si. Chaque fiche de ce document a une section « pourquoi celui-là » pour cette
+  raison.
+
+\item[Les couches ne sont pas interchangeables.] On ne peut pas conteneuriser
+  avant d'avoir une application, ni automatiser le déploiement avant d'avoir
+  quelque chose à déployer. L'ordre dans lequel les briques ont été posées n'est
+  pas un récit : c'est une contrainte.
+
+\item[Les outils de la couche 6 ne servent à rien s'ils ne bloquent pas.]
+  Un contrôle qui affiche un avertissement que personne ne lit est un coût sans
+  bénéfice. Ici, aucune image n'atteint le registre si l'un des onze travaux
+  échoue --- et c'est arrivé à nos propres images.
+
+\item[Les meilleures briques viennent d'une panne.] Les étiquettes Docker
+  existent parce que le Faucheur s'est supprimé lui-même. Le témoin de vie
+  existe parce que la sonde du conteneur ne pouvait pas passer. L'inventaire
+  dynamique existe parce que l'inventaire figé codait le provider en dur. Un
+  projet sans incident n'a pas de garde-fous.
+\end{description}
+
+\vfill
+\begin{center}
+\color{gristexte}\small
+Dépôt : \url{https://github.com/aziz3r/insacloud}\\
+Pour la construction du projet pas à pas, voir le guide technique de 93 pages.
+\end{center}

@@ -1,0 +1,60 @@
+% =============================================================================
+%  InsaCloud — Les outils, brique par brique
+%  Compilation :  tectonic -X compile technologies.tex
+% =============================================================================
+\documentclass[a4paper,11pt,oneside]{report}
+\input{preambule}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{2.2cm}
+
+{\Huge\bfseries InsaCloud\par}
+\vspace{6pt}
+{\color{insared}\rule{4cm}{2pt}\par}
+\vspace{16pt}
+{\LARGE Les outils, brique par brique\par}
+\vspace{10pt}
+{\large Chaque technologie : ce qu'elle est, pourquoi elle\par}
+{\large et pas une autre, ce qu'elle fait ici\par}
+
+\vspace{2cm}
+\begin{minipage}{0.84\textwidth}
+\color{gristexte}\small
+Ce document ne raconte pas le projet : il prend les outils un par un.
+Quarante-deux technologies, rangées en sept couches qui s'empilent. On part
+d'un dossier vide et, à chaque brique posée, la plateforme sait faire une chose
+de plus.
+
+\medskip
+Pour chacune, quatre questions, toujours les mêmes : \textbf{c'est quoi},
+\textbf{pourquoi celle-là et pas une autre}, \textbf{son rôle exact ici}, et
+\textbf{ce que son arrivée a changé}.
+\end{minipage}
+
+\vfill
+{\color{gristexte}\small
+Projet 3 --- \textit{Outils de déploiement de plateformes}\\
+INSA Centre-Val de Loire, STI 4A FISE, 2026/2027 --- Dr.~Nadia Fettah\\[8pt]
+\today\par}
+\end{titlepage}
+
+\pagenumbering{roman}
+\setcounter{tocdepth}{1}
+\tableofcontents
+\cleardoublepage
+\pagenumbering{arabic}
+
+\input{00-intro}
+\input{01-socle}
+\input{02-application}
+\input{03-donnees}
+\input{04-machines}
+\input{05-pilotage}
+\input{06-infrastructure}
+\input{07-qualite}
+\input{08-recapitulatif}
+
+\end{document}

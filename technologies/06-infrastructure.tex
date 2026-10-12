@@ -1,0 +1,243 @@
+\chapter{Couche 5 — L'infrastructure}
+
+Jusqu'ici, tout suppose des serveurs déjà installés. Cinq briques pour que ces
+serveurs se créent et se configurent tout seuls, à l'identique, autant de fois
+qu'on veut.
+
+\begin{figure}[htbp]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[font=\small,
+  b/.style={draw=grisligne,fill=grisfond,rounded corners=3pt,minimum height=11mm,
+            minimum width=3.2cm,align=center},
+  f/.style={-{Stealth[length=2.5mm]},gristexte,thick}]
+\node[b] (r) at (0,0) {\textbf{Rien}\\\textcolor{gristexte}{\scriptsize un dossier}};
+\node[b] (v) at (4.2,0) {\textbf{Vagrant}\\\textcolor{gristexte}{\scriptsize 4 VM nues}};
+\node[b] (a) at (8.4,0) {\textbf{Ansible}\\\textcolor{gristexte}{\scriptsize 4 VM configurées}};
+\node[b] (p) at (12.6,0) {\textbf{La plateforme}\\\textcolor{gristexte}{\scriptsize qui tourne}};
+\draw[f] (r) -- node[above,font=\scriptsize]{\cmd{vagrant up}} (v);
+\draw[f] (v) -- node[above,font=\scriptsize]{\cmd{ansible-playbook}} (a);
+\draw[f] (a) -- node[above,font=\scriptsize]{démarrage} (p);
+\end{tikzpicture}}
+\caption{Deux commandes séparent un dossier vide d'une plateforme en
+fonctionnement. Tout ce qui se passe entre les deux est décrit dans des fichiers
+versionnés.}
+\end{figure}
+
+% -----------------------------------------------------------------------------
+\outil{Vagrant}{brique 29 · créer les machines virtuelles}
+
+\quoi
+Un outil qui décrit des machines virtuelles dans un fichier texte et les crée en
+une commande. \cmd{vagrant up} les monte, \cmd{vagrant destroy} les efface.
+
+\pourquoi
+L'alternative est de créer les VM à la main dans l'interface de VirtualBox ou de
+VMware : choisir l'image, la mémoire, le réseau, installer le système. Une demi-
+heure par machine, et personne ne saura ensuite ce qui a été coché.
+
+Terraform aurait pu faire le travail, mais il vise les fournisseurs de cloud
+publics ; pour des VM locales, Vagrant est plus direct et c'est l'outil que le
+sujet nomme.
+
+\role
+Le \fichier{Vagrantfile} décrit un contrôleur en 192.168.56.10 et trois workers
+en .11, .12, .13, avec leur mémoire et leurs cœurs. Le nombre de workers et les
+tailles sont réglables sans toucher au fichier :
+
+\begin{lstlisting}[language=bash]
+WORKERS=2 CTRL_MEM=1536 WORKER_MEM=1280 vagrant up
+\end{lstlisting}
+
+\begin{retenir}
+Rendre les tailles paramétrables coûte trois lignes et change tout pour qui
+reprend le projet : on peut le faire tourner sur un portable modeste. Un fichier
+qui n'offre qu'une seule taille finit toujours par être modifié à la main, donc
+désynchronisé du dépôt.
+\end{retenir}
+
+\apport
+Le parc entier se crée en une commande, et se détruit aussi vite. On peut tout
+casser pour vérifier que tout se remonte.
+
+% -----------------------------------------------------------------------------
+\outil{Les providers : VMware, VirtualBox, Parallels, QEMU}{brique 30 · exécuter les VM}
+
+\quoi
+Le \emph{provider} est le logiciel de virtualisation que Vagrant pilote. Vagrant
+ne virtualise rien lui-même : il donne des ordres à l'un d'eux.
+
+\pourquoi
+Un seul provider aurait suffi... sur une seule architecture. Le projet devait
+tourner sur des postes Intel et sur des Mac à puce Apple.
+
+\textbf{VirtualBox} est le provider par défaut et le plus répandu, mais son
+support ARM reste expérimental : sur un Mac récent, il ne convient pas.
+\textbf{VMware Fusion} fonctionne nativement sur Apple Silicon.
+\textbf{Parallels} aussi, mais il est payant. \textbf{QEMU} est libre et
+fonctionne partout, au prix de limitations.
+
+Déclarer les quatre laisse le même fichier fonctionner sur n'importe quel poste.
+
+\role
+Chaque provider a son bloc dans le \fichier{Vagrantfile}, avec ses réglages
+propres.
+
+\begin{piege}{Chaque provider a ses limites}
+\cmd{vagrant-qemu} ne sait pas créer de réseau privé : l'accès SSH doit être
+redirigé sur \cmd{localhost}. Le fichier le détecte et ajuste la configuration.
+Sans cela, le déploiement réussirait et rien ne serait joignable --- la pire
+sorte de panne, celle qui ne dit pas son nom.
+\end{piege}
+
+\apport
+Le projet se monte sur le poste de n'importe quel membre du groupe, et sur
+l'ordinateur de la salle de soutenance.
+
+% -----------------------------------------------------------------------------
+\outil{Ansible}{brique 31 · configurer les machines}
+
+\quoi
+Un outil qui se connecte en SSH aux machines et applique un \textbf{état décrit
+en YAML} : tel paquet installé, tel fichier présent avec tels droits, tel
+service démarré.
+
+\pourquoi
+L'alternative est un script shell. La différence n'est pas cosmétique.
+
+Un script décrit des \textbf{actions} : installe, crée, copie, redémarre. Le
+relancer refait tout, écrase, redémarre inutilement, et échoue si quelque chose
+existe déjà.
+
+Ansible décrit un \textbf{état voulu}. Il regarde, compare, et n'agit que si
+nécessaire. C'est la propriété d'\textbf{idempotence} : appliquer deux fois
+donne le même résultat qu'appliquer une fois.
+
+Les concurrents --- Puppet, Chef, Salt --- exigent un agent installé sur chaque
+machine. Ansible n'a besoin que de SSH et de Python, déjà présents. C'est aussi
+l'outil que le sujet nomme.
+
+\begin{notion}{Idempotent ne veut pas dire « ne fait rien »}
+Cela veut dire « vérifie l'état, et n'agit que s'il diffère de celui qui est
+voulu ». La nuance compte : c'est elle qui permet de relancer le déploiement
+sans crainte, à n'importe quel moment, y compris sur un parc à moitié
+configuré.
+
+La preuve se lit dans le compte rendu : au second passage, \cmd{changed=0} sur
+tous les nœuds.
+\end{notion}
+
+\role
+Neuf rôles, quatre playbooks. Chaque rôle est autonome, avec ses variables par
+défaut, ses fichiers et ses gabarits.
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
+\toprule
+\textbf{Rôle} & \textbf{Ce qu'il garantit} \\
+\midrule
+\cmd{security\_hardening} & le pare-feu UFW, avec les ports du groupe \\
+\cmd{controller\_key} & le compte de service et sa clé SSH de pilotage \\
+\cmd{docker} & Docker Engine sur les workers, le client seul sur le contrôleur \\
+\cmd{tls\_cert} & un certificat propre à chaque nœud \\
+\cmd{worker} & l'accès SSH restreint du contrôleur \\
+\cmd{docker\_images} & les images des machines louées, construites sur place \\
+\cmd{worker\_agent} & l'agent d'inscription, en service systemd \\
+\cmd{reverse\_proxy} & nginx en HTTPS devant Gunicorn \\
+\cmd{webapp} & l'application, le Faucheur, le watchdog, les secrets \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{piege}{Un rôle appelé avec des paramètres différents s'exécute deux fois}
+Ansible dédoublonne les rôles... sauf si on les appelle avec des paramètres
+différents : il les considère alors comme distincts. Le rôle \cmd{docker} était
+appelé directement \emph{et} tiré en dépendance par \cmd{docker\_images}, avec
+un paramètre différent --- il s'exécutait deux fois, installant puis
+désinstallant le démon.
+
+La correction : passer par une \textbf{variable de play}, qui s'applique aux
+deux appels et les fait fusionner. Nous l'avons vérifié par l'expérience, en
+instrumentant le rôle pour qu'il journalise chaque exécution.
+\end{piege}
+
+\apport
+Quatre machines nues deviennent une plateforme en fonctionnement, en une
+commande, à l'identique. Et le déploiement peut être rejoué sans risque.
+
+% -----------------------------------------------------------------------------
+\outil{Ansible Vault}{brique 32 · les secrets dans Git}
+
+\quoi
+Un fichier chiffré en AES-256 qu'Ansible déchiffre au moment de jouer le
+playbook, avec une phrase de passe fournie à l'exécution.
+
+\pourquoi
+Les secrets --- clé de session, clé du coffre, mot de passe de la base, jeton des
+agents --- doivent arriver sur le serveur. Trois mauvaises façons de s'y
+prendre :
+
+\textbf{Les écrire en clair dans le dépôt} : \cmd{gitleaks} les trouverait, et
+n'importe qui ayant accès au dépôt aussi.
+
+\textbf{Les passer en variables d'environnement à la main} : il faut s'en
+souvenir, et ils finissent dans l'historique du shell.
+
+\textbf{Les mettre dans un gestionnaire externe} --- HashiCorp Vault, AWS Secrets
+Manager : la bonne solution en entreprise, mais c'est un service de plus à
+déployer et à maintenir.
+
+Ansible Vault est le compromis juste pour ce projet : un fichier,
+\textbf{versionnable tel quel}, illisible sans la phrase de passe.
+
+\role
+\fichier{3\_ansible/group\_vars/insacloud/vault.yml} contient trois secrets. Le
+rôle \cmd{webapp} vérifie même leur forme avant de déployer --- la clé Fernet
+doit faire exactement 44 caractères --- plutôt que de laisser l'application
+échouer au démarrage.
+
+La phrase de passe vit dans un fichier \cmd{.vault\_pass} en \cmd{0600}, exclu
+du dépôt par le \fichier{.gitignore}.
+
+\apport
+Les secrets voyagent avec le code sans jamais être lisibles. Et le déploiement
+reste automatisable : pas d'étape manuelle de copie de clés.
+
+% -----------------------------------------------------------------------------
+\outil{L'inventaire dynamique}{brique 33 · découvrir les machines}
+
+\quoi
+Un script exécutable qui, au lieu de lire une liste figée de machines, interroge
+Vagrant et produit l'inventaire en JSON.
+
+\pourquoi
+L'inventaire statique est un fichier qui liste les machines et leurs adresses.
+Il a deux défauts : il faut le tenir à jour quand le parc change, et il code en
+dur le chemin de la clé SSH --- qui dépend du provider.
+
+C'est un piège réel : l'inventaire du projet contenait
+\cmd{vagrant\_provider=virtualbox}. En passant à VMware, Ansible cherchait la
+clé au mauvais endroit.
+
+\role
+\fichier{3\_ansible/inventaire\_vagrant.py} interroge \cmd{vagrant ssh-config} et
+reprend le chemin de clé que Vagrant \emph{déclare lui-même}. Il ne découvre que
+les machines réellement démarrées.
+
+\begin{lstlisting}[language=bash]
+ansible-playbook -i inventaire_vagrant.py site.yml --ask-vault-pass
+\end{lstlisting}
+
+\apport
+Le même dépôt se déploie sur les quatre providers sans modification, et sur un
+parc de taille variable. C'est le quatrième ajout au-delà du sujet.
+
+% -----------------------------------------------------------------------------
+\section*{Ce que la plateforme sait faire après la couche 5}
+
+Elle se construit entièrement toute seule : quatre machines virtuelles, leur
+système, leurs paquets, leurs certificats, leurs services, ses secrets. Deux
+commandes depuis un dossier vide.
+
+Il reste à garantir qu'elle ne se dégrade pas.

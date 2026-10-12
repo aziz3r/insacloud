@@ -396,6 +396,7 @@ docs/                vidéo, captures, API et base ; schemas/ engendre les SVG
 rapport/             rapport de projet et dossier technique (LaTeX + PDF)
 guide/               guide technique de 93 pages : la théorie, le code, le déploiement
 soutenance/          script de soutenance minuté, avec captures et sorties réelles
+technologies/        les 44 outils un par un : pourquoi chacun, et ce qu'il apporte
 CONTRIBUTING.md      stratégie de branches et contrôles avant une fusion
 ```
 
