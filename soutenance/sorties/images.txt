@@ -1,0 +1,7 @@
+insacloud_alpine  118MB
+insacloud_alpine_desktop  1.35GB
+insacloud_debian  303MB
+insacloud_debian_desktop  1.49GB
+insacloud_ubuntu  242MB
+insacloud_ubuntu_desktop  1.33GB
+insacloud_web  414MB

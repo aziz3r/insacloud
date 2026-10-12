@@ -1,0 +1,14 @@
+{
+    "database": "ok",
+    "distributions_available": 3,
+    "distributions_total": 3,
+    "instances_running": 1,
+    "instances_total": 22,
+    "rentals_active": 1,
+    "status": "ok",
+    "users": 5,
+    "version": "1.0.0",
+    "workers_available": 1,
+    "workers_offline": 0,
+    "workers_total": 1
+}

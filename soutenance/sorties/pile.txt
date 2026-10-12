@@ -1,0 +1,4 @@
+NAME                 STATUS
+insacloud-db         Up 24 hours (healthy)
+insacloud-faucheur   Up 7 hours (healthy)
+insacloud-web        Up 7 hours (healthy)

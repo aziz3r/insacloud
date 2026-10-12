@@ -1,0 +1,12 @@
+conclusion : success
+  success   SAST (bandit)
+  success   Fuite de secrets (gitleaks)
+  success   Lint Python (ruff)
+  success   Lint Ansible
+  success   Intégration (pile compose)
+  success   Images Docker (hadolint + Trivy)
+  success   Tests (pytest)
+  success   SCA (pip-audit)
+  success   DAST (application en fonctionnement)
+  skipped   Build, SBOM et publication
+  skipped   Déploiement (Ansible)

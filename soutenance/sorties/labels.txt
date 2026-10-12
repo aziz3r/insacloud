@@ -1,0 +1,8 @@
+{
+    "com.docker.compose.image.builder": "classic",
+    "description": "Machine Ubuntu louable (SSH + terminal web, option bureau XFCE)",
+    "insacloud.cluster": "compose",
+    "insacloud.role": "rented-machine",
+    "maintainer": "InsaCloud - Projet INSA STI 4A",
+    "org.opencontainers.image.version": "22.04"
+}

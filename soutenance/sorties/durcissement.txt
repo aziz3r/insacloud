@@ -1,0 +1,8 @@
+RestartPolicy    always
+Memory           1024 Mio    reservation 512 Mio
+NanoCpus         1.0 coeur
+PidsLimit        512
+CapDrop          ['ALL']
+CapAdd           10 capacites rendues
+SecurityOpt      ['no-new-privileges:true']
+PortBindings     {'22/tcp': '8547', '6080/tcp': '8877', '7681/tcp': '8034'}
