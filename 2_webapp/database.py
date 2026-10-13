@@ -81,6 +81,24 @@ engine = create_engine(
 )
 
 
+# Un serveur préchargé — gunicorn tourne ici avec « --preload » — importe ce
+# module AVANT de forker ses workers, et app.py appelle init_db() à l'import.
+# Une connexion est donc ouverte dans le processus maître, se range dans le
+# pool, et se retrouve héritée telle quelle par les quatre fils : ils se
+# servent de la MÊME socket PostgreSQL en même temps. Le protocole ne le
+# supporte pas, et l'erreur remontée n'a aucun rapport avec la requête en
+# cours — « connection in transaction status INTRANS ». Mesuré avant
+# correction : trois des huit premières requêtes échouaient, à chaque
+# démarrage, puis tout rentrait dans l'ordre. Le pire des défauts : celui qui
+# ne se voit qu'au premier regard.
+#
+# Chaque fils abandonne donc le pool hérité dès sa naissance et ouvre les
+# siennes. « close=False » n'est pas un détail : le fils LÂCHE les sockets sans
+# les fermer. Les fermer couperait celles du parent et de ses frères.
+if hasattr(os, "register_at_fork"):          # absent sous Windows
+    os.register_at_fork(after_in_child=lambda: engine.dispose(close=False))
+
+
 @event.listens_for(engine, "connect")
 def _configurer_sqlite(dbapi_connection, _record):
     """WAL + clés étrangères : sans cela SQLite ignore silencieusement les FK."""
