@@ -419,8 +419,14 @@ def dashboard():
     instances = []
     for row in db.get_user_instances(g.user["id"]):
         inst = dict(row)
-        # Les liens pointent vers le nœud qui héberge la machine (ou vers ce serveur en mode local)
-        host = wk.worker_host(inst["worker"]) or public_host()
+        # Les liens pointent vers le nœud qui héberge la machine (ou vers ce
+        # serveur en mode local). L'adresse que l'opérateur impose passe en
+        # premier : l'adresse par laquelle le CONTRÔLEUR joint un nœud n'est
+        # pas forcément celle par laquelle le NAVIGATEUR de l'utilisateur le
+        # joint. Sur le parc Vagrant les deux coïncident (192.168.56.11) ;
+        # derrière une traduction d'adresses, non — et un lien vers un nom que
+        # seul le serveur sait résoudre ne s'ouvre nulle part.
+        host = SSH_HOST_OVERRIDE or wk.worker_host(inst["worker"]) or public_host()
         inst["worker_host"] = host
         # Le mot de passe chiffré ne quitte jamais le serveur ; en clair seulement si le coffre est ouvert
         secret = decrypt_secret(inst.pop("root_password", "")) if (vault_open and row["status"] == db.STATUS_RUNNING) else None

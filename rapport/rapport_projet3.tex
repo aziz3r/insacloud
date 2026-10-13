@@ -53,7 +53,7 @@ par utilisateur, destruction automatique à l'expiration.
   titre/.style={font=\scriptsize\bfseries}]
 \node[boite,minimum width=2cm,minimum height=1.1cm] (nav) {Navigateur\\[-1pt]\textcolor{gristexte}{utilisateur}};
 \node[draw=grisligne,rounded corners=3pt,inner sep=5pt,right=14mm of nav,minimum width=3.6cm,minimum height=3.4cm] (ctrl) {};
-\node[titre,color=insared] at ([yshift=-5mm]ctrl.north) {controller --- 192.168.56.10};
+\node[titre,color=insared] at ([yshift=-5mm]ctrl.north) {controller --- 192.169.56.10};
 \node[boite,minimum width=3cm] (n1) at ([yshift=-11mm]ctrl.north) {nginx \textperiodcentered{} TLS 1.3};
 \node[boite,minimum width=3cm,below=1.5mm of n1] (n2) {Gunicorn \textperiodcentered{} Flask};
 \node[boite,minimum width=3cm,below=1.5mm of n2] (n3) {Faucheur \textperiodcentered{} Watchdog};
@@ -220,7 +220,7 @@ une seule ignorée (HSTS, la pile locale étant en HTTP). Ils comprennent une \e
 SSH à une machine louée et le scénario de panne décrit plus haut.
 
 Ces propriétés ne sont pas seulement décrites : une chaîne d'intégration continue de onze travaux
-les rejoue à chaque envoi --- analyse statique, 168 tests, audit des dépendances, recherche de
+les rejoue à chaque envoi --- analyse statique, 169 tests, audit des dépendances, recherche de
 secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, démarrage de
 la pile complète, scan des images, puis publication et déploiement. Aucune image portant une faille
 grave et corrigeable n'atteint le registre, et chaque image publiée est accompagnée de son
@@ -275,7 +275,7 @@ de sa limite ; la construction des images est encadrée par \texttt{block}/\text
 le \texttt{Vagrantfile} enchaîne lui-même le \emph{provisioner} Ansible ; le \emph{watchdog} relève
 la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les neuf rôles déclarent
 leurs dépendances dans \texttt{meta/main.yml} ; un inventaire dynamique interroge Vagrant ; enfin une
-chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 168 tests, SAST, SCA,
+chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 169 tests, SAST, SCA,
 recherche de secrets, DAST et scan de l'image Docker.
 
 \textbf{Court terme.} Certificat reconnu (Let's Encrypt) en remplacement du certificat auto-signé,

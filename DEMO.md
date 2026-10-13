@@ -241,7 +241,7 @@ docker compose -p insacloud up -d --remove-orphans
 
 ```bash
 cd 2_webapp
-.venv/bin/python -m pytest          # 168 tests, environ 20 s
+.venv/bin/python -m pytest          # 169 tests, environ 20 s
 .venv/bin/ruff check .
 .venv/bin/python -m bandit -c pyproject.toml -r .
 ```

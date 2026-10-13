@@ -101,6 +101,14 @@ services:
   web:
     environment:
       INSACLOUD_WORKERS: noeud1=noeud1,noeud2=noeud2
+      # Adresse par laquelle le NAVIGATEUR de l'utilisateur joint les machines.
+      # Le contrôleur, lui, joint les nœuds par leur nom sur le réseau Docker
+      # (ci-dessus) : ce nom ne sort pas de la pile et ne résoudrait nulle part
+      # dans un navigateur. Les nœuds publiant leurs ports sur l'hôte, c'est
+      # bien 127.0.0.1 qu'il faut mettre dans les liens « terminal web » et
+      # « bureau ». Sur le parc Vagrant, les deux adresses coïncident et cette
+      # ligne est inutile.
+      INSACLOUD_SSH_HOST: ${INSACLOUD_SSH_HOST:-127.0.0.1}
       # Trente secondes de silence suffisent à déclarer un nœud mort : le
       # battement est toutes les dix secondes, on tolère deux ratés.
       INSACLOUD_HEARTBEAT_TIMEOUT: ${INSACLOUD_HEARTBEAT_TIMEOUT:-30}
@@ -113,6 +121,14 @@ services:
   faucheur:
     environment:
       INSACLOUD_WORKERS: noeud1=noeud1,noeud2=noeud2
+      # Adresse par laquelle le NAVIGATEUR de l'utilisateur joint les machines.
+      # Le contrôleur, lui, joint les nœuds par leur nom sur le réseau Docker
+      # (ci-dessus) : ce nom ne sort pas de la pile et ne résoudrait nulle part
+      # dans un navigateur. Les nœuds publiant leurs ports sur l'hôte, c'est
+      # bien 127.0.0.1 qu'il faut mettre dans les liens « terminal web » et
+      # « bureau ». Sur le parc Vagrant, les deux adresses coïncident et cette
+      # ligne est inutile.
+      INSACLOUD_SSH_HOST: ${INSACLOUD_SSH_HOST:-127.0.0.1}
       INSACLOUD_HEARTBEAT_TIMEOUT: ${INSACLOUD_HEARTBEAT_TIMEOUT:-30}
     volumes:
       - cles_controleur:/home/insacloud/.ssh:ro

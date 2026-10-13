@@ -87,7 +87,7 @@ des lignes de ce fichier est donc une mesure de sécurité, pas un détail de
 style.
 \end{retenir}
 
-\section{Ce que couvrent les 168 tests}
+\section{Ce que couvrent les 169 tests}
 
 \begin{center}
 \small
@@ -99,10 +99,10 @@ style.
 \cmd{test\_workers.py} & 37 & inscription, battement de cœur, états, ordonnanceur, reprise, libération du nom \\
 \cmd{test\_docker.py} & 24 & la commande construite, le durcissement, les labels \\
 \cmd{test\_faucheur.py} & 17 & expiration, réconciliation par nœud, nœud injoignable \\
-\cmd{test\_contraintes.py} & 7 & index unique partiel, unicité, clés étrangères, idempotence \\
+\cmd{test\_contraintes.py} & 8 & index unique partiel, unicité, clés étrangères, idempotence, pool après fork \\
 \cmd{test\_archives*.py} & 51 & archivage, purge, téléchargement, reprise après échec \\
 \midrule
-\textbf{Total} & \textbf{168} & en 20 secondes, sans Docker ni réseau \\
+\textbf{Total} & \textbf{169} & en 20 secondes, sans Docker ni réseau \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -186,7 +186,7 @@ réessayer jusqu'à ce que le service réponde, avec une limite.
 \textbf{Travail} & \textbf{Outil} & \textbf{Ce qu'il attrape} \\
 \midrule
 Lint Python & \cmd{ruff} & imports morts, noms inconnus, motifs douteux \\
-Tests & \cmd{pytest} & 168 cas, couverture conservée en artefact \\
+Tests & \cmd{pytest} & 169 cas, couverture conservée en artefact \\
 SAST & \cmd{bandit} & injection, secrets en dur, appels système risqués \\
 SCA & \cmd{pip-audit} & CVE des dépendances épinglées \\
 Secrets & \cmd{gitleaks} & clés commises, y compris dans l'historique \\

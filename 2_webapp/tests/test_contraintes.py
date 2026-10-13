@@ -13,6 +13,8 @@ Trois familles sont vérifiées ici :
   * les clés étrangères, qui interdisent une location sans utilisateur.
 """
 
+import os
+
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -126,3 +128,38 @@ def test_le_catalogue_ne_contient_pas_deux_fois_la_meme_distribution():
     with db.SessionLocal() as session:
         noms = [n for (n,) in session.execute(select(db.Distribution.name)).all()]
     assert len(noms) == len(set(noms)), "le catalogue a été dupliqué"
+
+
+# --- Le pool de connexions et le fork ---------------------------------------
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="pas de fork sur cette plateforme")
+def test_un_fils_abandonne_le_pool_herite():
+    """
+    gunicorn tourne avec « --preload » : il importe l'application AVANT de
+    forker ses quatre workers, et app.py appelle init_db() à l'import. La
+    connexion ouverte à ce moment se range dans le pool du processus maître et
+    serait héritée par les fils, qui se serviraient de la MÊME socket
+    PostgreSQL en même temps.
+
+    Le défaut ne se voyait qu'au démarrage — trois des huit premières requêtes
+    en erreur, puis plus rien — et l'erreur remontée (« connection in
+    transaction status INTRANS ») n'avait aucun rapport avec la requête. Ce
+    test vérifie que chaque fils repart d'un pool neuf.
+    """
+    with db.engine.connect() as connexion:
+        connexion.execute(text("SELECT 1"))     # le pool contient une connexion
+
+    pool_du_parent = id(db.engine.pool)
+    lecture, ecriture = os.pipe()
+    pid = os.fork()
+    if pid == 0:                                 # --- le fils ---
+        try:
+            different = id(db.engine.pool) != pool_du_parent
+            os.write(ecriture, b"1" if different else b"0")
+        finally:
+            os._exit(0)                          # jamais sys.exit : pas de atexit ici
+
+    os.close(ecriture)
+    os.waitpid(pid, 0)
+    reponse = os.read(lecture, 1)
+    os.close(lecture)
+    assert reponse == b"1", "le fils a hérité du pool du parent"

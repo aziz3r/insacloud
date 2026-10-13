@@ -414,7 +414,7 @@ ARRET_NOEUD='docker stop insacloud-%s' DEMARRAGE_NOEUD='docker start insacloud-%
 > Le quatrième ouvre une **vraie session SSH** dans la machine louée, et le
 > sixième est celui qu'on vient de faire à la main.
 >
-> À côté, **168 tests unitaires** en vingt secondes. Et ils ne lancent aucun
+> À côté, **169 tests unitaires** en vingt secondes. Et ils ne lancent aucun
 > conteneur : `run_docker` est remplacé par une fonction espion. On vérifie
 > donc que la commande imposée part bien telle quelle, sur un agent
 > d'intégration qui n'a même pas Docker. »
@@ -516,7 +516,7 @@ ARRET_NOEUD='docker stop insacloud-%s' DEMARRAGE_NOEUD='docker start insacloud-%
 | Et si deux utilisateurs demandent le même port ? | P2 | Index unique partiel en base, limité aux machines actives. |
 | La reprise rend-elle les fichiers ? | P3 | Non, et c'est assumé. Sans stockage partagé, seul le service repart. |
 | Comment ajoute-t-on un worker ? | P3 | On l'allume. Aucune adresse n'est écrite côté contrôleur. |
-| Pourquoi 168 tests sans Docker ? | P3 | `run_docker` est espionné : on vérifie la commande, pas le conteneur. |
+| Pourquoi 169 tests sans Docker ? | P3 | `run_docker` est espionné : on vérifie la commande, pas le conteneur. |
 | Combien de temps pour tout remonter ? | P1 | `vagrant up` puis un playbook. Tout est décrit en fichiers. |
 
 ---

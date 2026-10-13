@@ -450,7 +450,7 @@ mémoire de chaque machine louée, sur chaque n\oe{}ud, et journalise une alerte
 Mise à l'échelle & Horizontale au niveau du parc : ajout d'un worker dans l'inventaire, répartition automatique. & \ok\\
 Vagrant : box, provider, provisioner & Box \texttt{bento/ubuntu-22.04}, quatre providers (VMware, Parallels, QEMU, VirtualBox), provisioner Shell. & \ok\\
 Vagrant multi-machines & Quatre machines définies (\texttt{controller}, \texttt{worker1}, \texttt{worker2}, \texttt{worker3}). & \ok\\
-Réseau privé et IP fixe & \texttt{private\_network} en 192.168.56.10 / .11 / .12 / .13. & \ok\\
+Réseau privé et IP fixe & \texttt{private\_network} en 192.169.56.10 / .11 / .12 / .13. & \ok\\
 Configuration des ressources VM & \texttt{memory} et \texttt{cpus} définis par machine et par provider. & \ok\\
 Provisioner Ansible déclaratif & Le \texttt{Vagrantfile} enchaîne un provisioner Shell (Python) puis le
 provisioner \texttt{ansible}, déclenché après la dernière VM : \texttt{vagrant up} suffit à obtenir
@@ -494,7 +494,7 @@ Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pou
 Gestion des secrets & Ansible Vault, chiffrement Fernet en base, fichier d'environnement \texttt{0600}, secret effacé de l'environnement du PID 1. & \plus\\
 Sécurité des conteneurs & \texttt{-{}-cap-drop ALL} et capacités minimales, \texttt{no-new-privileges}, limites PID et CPU, TLS jusqu'aux machines. & \plus\\
 Pipeline CI/CD, SAST, SCA, DAST & \texttt{.github/workflows/ci.yml} : onze travaux à chaque envoi ---
-lint (ruff, ansible-lint, hadolint), 168 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
+lint (ruff, ansible-lint, hadolint), 169 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
 fuite de secrets (gitleaks), DAST (18 contrôles sur l'application en fonctionnement, puis nuclei),
 scan de l'image Docker (Trivy). & \plus\\
 Kubernetes & Hors périmètre du projet 3. & ---\\
@@ -515,7 +515,7 @@ HTTPS de bout en bout, coffre à secrets chiffré.
 \item \textbf{Chaîne de démonstration} : vidéo du parcours complet et captures d'écran versionnées.
 \item \textbf{Chaîne d'intégration continue} de onze travaux couvrant le cycle DevSecOps complet :
 lint, tests, SAST, SCA, recherche de secrets, DAST et scan d'image.
-\item \textbf{168 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne, contraintes d'intégrité) exécutés sans Docker
+\item \textbf{169 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne, contraintes d'intégrité) exécutés sans Docker
 ni réseau, donc rejouables sur n'importe quel poste.
 \item \textbf{Inventaire dynamique} interrogeant Vagrant, ce qui rend le déploiement indépendant du
 \emph{provider} de virtualisation.
@@ -775,7 +775,7 @@ plutôt que simplement déclarées. Ce que le poste n'a pas permis de faire tour
 Ansible, faute d'hyperviseur --- est dit comme tel, ici et à l'oral.
 
 Le projet dépasse enfin le périmètre du cours sur un point : une chaîne d'intégration continue
-rejoue à chaque envoi l'analyse statique, les 168 tests, l'audit des dépendances, la recherche de
+rejoue à chaque envoi l'analyse statique, les 169 tests, l'audit des dépendances, la recherche de
 secrets, l'analyse dynamique de l'application et le scan de l'image Docker. C'est la garantie que
 les propriétés décrites dans ce dossier restent vraies, et non qu'elles l'ont été une fois.
 
