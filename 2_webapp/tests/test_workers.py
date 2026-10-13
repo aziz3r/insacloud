@@ -53,10 +53,17 @@ def test_un_worker_s_enregistre():
     assert worker["last_heartbeat"] is not None
 
 
-def test_capacite_deduite_de_la_memoire():
-    """Une machine « terminal » consomme 256 Mio ; on réserve 1 Gio au système."""
+def test_capacite_deduite_des_ressources_du_noeud():
+    """
+    La capacité vient des DEUX ressources, et retient la plus rare.
+
+    Ce nœud a 3 Gio et 2 cœurs : la mémoire autoriserait 8 machines
+    ((3072 - 1024) / 256), le processeur seulement 4 ((2 - 1) x 4). C'est 4.
+    """
     worker = db.register_worker("worker1", "192.168.56.11", cpu=2, memory=3072)
-    assert worker["capacity"] == (3072 - 1024) // 256
+    par_memoire = (3072 - 1024) // 256
+    par_cpu = (2 - 1) * db.MACHINES_PAR_COEUR
+    assert worker["capacity"] == min(par_memoire, par_cpu) == 4
 
 
 def test_un_worker_qui_revient_est_mis_a_jour():
@@ -364,3 +371,25 @@ def test_le_tableau_de_bord_signale_une_reprise(connecte, monkeypatch):
 
     apres = connecte.get("/dashboard").get_data(as_text=True)
     assert "Reprise sur un autre nœud" in apres
+
+
+# =============================================================================
+#  La capacité d'un nœud : c'est la ressource qui manque en premier qui décide
+# =============================================================================
+def test_la_capacite_tient_compte_de_la_memoire():
+    """4 Gio : (4096 - 1024) / 256 = 12 machines, si le CPU ne limite pas."""
+    assert db._capacite_calculee(cpu=8, memory=4096) == 12
+
+
+def test_la_capacite_tient_compte_du_cpu():
+    """2 cœurs : (2 - 1) x 4 = 4 machines, même si la mémoire est abondante."""
+    assert db._capacite_calculee(cpu=2, memory=16384) == 4
+
+
+def test_la_capacite_retient_la_ressource_la_plus_rare():
+    """Beaucoup de cœurs mais peu de mémoire : c'est la mémoire qui tranche."""
+    assert db._capacite_calculee(cpu=16, memory=2048) == 4
+
+
+def test_un_noeud_muet_sur_ses_ressources_ne_fait_pas_deviner():
+    assert db._capacite_calculee(cpu=None, memory=None) == db.CAPACITE_PAR_DEFAUT

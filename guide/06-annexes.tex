@@ -56,7 +56,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python app.py                  # serveur de developpement
 
 # --- Controles, les memes que la chaine --------------------------------------
-pytest                                   # 151 tests
+pytest                                   # 162 tests
 ruff check .
 bandit -c pyproject.toml -r .
 pip-audit -r requirements.txt
@@ -165,7 +165,7 @@ plutôt qu'attendre une durée fixe \\
 13 & Haute disponibilité & 3 niveaux, scénario de l'énoncé vérifié \\
 14 & Sécurité DevSecOps & SAST, SCA, secrets, DAST, scan d'image, SBOM \\
 15 & CI/CD & 11 travaux, publication conditionnelle, déploiement vérifié \\
-16 & Tests d'intégration & 151 tests unitaires + 6 scénarios de bout en bout \\
+16 & Tests d'intégration & 162 tests unitaires + 6 scénarios de bout en bout \\
 17 & Documentation & README, guide d'API, schéma de base, ce guide \\
 \bottomrule
 \end{tabularx}

@@ -45,6 +45,11 @@ STATUS_STOPPED = INSTANCE_STOPPED
 
 # Un worker sans battement de cœur depuis ce délai est déclaré hors ligne.
 HEARTBEAT_TIMEOUT = int(os.environ.get("INSACLOUD_HEARTBEAT_TIMEOUT", "90"))
+# Combien de machines un cœur peut porter : elles passent l'essentiel de leur
+# temps à attendre une saisie, pas à calculer.
+MACHINES_PAR_COEUR = int(os.environ.get("INSACLOUD_MACHINES_PAR_COEUR", "4"))
+# Nœud qui ne déclare ni cœurs ni mémoire : on ne devine pas, on plafonne bas.
+CAPACITE_PAR_DEFAUT = 10
 
 LOCAL_WORKER = "local"     # nœud fictif du mode mono-hôte
 
@@ -305,6 +310,22 @@ def purge_login_attempts(hours: int = 24) -> None:
 # =============================================================================
 #  Workers : enregistrement, battement de cœur, états
 # =============================================================================
+def _capacite_calculee(cpu: int = None, memory: int = None) -> int:
+    """
+    Combien de machines ce nœud peut porter, d'après ses deux ressources.
+
+    La mémoire plafonne : une machine « terminal » demande 256 Mio, et on
+    réserve 1 Gio au système du nœud. Le processeur plafonne aussi : chaque
+    machine se voit allouer un cœur, et on en garde un pour le nœud lui-même.
+    On retient le plus petit des deux — c'est la ressource qui manque en
+    premier qui décide, pas celle qui est abondante.
+    """
+    par_memoire = max(1, (memory - 1024) // 256) if memory else None
+    par_cpu = max(1, (cpu - 1) * MACHINES_PAR_COEUR) if cpu else None
+    bornes = [b for b in (par_memoire, par_cpu) if b is not None]
+    return min(bornes) if bornes else CAPACITE_PAR_DEFAUT
+
+
 def register_worker(hostname: str, ip: str, cpu: int = None, memory: int = None,
                     capacity: int = None) -> dict:
     """
@@ -319,8 +340,7 @@ def register_worker(hostname: str, ip: str, cpu: int = None, memory: int = None,
         worker.ip = ip
         worker.cpu = cpu
         worker.memory = memory
-        # Capacité : une machine « terminal » consomme 256 Mio, on garde 1 Gio au système.
-        worker.capacity = capacity or (max(1, (memory - 1024) // 256) if memory else 10)
+        worker.capacity = capacity or _capacite_calculee(cpu, memory)
         worker.status = WORKER_AVAILABLE
         worker.last_heartbeat = utc_now()
         session.commit()

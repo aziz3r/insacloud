@@ -68,6 +68,12 @@ GUI_CONTAINER_PORT = 6080    # noVNC dans les images "bureau"
 # chacune n'a le droit de toucher qu'aux machines portant SON nom de cluster.
 CLUSTER = os.environ.get("INSACLOUD_CLUSTER", "default")
 CONTAINER_PREFIX = "insacloud_"
+# Réseau dédié aux machines louées. Sans lui, elles atterrissent sur le pont
+# par défaut de Docker, qu'elles partagent avec TOUS les autres conteneurs de
+# l'hôte — y compris ceux de la plateforme. Un réseau à part les isole, et il
+# les sépare des conteneurs de la plateforme, sans leur couper l'accès au
+# réseau : un utilisateur doit pouvoir installer des paquets dans sa machine.
+CONTAINER_NETWORK = os.environ.get("INSACLOUD_NETWORK", f"insacloud_{CLUSTER}_net")
 DOCKER_TIMEOUT = int(os.environ.get("INSACLOUD_DOCKER_TIMEOUT", "60"))
 
 # --- TLS et proxy -------------------------------------------------------------

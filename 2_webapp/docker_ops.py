@@ -19,7 +19,7 @@ import time
 import subprocess  # nosec B404 - le sujet impose de piloter Docker par la CLI
 
 import workers as wk
-from config import (AVAILABLE_IMAGES, CLUSTER, CONTAINER_CPUS,
+from config import (AVAILABLE_IMAGES, CLUSTER, CONTAINER_CPUS, CONTAINER_NETWORK,
                     CONTAINER_PIDS_LIMIT, CONTAINER_PREFIX, DOCKER_TIMEOUT,
                     GUI_CONTAINER_PORT, MODES, PORT_MAX, PORT_MIN,
                     TERM_CONTAINER_PORT, TLS_DIR)
@@ -136,6 +136,27 @@ def image_available(distro: str, mode: str) -> bool:
 # =============================================================================
 #  Cycle de vie d'une machine louée
 # =============================================================================
+def assurer_reseau(worker: str = "local") -> str:
+    """
+    Garantit l'existence du réseau des machines louées, et retourne son nom.
+
+    Docker refuse de créer un réseau qui existe déjà : l'erreur est donc
+    attendue et absorbée. On ne retourne jamais d'échec — si la création est
+    impossible, mieux vaut la machine sur le pont par défaut que pas de machine
+    du tout.
+    """
+    try:
+        run_docker("network", "create", CONTAINER_NETWORK,
+                   worker=worker, timeout=20)
+        log.info("Réseau %s créé sur %s", CONTAINER_NETWORK, worker)
+    except DockerError as erreur:
+        if "already exists" not in str(erreur).lower():
+            log.warning("Réseau %s indisponible sur %s : %s — repli sur le pont "
+                        "par défaut", CONTAINER_NETWORK, worker, erreur)
+            return "bridge"
+    return CONTAINER_NETWORK
+
+
 def docker_run_container(port: int, name: str, root_password: str, os_type: str,
                          mode: str, term_port: int, gui_port: int = None,
                          ssh_public_key: str = None, worker: str = "local") -> str:
@@ -152,6 +173,7 @@ def docker_run_container(port: int, name: str, root_password: str, os_type: str,
         "--restart=always",
         "-p", f"{port}:22",
         "-p", f"{term_port}:{TERM_CONTAINER_PORT}",
+        "--network", assurer_reseau(worker),
         "--name", name,
         "-e", f"ROOT_PASSWORD={root_password}",
         *CONTAINER_HARDENING,

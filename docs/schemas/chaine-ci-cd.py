@@ -12,7 +12,7 @@ H_ETAGE = 168
 
 ETAGES_1 = [
     ("1", "Qualité", ["ruff — style, imports morts,", "      motifs dangereux",
-                      "pytest — 151 tests,", "      couverture conservée",
+                      "pytest — 162 tests,", "      couverture conservée",
                       "ansible-lint — profil", "      « production »"]),
     ("2", "Sécurité", ["bandit — SAST", "pip-audit — SCA", "gitleaks — secrets,",
                        "      historique compris", "nuclei + dast.sh — DAST",
