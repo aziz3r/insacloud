@@ -1,0 +1,124 @@
+# =============================================================================
+#  InsaCloud — parc à deux nœuds, sans hyperviseur
+# -----------------------------------------------------------------------------
+#  Le déploiement de référence est Vagrant + Ansible : un contrôleur et trois
+#  workers, chacun une machine virtuelle. Sur un poste où aucun hyperviseur ne
+#  fonctionne, ce fichier monte deux nœuds en conteneurs : même transport SSH,
+#  même agent, même inscription, même bascule OFFLINE, même reprise.
+#
+#      docker compose -f docker-compose.yml -f docker-compose.noeuds.yml up -d
+#
+#  Pour revenir au mode mono-hôte (nœud « local ») :
+#      docker compose up -d --remove-orphans
+#
+#  Ce que cela démontre vraiment : le test 6 du cahier des charges — un nœud
+#  tombe, ses machines repartent ailleurs sans perdre la location.
+#  Ce que cela ne démontre pas : l'isolation matérielle entre nœuds. Les deux
+#  partagent le démon Docker de l'hôte ; sur le parc Vagrant, chacun a le sien.
+# =============================================================================
+
+x-noeud: &noeud
+  build:
+    context: .
+    dockerfile: 1_docker/Dockerfile.noeud
+  image: insacloud_noeud:latest
+  restart: unless-stopped
+  environment:
+    INSACLOUD_CLUSTER: ${INSACLOUD_CLUSTER:-compose}
+    INSACLOUD_CONTROLLER: http://web:5000
+    INSACLOUD_AGENT_TOKEN: ${INSACLOUD_AGENT_TOKEN:?définissez INSACLOUD_AGENT_TOKEN dans .env}
+    # Dix secondes : la panne doit se voir pendant la démonstration, pas après.
+    INSACLOUD_HEARTBEAT_INTERVAL: ${INSACLOUD_HEARTBEAT_INTERVAL:-10}
+  volumes:
+    - cles_controleur:/cles:ro
+    - /var/run/docker.sock:/var/run/docker.sock
+  networks: [insacloud]
+  security_opt: [no-new-privileges:true]
+  depends_on:
+    cles:
+      condition: service_completed_successfully
+  deploy:
+    resources:
+      limits: { memory: 128M }
+
+services:
+
+  # ---------------------------------------------------------------------------
+  #  Clé de pilotage : fabriquée une fois, partagée par le contrôleur et les nœuds
+  # ---------------------------------------------------------------------------
+  cles:
+    build:
+      context: .
+      dockerfile: 1_docker/Dockerfile.noeud
+    image: insacloud_noeud:latest
+    container_name: insacloud-cles
+    entrypoint: ["/usr/local/bin/noeud-cles"]
+    restart: "no"
+    volumes:
+      - cles_controleur:/cles
+    networks: [insacloud]
+
+  # ---------------------------------------------------------------------------
+  #  Les deux nœuds de calcul
+  # ---------------------------------------------------------------------------
+  noeud1:
+    <<: *noeud
+    container_name: insacloud-noeud1
+    hostname: noeud1
+    environment:
+      INSACLOUD_CLUSTER: ${INSACLOUD_CLUSTER:-compose}
+      INSACLOUD_CONTROLLER: http://web:5000
+      INSACLOUD_AGENT_TOKEN: ${INSACLOUD_AGENT_TOKEN:?définissez INSACLOUD_AGENT_TOKEN dans .env}
+      INSACLOUD_HEARTBEAT_INTERVAL: ${INSACLOUD_HEARTBEAT_INTERVAL:-10}
+      INSACLOUD_WORKER_NAME: noeud1
+      # Adresse annoncée à l'utilisateur pour joindre ses machines. Sur le parc
+      # Vagrant, l'agent découvre tout seul l'IP du nœud (192.168.56.11) et
+      # cette ligne est inutile. Ici les nœuds publient leurs ports sur l'hôte :
+      # c'est bien 127.0.0.1 qu'il faut afficher, pas l'IP interne du réseau
+      # Docker, que le poste de l'utilisateur ne sait pas joindre.
+      INSACLOUD_WORKER_IP: ${INSACLOUD_WORKER_IP:-127.0.0.1}
+
+  noeud2:
+    <<: *noeud
+    container_name: insacloud-noeud2
+    hostname: noeud2
+    environment:
+      INSACLOUD_CLUSTER: ${INSACLOUD_CLUSTER:-compose}
+      INSACLOUD_CONTROLLER: http://web:5000
+      INSACLOUD_AGENT_TOKEN: ${INSACLOUD_AGENT_TOKEN:?définissez INSACLOUD_AGENT_TOKEN dans .env}
+      INSACLOUD_HEARTBEAT_INTERVAL: ${INSACLOUD_HEARTBEAT_INTERVAL:-10}
+      INSACLOUD_WORKER_NAME: noeud2
+      # Adresse annoncée à l'utilisateur pour joindre ses machines. Sur le parc
+      # Vagrant, l'agent découvre tout seul l'IP du nœud (192.168.56.11) et
+      # cette ligne est inutile. Ici les nœuds publient leurs ports sur l'hôte :
+      # c'est bien 127.0.0.1 qu'il faut afficher, pas l'IP interne du réseau
+      # Docker, que le poste de l'utilisateur ne sait pas joindre.
+      INSACLOUD_WORKER_IP: ${INSACLOUD_WORKER_IP:-127.0.0.1}
+
+  # ---------------------------------------------------------------------------
+  #  Le contrôleur pilote désormais deux nœuds par SSH, plus son Docker local
+  # ---------------------------------------------------------------------------
+  web:
+    environment:
+      INSACLOUD_WORKERS: noeud1=noeud1,noeud2=noeud2
+      # Trente secondes de silence suffisent à déclarer un nœud mort : le
+      # battement est toutes les dix secondes, on tolère deux ratés.
+      INSACLOUD_HEARTBEAT_TIMEOUT: ${INSACLOUD_HEARTBEAT_TIMEOUT:-30}
+    volumes:
+      - cles_controleur:/home/insacloud/.ssh:ro
+    depends_on:
+      cles:
+        condition: service_completed_successfully
+
+  faucheur:
+    environment:
+      INSACLOUD_WORKERS: noeud1=noeud1,noeud2=noeud2
+      INSACLOUD_HEARTBEAT_TIMEOUT: ${INSACLOUD_HEARTBEAT_TIMEOUT:-30}
+    volumes:
+      - cles_controleur:/home/insacloud/.ssh:ro
+    depends_on:
+      cles:
+        condition: service_completed_successfully
+
+volumes:
+  cles_controleur:

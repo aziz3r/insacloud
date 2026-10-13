@@ -154,6 +154,65 @@ def test_une_machine_est_recreee_sur_un_autre_worker(docker_espion, monkeypatch)
     assert any(a["worker"] == "worker2" and a["commande"] == "run" for a in docker_espion)
 
 
+def test_la_reprise_libere_le_nom_sur_le_noeud_de_repli(docker_espion, monkeypatch):
+    """Docker refuse deux conteneurs de même nom : la reprise doit faire le
+    ménage sur le nœud de repli AVANT de créer, sinon elle échoue pour de bon."""
+    monkeypatch.setattr(db, "HEARTBEAT_TIMEOUT", 1)
+    deux_workers()
+    utilisateur = db.create_user("etudiant", "hash")
+    db.create_instance(utilisateur, "abc123456789", "insacloud_etudiant_a1",
+                       8001, 30, os_type="alpine", term_port=8101, worker="worker1")
+
+    time.sleep(1.2)
+    db.worker_heartbeat("worker2")
+    assert faucheur.surveiller_workers() == 1
+
+    sur_worker2 = [a["commande"] for a in docker_espion
+                   if a["worker"] == "worker2" and a["commande"] in ("rm", "run")]
+    assert sur_worker2[:2] == ["rm", "run"], "le ménage doit précéder la création"
+
+
+def test_un_reliquat_du_meme_nom_est_supprime(monkeypatch):
+    appels = []
+
+    def faux_run(*args, worker="local", timeout=None):
+        appels.append((worker, list(args)))
+        return "reliquat1234" if args[0] == "ps" else ""
+
+    monkeypatch.setattr(docker_ops, "run_docker", faux_run)
+    assert docker_ops.liberer_le_nom("insacloud_etudiant_a1", "worker2") is True
+    assert ("worker2", ["rm", "-f", "reliquat1234"]) in appels
+
+    interrogation = next(args for _, args in appels if args[0] == "ps")
+    # Nom ancré : le filtre de Docker travaille par sous-chaîne, et
+    # « insacloud_etudiant_a1 » ne doit pas emporter « ..._a10 ».
+    assert "name=^insacloud_etudiant_a1$" in interrogation
+    # Et uniquement parmi NOS machines : rôle et cluster.
+    assert any("insacloud.role=rented-machine" in x for x in interrogation)
+
+
+def test_un_homonyme_qui_nest_pas_a_nous_est_laisse_en_place(monkeypatch):
+    """Le filtre porte sur nos labels : un conteneur étranger du même nom n'est
+    pas détruit, et la reprise échouera — c'est le bon comportement."""
+    appels = []
+
+    def faux_run(*args, worker="local", timeout=None):
+        appels.append(list(args))
+        return ""
+
+    monkeypatch.setattr(docker_ops, "run_docker", faux_run)
+    assert docker_ops.liberer_le_nom("insacloud_etudiant_a1", "worker2") is False
+    assert not any(args[0] == "rm" for args in appels)
+
+
+def test_un_noeud_injoignable_ne_fait_pas_echouer_la_liberation(monkeypatch):
+    def faux_run(*args, worker="local", timeout=None):
+        raise docker_ops.DockerError("ssh: connect to host 192.168.56.12: No route to host")
+
+    monkeypatch.setattr(docker_ops, "run_docker", faux_run)
+    assert docker_ops.liberer_le_nom("insacloud_etudiant_a1", "worker2") is False
+
+
 def test_la_location_survit_a_la_reprise(docker_espion, monkeypatch):
     """L'utilisateur ne doit pas perdre le temps qu'il a réservé."""
     monkeypatch.setattr(db, "HEARTBEAT_TIMEOUT", 1)

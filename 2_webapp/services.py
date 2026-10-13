@@ -325,6 +325,10 @@ def recreer_ailleurs(instance: dict) -> Resultat:
     mot_de_passe = docker.generate_password()
     nom = instance["container_name"]
 
+    # Le nom doit être libre sur le nœud de repli : une tentative précédente
+    # peut y avoir laissé un reliquat, et Docker refuserait le doublon.
+    docker.liberer_le_nom(nom, nouveau_noeud)
+
     creation = _creer_conteneur(nom, mot_de_passe, instance["os_type"], instance["mode"],
                                 nouveau_noeud, utilisateur.get("ssh_public_key")
                                 if utilisateur else None)

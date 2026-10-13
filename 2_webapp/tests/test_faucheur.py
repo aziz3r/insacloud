@@ -96,10 +96,29 @@ def test_plusieurs_machines_expirees_traitees_en_un_cycle(docker):
 # --- Réconciliation Docker <-> base de données ------------------------------
 def test_conteneur_orphelin_supprime(monkeypatch):
     """Un conteneur insacloud_* sans instance active en base est détruit."""
-    faux = FauxDocker({"ps": ("deadbeef1234 insacloud_inconnu_1\n", 0, "")})
+    faux = FauxDocker({"ps": ("deadbeef1234|local|insacloud_inconnu_1\n", 0, "")})
     monkeypatch.setattr(faucheur, "_docker", faux)
     faucheur.reconcile()
     assert ("local", ["rm", "-f", "deadbeef1234"]) in faux.appels
+
+
+def test_conteneur_sans_label_de_noeud_reste_traite(monkeypatch):
+    """Compatibilité : une machine créée avant le label de nœud doit rester
+    nettoyable, sinon elle resterait orpheline pour toujours."""
+    faux = FauxDocker({"ps": ("deadbeef1234||insacloud_inconnu_1\n", 0, "")})
+    monkeypatch.setattr(faucheur, "_docker", faux)
+    faucheur.reconcile()
+    assert ("local", ["rm", "-f", "deadbeef1234"]) in faux.appels
+
+
+def test_machine_d_un_autre_noeud_nest_pas_detruite(monkeypatch):
+    """Deux nœuds peuvent partager un démon Docker : la réconciliation de l'un
+    ne doit pas détruire les machines de l'autre."""
+    faux = FauxDocker({"ps": ("deadbeef1234|worker2|insacloud_voisin_1\n", 0, "")})
+    monkeypatch.setattr(wk, "WORKERS", {"worker1": "192.168.56.11"})
+    monkeypatch.setattr(faucheur, "_docker", faux)
+    faucheur.reconcile()
+    assert not any(cmd[0] == "rm" for _, cmd in faux.appels)
 
 
 def test_instance_sans_conteneur_passe_a_stopped(monkeypatch):
@@ -113,7 +132,7 @@ def test_instance_sans_conteneur_passe_a_stopped(monkeypatch):
 
 def test_instance_et_conteneur_coherents_non_modifies(monkeypatch):
     monkeypatch.setattr(faucheur, "_docker",
-                        FauxDocker({"ps": ("abc123456789 insacloud_etudiant_1\n", 0, "")}))
+                        FauxDocker({"ps": ("abc123456789|local|insacloud_etudiant_1\n", 0, "")}))
     utilisateur = creer_utilisateur()
     identifiant = louer(utilisateur, minutes=60)
     faucheur.reconcile()

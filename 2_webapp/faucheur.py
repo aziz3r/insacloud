@@ -31,7 +31,7 @@ import threading
 import database as db
 import services
 import workers as wk
-from docker_ops import MACHINE_FILTERS
+from docker_ops import MACHINE_FILTERS, WORKER_LABEL
 from config import AUTO_RECOVERY, BASE_DIR
 
 # -----------------------------------------------------------------------------
@@ -132,17 +132,30 @@ def reconcile() -> None:
         filtres = []
         for filtre in MACHINE_FILTERS:
             filtres += ["--filter", filtre]
-        res = _docker("ps", "-a", *filtres,
-                      "--format", "{{.ID}} {{.Names}}", worker=worker)
+        # Les accolades sont celles du gabarit Go de Docker, pas du Python :
+        # la chaîne est assemblée plutôt qu'interpolée pour rester lisible.
+        # Le séparateur est une barre verticale et non une espace : le label
+        # peut être vide, et deux espaces consécutives seraient fusionnées au
+        # découpage — le nom du conteneur se retrouverait pris pour le nœud.
+        gabarit = '{{.ID}}|{{.Label "' + WORKER_LABEL + '"}}|{{.Names}}'
+        res = _docker("ps", "-a", *filtres, "--format", gabarit, worker=worker)
         if res.returncode != 0:
             log.warning("Nœud %s injoignable pour la réconciliation : %s", worker, res.stderr.strip()[:120])
             continue
 
         present = {}
         for line in res.stdout.splitlines():
-            parts = line.split(maxsplit=1)
-            if len(parts) == 2:
-                present[parts[0][:12]] = parts[1]
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            cid, proprietaire, nom = (p.strip() for p in parts)
+            # Une machine qui porte le nom d'un AUTRE nœud n'est pas à nous :
+            # deux nœuds peuvent partager un démon. Une machine sans label vient
+            # d'une version antérieure : on la traite comme locale, sinon plus
+            # personne ne la nettoierait.
+            if proprietaire and proprietaire != worker:
+                continue
+            present[cid[:12]] = nom
         active = {inst["container_id"][:12]: inst for inst in all_active if inst["worker"] == worker}
 
         for cid, name in present.items():

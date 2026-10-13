@@ -286,10 +286,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Analyser les quatre Dockerfiles
+      - name: Analyser les cinq Dockerfiles
         run: |
           for fichier in 1_docker/Dockerfile 1_docker/debian.Dockerfile \
-                         1_docker/alpine.Dockerfile 2_webapp/Dockerfile; do
+                         1_docker/alpine.Dockerfile 1_docker/Dockerfile.noeud \
+                         2_webapp/Dockerfile; do
             echo "::group::hadolint $fichier"
             docker run --rm -i -v "$PWD/1_docker/.hadolint.yaml:/.hadolint.yaml:ro" \
               hadolint/hadolint:latest-alpine \
@@ -304,9 +305,14 @@ jobs:
           POSTGRES_PASSWORD: validation-syntaxe
           INSACLOUD_SECRET_KEY: validation-syntaxe
           INSACLOUD_VAULT_KEY: validation-syntaxe
+          INSACLOUD_AGENT_TOKEN: validation-syntaxe
         run: |
           docker compose config --quiet
           docker compose --profile build --profile demo config --quiet
+          # Le parc à deux nœuds est une superposition : elle doit se résoudre
+          # avec le fichier principal, pas seulement exister.
+          docker compose -f docker-compose.yml -f docker-compose.noeuds.yml \
+                         config --quiet
           echo "Services : $(docker compose config --services | tr '\n' ' ')"
 
       - name: Construire l'image légère (celle du mode démonstration)

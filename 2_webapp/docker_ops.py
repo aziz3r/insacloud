@@ -35,6 +35,12 @@ log = logging.getLogger("insacloud.docker")
 MACHINE_LABEL = "insacloud.role"
 MACHINE_LABEL_VALUE = "rented-machine"
 CLUSTER_LABEL = "insacloud.cluster"
+# Le nœud sur lequel la machine a été créée, inscrit dans le conteneur lui-même.
+# Sur un parc de machines virtuelles, chaque nœud a son propre démon Docker et
+# la frontière suffit à savoir qui héberge quoi. Quand plusieurs nœuds partagent
+# un démon, elle disparaît : sans ce label, la réconciliation du nœud 2 verrait
+# les machines du nœud 1 comme des orphelines et les détruirait.
+WORKER_LABEL = "insacloud.worker"
 
 # Les deux filtres sont combinés : une machine doit être une machine louée ET
 # appartenir à CE déploiement. Sans le second, le Faucheur d'une plateforme
@@ -174,6 +180,7 @@ def docker_run_container(port: int, name: str, root_password: str, os_type: str,
         "-p", f"{port}:22",
         "-p", f"{term_port}:{TERM_CONTAINER_PORT}",
         "--network", assurer_reseau(worker),
+        "--label", f"{WORKER_LABEL}={worker}",
         "--name", name,
         "-e", f"ROOT_PASSWORD={root_password}",
         *CONTAINER_HARDENING,
@@ -190,6 +197,39 @@ def docker_run_container(port: int, name: str, root_password: str, os_type: str,
         args += ["--memory", spec["memory"], "--memory-reservation", spec["reservation"]]
     args.append(image_for(os_type, mode))
     return run_docker(*args, worker=worker)[:12]
+
+
+def liberer_le_nom(name: str, worker: str = "local") -> bool:
+    """
+    Retire, sur ce nœud, une machine de la plateforme qui porterait déjà ce nom.
+
+    Docker refuse deux conteneurs de même nom. Une reprise après panne peut donc
+    buter sur un reliquat : création qui a réussi mais dont l'enregistrement a
+    échoué et qu'on rejoue, ou nœud qui partage son démon Docker avec un autre.
+    Sans ce ménage, la reprise échoue définitivement et l'utilisateur perd sa
+    location pour une collision de nom.
+
+    Seules les machines portant NOS labels sont touchées — rôle et cluster. Un
+    conteneur homonyme qui ne nous appartient pas est laissé en place et la
+    reprise échouera : c'est le bon comportement, pas une régression.
+    """
+    filtres = []
+    for filtre in MACHINE_FILTERS:
+        filtres += ["--filter", filtre]
+    try:
+        # « name=^nom$ » : ancré aux deux bouts, sinon le filtre de Docker
+        # fonctionne par sous-chaîne et emporterait les homonymes partiels.
+        sortie = run_docker("ps", "-a", "--filter", f"name=^{name}$", *filtres,
+                            "--format", "{{.ID}}", worker=worker, timeout=20)
+    except DockerError as erreur:
+        log.warning("Nom « %s » : vérification impossible sur %s (%s)", name, worker, erreur)
+        return False
+    reliquats = [ligne.strip() for ligne in sortie.splitlines() if ligne.strip()]
+    for cid in reliquats:
+        log.warning("Nom « %s » déjà pris sur %s par %s : suppression du reliquat.",
+                    name, worker, cid)
+        docker_remove_container(cid, worker=worker)
+    return bool(reliquats)
 
 
 def docker_remove_container(container_id: str, worker: str = "local") -> None:

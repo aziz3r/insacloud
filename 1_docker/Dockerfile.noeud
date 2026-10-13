@@ -1,0 +1,38 @@
+# =============================================================================
+#  Nœud de calcul — un hôte SSH qui expose un démon Docker
+# -----------------------------------------------------------------------------
+#  En production, un nœud est une machine virtuelle créée par Vagrant puis
+#  configurée par Ansible (rôles docker, worker, worker_agent). Cette image
+#  rejoue le MÊME contrat sur un seul hôte, pour les postes où aucun
+#  hyperviseur n'est disponible : sshd, le client Docker, l'agent d'inscription.
+#
+#  Le contrôleur ne voit aucune différence : il parle à « ssh://insacloud@nom »
+#  exactement comme il parlerait à 192.168.56.11. Les chemins de code exercés
+#  sont les vrais — transport SSH, inscription, battement de cœur, bascule
+#  OFFLINE, recréation ailleurs. Seule la frontière matérielle est simulée :
+#  les deux nœuds partagent le démon de l'hôte au lieu d'en avoir un chacun.
+# =============================================================================
+FROM docker:29-cli
+
+# openssh-server : le nœud doit être joignable en SSH, c'est le seul port ouvert.
+# python3        : l'agent n'utilise que la bibliothèque standard, rien à installer.
+RUN apk add --no-cache openssh-server python3 \
+ && adduser -D -h /home/insacloud -s /bin/sh insacloud \
+ # « adduser -D » laisse le compte VERROUILLÉ (un « ! » dans /etc/shadow), et
+ # sshd refuse un compte verrouillé même en authentification par clé. L'étoile
+ # dit « aucun mot de passe n'ouvre ce compte », ce qui est l'intention : la
+ # clé publique est le seul accès.
+ && sed -i 's|^insacloud:!|insacloud:*|' /etc/shadow \
+ && mkdir -p /home/insacloud/.ssh \
+ && chown -R insacloud:insacloud /home/insacloud \
+ && chmod 700 /home/insacloud/.ssh \
+ && ssh-keygen -A
+
+COPY 1_docker/sshd_noeud.conf      /etc/ssh/sshd_config
+COPY 1_docker/noeud-entree.sh      /usr/local/bin/noeud-entree
+COPY 1_docker/noeud-cles.sh        /usr/local/bin/noeud-cles
+COPY 2_webapp/worker_agent.py      /opt/insacloud/worker_agent.py
+RUN chmod +x /usr/local/bin/noeud-entree /usr/local/bin/noeud-cles
+
+EXPOSE 22
+ENTRYPOINT ["/usr/local/bin/noeud-entree"]
