@@ -181,6 +181,13 @@ de l'ancienne machine, limite assumée d'une reprise sans stockage partagé.
 Le Faucheur relit la base toutes les dix secondes. Mesuré : une location d'une minute est détruite
 49\,s après son échéance, le conteneur retiré du worker et la location passée à \texttt{EXPIRED}.
 
+\subsection*{Sauvegarde du travail avant destruction}
+Détruire un conteneur détruit sa couche inscriptible : l'utilisateur perdrait tout. Juste avant le
+\texttt{docker rm -f}, la plateforme lit un \texttt{tar} de \texttt{/root} et \texttt{/home} au fil
+de l'eau --- sans écrire dans le conteneur --- et le conserve sept jours, téléchargeable depuis le
+tableau de bord avec son empreinte SHA-256. L'archivage ne bloque jamais la destruction : sans cette
+règle, une machine expirée sur un n\oe{}ud en panne resterait en vie indéfiniment.
+
 \subsection*{Automatisation complète}
 \texttt{vagrant up} crée les quatre VM et enchaîne lui-même le playbook. Neuf rôles installent
 pare-feu, Docker, certificats, images, agents, nginx et application. Mesuré sur quatre n\oe{}uds :
@@ -197,7 +204,7 @@ Jetons CSRF sur tous les formulaires, politique de mot de passe, cookies \texttt
 pare-feu UFW différencié par groupe, conteneurs à capacités minimales.
 
 Ces propriétés ne sont pas seulement décrites : une chaîne d'intégration continue de onze travaux
-les rejoue à chaque envoi --- analyse statique, 145 tests, audit des dépendances, recherche de
+les rejoue à chaque envoi --- analyse statique, 147 tests, audit des dépendances, recherche de
 secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, démarrage de
 la pile complète, scan des images, puis publication et déploiement. Aucune image portant une faille
 grave et corrigeable n'atteint le registre, et chaque image publiée est accompagnée de son
@@ -252,7 +259,7 @@ de sa limite ; la construction des images est encadrée par \texttt{block}/\text
 le \texttt{Vagrantfile} enchaîne lui-même le \emph{provisioner} Ansible ; le \emph{watchdog} relève
 la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les neuf rôles déclarent
 leurs dépendances dans \texttt{meta/main.yml} ; un inventaire dynamique interroge Vagrant ; enfin une
-chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 145 tests, SAST, SCA,
+chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 147 tests, SAST, SCA,
 recherche de secrets, DAST et scan de l'image Docker.
 
 \textbf{Court terme.} Certificat reconnu (Let's Encrypt) en remplacement du certificat auto-signé,
