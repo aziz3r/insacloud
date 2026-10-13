@@ -18,6 +18,28 @@
   vars:
     single_host: "{{ groups['workers'] | default([]) | length == 0 }}"
     docker_cli_only: "{{ not single_host }}"
+  pre_tasks:
+    # Photographie du code en place AVANT de le remplacer. C'est elle qu'on
+    # restaure si la nouvelle version ne répond pas : sans copie prise avant,
+    # un retour arrière n'est qu'une intention.
+    - name: Le dossier applicatif existe-t-il déjà ?
+      ansible.builtin.stat:
+        path: "{{ insacloud_app_dir }}"
+      register: avant_deploiement
+      tags: [always]
+
+    - name: Mettre de côté la version en place
+      ansible.builtin.copy:
+        src: "{{ insacloud_app_dir }}/"
+        dest: "{{ insacloud_root }}/app.precedente/"
+        remote_src: true
+        owner: "{{ insacloud_user }}"
+        group: "{{ insacloud_user }}"
+        mode: preserve
+      when: avant_deploiement.stat.exists
+      changed_when: false        # une sauvegarde n'est pas un changement d'état
+      tags: [always]
+
   roles:
     - role: tls_cert
       tags: [tls]
@@ -27,16 +49,54 @@
       tags: [webapp]
 
   post_tasks:
-    - name: Vérifier que l'API de santé répond
-      ansible.builtin.uri:
-        url: "https://127.0.0.1/health"
-        validate_certs: false
-        return_content: true
-      register: sante
-      retries: 10
-      delay: 3
-      until: sante.status is defined and sante.status == 200
-      changed_when: false
+    - name: Vérifier la nouvelle version, et revenir en arrière si elle ne sert pas
+      block:
+        - name: Vérifier que l'API de santé répond
+          ansible.builtin.uri:
+            url: "https://127.0.0.1/health"
+            validate_certs: false
+            return_content: true
+          register: sante
+          retries: 10
+          delay: 3
+          until: sante.status is defined and sante.status == 200
+          changed_when: false
+
+      rescue:
+        - name: La nouvelle version ne répond pas — restauration de la précédente
+          ansible.builtin.copy:
+            src: "{{ insacloud_root }}/app.precedente/"
+            dest: "{{ insacloud_app_dir }}/"
+            remote_src: true
+            owner: "{{ insacloud_user }}"
+            group: "{{ insacloud_user }}"
+            mode: preserve
+          when: avant_deploiement.stat.exists
+
+        - name: Redémarrer le service avec la version restaurée
+          ansible.builtin.systemd:
+            name: insacloud
+            state: restarted
+          when: avant_deploiement.stat.exists
+
+        - name: Vérifier que la version restaurée, elle, répond
+          ansible.builtin.uri:
+            url: "https://127.0.0.1/health"
+            validate_certs: false
+          register: sante_restauree
+          retries: 10
+          delay: 3
+          until: sante_restauree.status is defined and sante_restauree.status == 200
+          changed_when: false
+          when: avant_deploiement.stat.exists
+
+        - name: Annoncer l'échec, sans le masquer
+          ansible.builtin.fail:
+            msg: >-
+              Le déploiement a échoué : /health n'a pas répondu.
+              {% if avant_deploiement.stat.exists %}La version précédente a été
+              restaurée et répond de nouveau.{% else %}Aucune version précédente
+              à restaurer : il s'agit du premier déploiement.{% endif %}
 
     - name: Résumé du déploiement
       ansible.builtin.debug:

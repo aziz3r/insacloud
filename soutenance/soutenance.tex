@@ -559,7 +559,7 @@ configuration Ansible, application, location avec connexion SSH réelle,
 expiration, et panne d'un nœud.
 
 \medskip
-À côté, \textbf{147 tests unitaires} en vingt secondes. Et ils ne lancent aucun
+À côté, \textbf{151 tests unitaires} en vingt secondes. Et ils ne lancent aucun
 conteneur : \cmd{run\_docker} est remplacé par une fonction espion. On vérifie
 donc que la commande imposée part bien telle quelle, sur un agent d'intégration
 qui n'a même pas Docker.
@@ -730,7 +730,7 @@ P3 & Comment ajoute-t-on un worker ? &
 On l'allume. Aucune adresse n'est écrite côté contrôleur : l'agent s'inscrit
 tout seul. \\
 \addlinespace
-P3 & Pourquoi 147 tests sans Docker ? &
+P3 & Pourquoi 151 tests sans Docker ? &
 \cmd{run\_docker} est remplacé par un espion : on vérifie que la commande
 imposée part bien, sur un agent qui n'a pas Docker. \\
 \addlinespace

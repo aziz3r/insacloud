@@ -299,3 +299,68 @@ def test_initialisation_simultanee_ne_casse_pas(tmp_path, monkeypatch):
     assert not erreurs, f"init_db() a échoué en parallèle : {erreurs[:2]}"
     # Le catalogue ne doit pas avoir été inséré six fois
     assert len(db.get_distributions()) == len(db.DISTRIBUTIONS_PAR_DEFAUT)
+
+
+# =============================================================================
+#  L'agent annonce BUSY : un nœud plein est en bonne santé, pas en panne
+# =============================================================================
+def test_l_agent_annonce_busy_quand_il_est_plein(monkeypatch):
+    """Sans cet état, un noeud sature sans que le parc le sache."""
+    import worker_agent
+
+    envois = []
+    monkeypatch.setattr(worker_agent, "_capacite", {"valeur": 3})
+    monkeypatch.setattr(worker_agent, "docker_operationnel", lambda: True)
+    monkeypatch.setattr(worker_agent, "conteneurs_actifs", lambda: 3)
+    monkeypatch.setattr(worker_agent, "nom_du_noeud", lambda: "worker1")
+    monkeypatch.setattr(worker_agent, "appeler",
+                        lambda chemin, charge: (envois.append(charge), (200, {}))[1])
+
+    worker_agent.battre()
+
+    assert envois[0]["status"] == "BUSY", "un noeud plein doit se declarer BUSY"
+
+
+def test_l_agent_redevient_disponible_en_dessous_de_sa_capacite(monkeypatch):
+    import worker_agent
+
+    envois = []
+    monkeypatch.setattr(worker_agent, "_capacite", {"valeur": 3})
+    monkeypatch.setattr(worker_agent, "docker_operationnel", lambda: True)
+    monkeypatch.setattr(worker_agent, "conteneurs_actifs", lambda: 1)
+    monkeypatch.setattr(worker_agent, "nom_du_noeud", lambda: "worker1")
+    monkeypatch.setattr(worker_agent, "appeler",
+                        lambda chemin, charge: (envois.append(charge), (200, {}))[1])
+
+    worker_agent.battre()
+
+    assert envois[0]["status"] == "AVAILABLE"
+
+
+def test_le_controleur_enregistre_l_etat_busy_recu():
+    """Le bout en bout : ce que l'agent annonce doit se voir dans le parc."""
+    db.ensure_worker("worker1", "10.0.0.2")
+
+    db.worker_heartbeat("worker1", "BUSY")
+    assert db.get_worker_by_hostname("worker1")["status"] == WORKER_BUSY
+
+    db.worker_heartbeat("worker1", "AVAILABLE")
+    assert db.get_worker_by_hostname("worker1")["status"] == WORKER_AVAILABLE
+
+
+def test_le_tableau_de_bord_signale_une_reprise(connecte, monkeypatch):
+    """L'enonce demande d'informer l'utilisateur : sans cela, son port change
+    sans explication."""
+    monkeypatch.setattr(docker_ops, "run_docker", lambda *a, **k: "cid000111222")
+    connecte.post("/rent", data={"_csrf": "jeton-csrf-de-test", "duration": "30"},
+                  follow_redirects=True)
+    identifiant = db.get_active_instances()[0]["id"]
+
+    avant = connecte.get("/dashboard").get_data(as_text=True)
+    assert "Reprise sur un autre nœud" not in avant
+
+    db.ensure_worker("worker2", "10.0.0.3")
+    db.move_instance(identifiant, "cid999888777", "worker2", 8300, 8400, None)
+
+    apres = connecte.get("/dashboard").get_data(as_text=True)
+    assert "Reprise sur un autre nœud" in apres

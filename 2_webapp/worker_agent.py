@@ -188,6 +188,11 @@ def appeler(chemin: str, charge: dict):
         return None, {"error": str(erreur)}
 
 
+# Capacité annoncée par le contrôleur à l'inscription : c'est lui qui la calcule
+# depuis la mémoire du nœud. L'agent la retient pour savoir quand se dire plein.
+_capacite = {"valeur": None}
+
+
 def enregistrer() -> bool:
     """Présente le nœud au contrôleur. Retourne True si l'inscription a pris."""
     charge = {
@@ -199,6 +204,7 @@ def enregistrer() -> bool:
     }
     code, corps = appeler("/workers/register", charge)
     if code in (200, 201):
+        _capacite["valeur"] = corps.get("capacity")
         log.info("Enregistré auprès de %s : %s (%s cœurs, %s Mio, capacité %s)",
                  CONTROLLER, charge["hostname"], charge["cpu"], charge["memory"],
                  corps.get("capacity"))
@@ -215,7 +221,13 @@ def battre() -> bool:
     if not docker_operationnel():
         log.warning("Docker ne répond pas : aucun battement envoyé.")
         return False
-    charge = {"hostname": nom_du_noeud(), "containers": conteneurs_actifs()}
+    actifs = conteneurs_actifs()
+    charge = {"hostname": nom_du_noeud(), "containers": actifs}
+    # BUSY, pas OFFLINE : un nœud plein est en bonne santé. L'ordonnanceur doit
+    # cesser de lui envoyer des machines, surtout pas migrer les siennes.
+    capacite = _capacite["valeur"]
+    if capacite:
+        charge["status"] = "BUSY" if actifs >= capacite else "AVAILABLE"
     code, corps = appeler("/workers/heartbeat", charge)
     if code == 200:
         return True

@@ -134,6 +134,9 @@
                         <span><span class="dot {{ 'os-' ~ inst.os_type if inst.os_type in ['ubuntu','debian','alpine'] else 'os-other' }}"></span> {{ inst.os_label }}</span>
                         <span>{{ inst.mode_label }}</span>
                         {% if workers|length > 1 %}<span title="Nœud qui héberge la machine">{{ inst.worker }} · {{ inst.worker_host }}</span>{% endif %}
+                        {# L'énoncé demande d'informer l'utilisateur d'une reprise :
+                           sans cela, il verrait son port changer sans savoir pourquoi. #}
+                        {% if inst.migrations %}<span class="status status-warn" title="Le nœud qui l'hébergeait est tombé : la machine a été recréée ailleurs. Votre location n'a pas été interrompue, mais le port et le mot de passe ont changé."><span class="dot"></span>Reprise sur un autre nœud{% if inst.migrations > 1 %} ({{ inst.migrations }}×){% endif %}</span>{% endif %}
                         <span class="mono">{{ inst.container_id }}</span>
                       </span>
                     </td>

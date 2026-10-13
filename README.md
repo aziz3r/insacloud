@@ -20,7 +20,7 @@
   <a href="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml">
     <img src="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml/badge.svg" alt="Intégration continue">
   </a>
-  <img src="https://img.shields.io/badge/tests-145-success" alt="145 tests">
+  <img src="https://img.shields.io/badge/tests-151-success" alt="151 tests">
   <img src="https://img.shields.io/badge/SAST%20·%20SCA%20·%20DAST-vert-success" alt="Analyses de sécurité">
   <img src="https://img.shields.io/badge/ansible--lint-production-success" alt="ansible-lint profil production">
 </p>
@@ -241,7 +241,7 @@ envoi de code déclenche onze vérifications indépendantes, toutes reproductibl
 | Vérification | Outil | Ce qu'elle attrape |
 |---|---|---|
 | Style et erreurs réelles | `ruff` | imports morts, noms inconnus, motifs douteux |
-| Tests | `pytest` — **145 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur, parc de nœuds, reprise sur panne, archivage avant destruction |
+| Tests | `pytest` — **151 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur, parc de nœuds, reprise sur panne, archivage avant destruction |
 | SAST | `bandit` | injection, secrets en dur, appels système risqués |
 | SCA | `pip-audit` | CVE connues des dépendances épinglées |
 | Fuite de secrets | `gitleaks` | clés et jetons commis par erreur, **y compris dans l'historique** |
@@ -268,7 +268,7 @@ shell avant de démarrer.
 ```bash
 cd 2_webapp
 pip install -r requirements-dev.txt
-pytest                       # 145 tests
+pytest                       # 151 tests
 ruff check . && bandit -c pyproject.toml -r .
 ./tests/dast.sh http://127.0.0.1:5000      # application démarrée à côté
 ./tests/integration.sh http://127.0.0.1:8088   # les 6 scénarios de bout en bout
@@ -386,7 +386,7 @@ Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansi
 2_webapp/            Flask : API, services, ORM, Faucheur, agent, interface
   ├── Dockerfile     image de la plateforme (compte sans privilège)
   ├── migrations/    schéma versionné par Alembic
-  └── tests/         145 tests + contrôles dynamiques + 6 tests d'intégration
+  └── tests/         151 tests + contrôles dynamiques + 6 tests d'intégration
 3_ansible/           9 rôles, 4 playbooks, inventaires statique et dynamique, Vault
 .github/             chaîne d'intégration continue (11 travaux)
 docker-compose.yml   la pile complète : PostgreSQL, application, Faucheur, images
