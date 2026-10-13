@@ -171,11 +171,22 @@ un worker n'a aucun paquet Python à installer.
 un redémarrage du démon Docker. \textbf{Dans le parc}, un worker qui cesse de battre passe
 \texttt{OFFLINE} et ses machines sont recréées ailleurs.
 
-Mesuré sur un cluster de quatre n\oe{}uds : worker1 éteint, détecté hors ligne au bout du délai
-configuré, machine recréée sur worker2 avec un nouveau port et un nouveau mot de passe --- mais
-\emph{la location n'est pas touchée}, l'utilisateur garde la durée qu'il a réservée. Worker1
-redémarré réintègre le parc en moins de dix secondes. Ce que la reprise ne rend pas : les fichiers
-de l'ancienne machine, limite assumée d'une reprise sans stockage partagé.
+Mesuré sur un parc à deux n\oe{}uds : n\oe{}ud éteint, détecté hors ligne puis machine recréée
+ailleurs \textbf{en 31 secondes}, avec un nouveau port et un nouveau mot de passe --- mais
+\emph{la location n'est pas touchée}, l'utilisateur garde la durée qu'il a réservée, et le tableau
+de bord le lui dit. Le n\oe{}ud redémarré réintègre le parc en moins de dix secondes.
+
+Précision d'honnêteté : les deux n\oe{}uds de cette mesure sont des conteneurs exposant un démon
+Docker par SSH, et non les machines virtuelles du \texttt{Vagrantfile} --- aucun hyperviseur ne
+démarre sur le poste de développement (interfaces réseau VMware absentes, support ARM de VirtualBox
+défaillant). Le transport SSH, l'inscription des n\oe{}uds, le battement de c\oe{}ur, la bascule
+\texttt{OFFLINE} et la recréation sont ceux du code ; seule la frontière matérielle entre n\oe{}uds
+est simulée. Cette démonstration a d'ailleurs révélé deux défauts réels, corrigés et couverts par
+des tests : une réconciliation qui détruisait les machines des autres n\oe{}uds, et une reprise qui
+échouait sur une collision de nom.
+
+Ce que la reprise ne rend pas : les fichiers de l'ancienne machine, limite assumée d'une reprise
+sans stockage partagé.
 
 \subsection*{Expiration}
 Le Faucheur relit la base toutes les dix secondes. Mesuré : une location d'une minute est détruite
@@ -203,8 +214,13 @@ Jetons CSRF sur tous les formulaires, politique de mot de passe, cookies \texttt
 \texttt{default-src 'self'} (aucun CDN, aucun script en ligne), HTTPS de bout en bout,
 pare-feu UFW différencié par groupe, conteneurs à capacités minimales.
 
+Les six tests que le sujet énumère sont scriptés dans \texttt{tests/integration.sh} et ont été
+rejoués sur la plateforme en fonctionnement : \textbf{21 vérifications réussies, aucun échec},
+une seule ignorée (HSTS, la pile locale étant en HTTP). Ils comprennent une \emph{vraie} connexion
+SSH à une machine louée et le scénario de panne décrit plus haut.
+
 Ces propriétés ne sont pas seulement décrites : une chaîne d'intégration continue de onze travaux
-les rejoue à chaque envoi --- analyse statique, 162 tests, audit des dépendances, recherche de
+les rejoue à chaque envoi --- analyse statique, 168 tests, audit des dépendances, recherche de
 secrets dans tout l'historique, analyse dynamique de l'application en fonctionnement, démarrage de
 la pile complète, scan des images, puis publication et déploiement. Aucune image portant une faille
 grave et corrigeable n'atteint le registre, et chaque image publiée est accompagnée de son
@@ -259,7 +275,7 @@ de sa limite ; la construction des images est encadrée par \texttt{block}/\text
 le \texttt{Vagrantfile} enchaîne lui-même le \emph{provisioner} Ansible ; le \emph{watchdog} relève
 la consommation CPU et mémoire de chaque machine (\texttt{docker stats}) ; les neuf rôles déclarent
 leurs dépendances dans \texttt{meta/main.yml} ; un inventaire dynamique interroge Vagrant ; enfin une
-chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 162 tests, SAST, SCA,
+chaîne d'intégration continue exécute à chaque envoi onze travaux --- lint, 168 tests, SAST, SCA,
 recherche de secrets, DAST et scan de l'image Docker.
 
 \textbf{Court terme.} Certificat reconnu (Let's Encrypt) en remplacement du certificat auto-signé,

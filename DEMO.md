@@ -9,13 +9,22 @@ supposent le dépôt dans `~/Developer/insacloud`.
 
 ```bash
 colima start --cpu 4 --memory 6 --disk 40
-cd ~/Developer/insacloud && docker compose -p insacloud up -d
+cd ~/Developer/insacloud
+docker compose -f docker-compose.yml -f docker-compose.noeuds.yml up -d
 ```
 
-Vérifier que les trois conteneurs sont `healthy` :
+Les deux fichiers : la pile de la plateforme, et le parc à deux nœuds sur
+lequel se fait la partie 3. Vérifier que tout est là — trois conteneurs de
+plateforme `healthy`, deux nœuds `Up` :
 
 ```bash
-docker compose -p insacloud ps
+docker compose -f docker-compose.yml -f docker-compose.noeuds.yml ps
+```
+
+Vérifier que les deux nœuds se sont inscrits auprès du contrôleur :
+
+```bash
+curl -s http://127.0.0.1:8088/workers | python3 -m json.tool
 ```
 
 Vérifier que les **six** images de machines sont là — sans elles, le mode
@@ -105,77 +114,125 @@ téléchargé est exactement celui qui a été produit.
 
 ---
 
-## Partie 3 — Le cluster et la reprise sur panne (10 min)
+## Partie 3 — Le parc et la reprise sur panne (10 min)
 
-> **Attention mémoire.** Ce poste a 8 Go. Colima en prend 6 : il faut l'arrêter
-> avant de monter les VM. La pile compose sera indisponible pendant cette
-> partie, c'est normal.
+> **Ce qu'il faut dire d'emblée, et sans détour.** Le déploiement de référence
+> est Vagrant + Ansible : un contrôleur et trois workers, chacun une machine
+> virtuelle. Aucun hyperviseur ne démarre sur ce poste : VMware n'a pas ses
+> interfaces `vmnet` (son extension système n'est pas installée),
+> VirtualBox fait tuer la VM au démarrage (`signal 9`, support ARM
+> expérimental). La démonstration se fait donc sur **deux nœuds en
+> conteneurs** : même transport SSH, même agent, même bascule. Ce qui est
+> simulé, et seulement cela : les deux nœuds partagent le démon Docker de
+> l'hôte au lieu d'en avoir un chacun.
 
-```bash
-docker compose -p insacloud down
-colima stop
-```
-
-### Monter le parc
-
-Un contrôleur et **deux** workers : la reprise exige un nœud de repli, avec un
-seul worker elle répond 503.
+### Monter le parc à deux nœuds
 
 ```bash
 cd ~/Developer/insacloud
+docker compose -f docker-compose.yml -f docker-compose.noeuds.yml up -d
+```
+
+Trois conteneurs de plateforme et deux nœuds. Le service `cles` fabrique au
+passage la clé de pilotage du contrôleur, une seule fois, dans un volume
+partagé — c'est ce que fait le rôle Ansible `controller_key` sur un vrai parc.
+
+Montrer que le contrôleur parle vraiment à ses nœuds **par SSH** :
+
+```bash
+docker exec insacloud-web docker -H ssh://insacloud@noeud1 info --format '{{.ServerVersion}}'
+```
+
+Et que les deux nœuds se sont **inscrits d'eux-mêmes** : ouvrir
+**http://127.0.0.1:8088/workers**. Les deux nœuds y sont, avec leurs cœurs,
+leur mémoire, leur **capacité calculée** (quatre cœurs → douze machines), leur
+nombre de machines en cours et la date de leur dernier battement de cœur.
+Personne ne les a déclarés dans un fichier : leur agent a appelé le contrôleur
+au démarrage. Cette vue est ouverte en lecture — aucune donnée d'utilisateur
+n'y figure — c'est la même que consulte la chaîne d'intégration.
+
+> Le nœud `local` y apparaît `OFFLINE`, avec `reachable: false` : c'est
+> l'ancien mode mono-hôte, retiré du parc. La plateforme le signale et ne lui
+> envoie plus rien — c'est la détection qui fonctionne, pas une panne. Si la
+> question vient, c'est une bonne occasion de montrer que l'ordonnanceur
+> **exclut** un nœud hors ligne (`select_available_worker`).
+
+### Le scénario de l'énoncé, en direct
+
+1. Louer une machine depuis le tableau de bord. Dès qu'il y a plus d'un nœud,
+   le tableau de bord affiche sous chaque machine **celui qui l'héberge** —
+   `noeud1 · 127.0.0.1`. Noter le nœud et le port.
+2. Vérifier qu'elle répond, puis **couper le nœud qui l'héberge** :
+
+   ```bash
+   docker stop insacloud-noeud1
+   ```
+
+3. Suivre le Faucheur pendant que ça se passe :
+
+   ```bash
+   docker logs -f insacloud-faucheur
+   ```
+
+   Le journal raconte la séquence dans l'ordre : le nœud devient injoignable
+   pour la réconciliation — **et rien n'est détruit**, un nœud muet n'est pas
+   interprété ; puis l'absence de battement de cœur le fait passer `OFFLINE` ;
+   puis la machine est recréée sur l'autre nœud.
+
+4. Mesuré lors de la dernière répétition : nœud coupé à `13:23:16`, machine
+   en service sur `noeud2` à `13:23:47`. **Trente et une secondes**, avec le
+   délai de détection réglé à 30 s dans `.env`.
+
+5. Recharger le tableau de bord. Nouveau port, nouveau mot de passe,
+   **même location et même durée** — et un bandeau qui dit à l'utilisateur ce
+   qui s'est passé : « Reprise sur un autre nœud ». Le compteur `migrations`
+   est passé à 1.
+
+6. Vérifier que la machine répond vraiment sur son nouveau port :
+
+   ```bash
+   nc -w 4 127.0.0.1 <nouveau_port> < /dev/null | head -1
+   ```
+
+   Elle annonce sa bannière SSH. Ce n'est pas une ligne dans une base : la
+   machine tourne.
+
+7. Rallumer le nœud — son agent se réinscrit tout seul en moins de dix
+   secondes, et le parc est de nouveau complet :
+
+   ```bash
+   docker start insacloud-noeud1
+   ```
+
+### Ce que la bascule ne rend pas, et pourquoi le dire
+
+Les fichiers créés dans l'ancienne machine sont perdus : la reprise recrée un
+conteneur, elle ne déplace pas un disque. Sans stockage partagé entre nœuds,
+c'est la limite assumée — et c'est pour cela que le Faucheur archive le
+travail avant toute destruction *prévue* (partie 2). Une panne n'est pas
+prévue : il n'y a rien à archiver sur un nœud qui ne répond plus.
+
+### Le parc Vagrant, pour la question qui viendra
+
+Le `Vagrantfile` et les quatre playbooks sont là, lisibles, et c'est le
+déploiement que le sujet demande. Sur un poste où l'hyperviseur fonctionne :
+
+```bash
 WORKERS=2 CTRL_MEM=1536 WORKER_MEM=1280 vagrant up --provider=vmware_desktop
+cd 3_ansible && ansible-playbook -i inventaire_vagrant.py site.yml --ask-vault-pass
 ```
 
-### Déployer
+L'inventaire est **dynamique** : il interroge Vagrant, découvre les VM
+réellement démarrées et lit la clé SSH que Vagrant déclare lui-même — il
+s'adapte aux quatre providers sans qu'on modifie une ligne. Rejouer le
+playbook affiche `changed=0` partout : c'est la preuve qu'Ansible décrit un
+état et n'enchaîne pas des actions. `ansible-lint --profile production` passe
+sur les neuf rôles.
 
-L'inventaire **dynamique** interroge Vagrant : il découvre les VM réellement
-démarrées et lit la clé SSH que Vagrant déclare, donc il s'adapte au provider
-sans rien modifier.
-
-```bash
-cd 3_ansible
-ansible-playbook -i inventaire_vagrant.py site.yml --ask-vault-pass
-```
-
-### Montrer l'idempotence
-
-Rejouer la même commande : le second passage doit afficher `changed=0` partout.
-C'est la preuve qu'Ansible décrit un état, et n'enchaîne pas des actions.
-
-### Le scénario de l'énoncé
-
-1. Ouvrir `https://192.168.56.10`, louer une machine, noter sur quel worker
-   elle a été placée (`/workers` le dit).
-2. Éteindre ce worker :
-
-   ```bash
-   vagrant halt worker1
-   ```
-
-3. Suivre le Faucheur sur le contrôleur :
-
-   ```bash
-   vagrant ssh controller -c 'journalctl -u insacloud-faucheur -f'
-   ```
-
-4. Au bout de **90 secondes** sans battement de cœur, le nœud passe `OFFLINE`
-   et la machine est recréée sur `worker2`. Recharger le tableau de bord :
-   nouveau port, nouveau mot de passe, **même location et même durée**.
-5. Le compteur `migrations` de la machine est passé à 1 : c'est la preuve
-   observable de la reprise.
-6. Rallumer le worker — son agent se réinscrit tout seul en moins de dix
-   secondes :
-
-   ```bash
-   vagrant up worker1
-   ```
-
-### Revenir à la pile compose après
+### Revenir au mode mono-hôte
 
 ```bash
-vagrant halt
-colima start --cpu 4 --memory 6 --disk 40
-cd ~/Developer/insacloud && docker compose -p insacloud up -d
+docker compose -p insacloud up -d --remove-orphans
 ```
 
 ---
@@ -184,7 +241,7 @@ cd ~/Developer/insacloud && docker compose -p insacloud up -d
 
 ```bash
 cd 2_webapp
-.venv/bin/python -m pytest          # 147 tests, environ 20 s
+.venv/bin/python -m pytest          # 168 tests, environ 20 s
 .venv/bin/ruff check .
 .venv/bin/python -m bandit -c pyproject.toml -r .
 ```
@@ -240,5 +297,9 @@ s'inscrit tout seul au démarrage, puis signale sa présence toutes les
 | Le mode bureau n'apparaît pas | Les images `*_desktop` ne sont pas construites. Le catalogue refuse d'proposer un choix qu'il ne peut pas honorer. |
 | `port is already allocated` | Un conteneur d'une démo précédente traîne : `docker ps -a --filter "label=insacloud.role=rented-machine"` |
 | Le site ne répond pas | `docker compose -p insacloud logs web --tail 50` |
-| `vagrant up` échoue sur VMware | Vérifier que le VMware Utility tourne : `sudo launchctl list \| grep vagrant` |
+| Un nœud reste absent de `/workers` | Son agent n'a pas pu joindre le contrôleur : `docker logs insacloud-noeud1 \| tail -20` |
+| « Clé publique du contrôleur absente » | Le service `cles` n'a pas tourné : `docker compose -f docker-compose.yml -f docker-compose.noeuds.yml up cles` |
+| La reprise ne part pas | Le délai de détection est dans `.env` (`INSACLOUD_HEARTBEAT_TIMEOUT=30`) : attendre ce délai plus un cycle de Faucheur, soit ~40 s. |
+| Tout part de travers | `docker compose -p insacloud up -d --remove-orphans` : retour au mode mono-hôte, qui suffit aux parties 1, 2 et 4. |
+| `vagrant up` échoue sur VMware | L'extension système n'est pas installée sur ce poste (`systemextensionsctl list` renvoie `0 extension(s)`). C'est annoncé en partie 3, pas une surprise. |
 | Plus de place disque | `docker system df`, puis `docker image prune` (sans `-a`, qui effacerait les six images) |

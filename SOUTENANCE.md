@@ -27,8 +27,12 @@ Ouvrir et laisser prêts, dans cet ordre d'onglets :
 3. Un terminal plein écran dans `~/Developer/insacloud`
 4. Le `README.md` du dépôt, prêt à montrer les schémas
 
-Si le cluster Vagrant est monté : un quatrième onglet sur `https://192.168.56.10`
-et un second terminal prêt pour `vagrant halt worker1`.
+Un **second terminal** prêt pour la panne du nœud, avec deux commandes déjà
+tapées mais non validées : `docker logs -f insacloud-faucheur` dans l'un,
+`docker stop insacloud-noeud1` dans l'autre.
+
+Et un cinquième onglet sur **http://127.0.0.1:8088/workers** : l'état du parc,
+que les agents alimentent eux-mêmes.
 
 > **Règle d'or** : personne ne tape une commande qu'il n'a pas répétée. Chaque
 > commande de ce script a été exécutée au moins une fois avant la soutenance.
@@ -108,7 +112,15 @@ docker -H ssh://insacloud@worker1 ps
 > pilotage, Docker, certificats TLS, images, agent, proxy inverse,
 > application. »
 
-**Taper** (si le cluster est monté) :
+> Et il faut le dire ici, sans attendre la question : **aucun hyperviseur ne
+> démarre sur ce poste**. VMware n'a pas ses interfaces réseau — son extension
+> système n'est pas installée — et le support ARM de VirtualBox fait tuer la
+> machine au démarrage. Le `Vagrantfile` et les playbooks sont donc montrés et
+> expliqués, pas exécutés devant vous. En revanche la partie que l'énoncé
+> teste vraiment — un nœud qui tombe, ses machines qui repartent ailleurs —
+> tourne en direct dans un instant, sur deux nœuds en conteneurs.
+
+**Montrer** la commande, sans la lancer :
 ```bash
 cd 3_ansible && ansible-playbook -i inventaire_vagrant.py site.yml --vault-password-file .vault_pass
 ```
@@ -310,20 +322,28 @@ curl -s -H 'Accept: application/json' http://127.0.0.1:8088/workers | jq
 
 ## 9:50 — Le Test 6 de l'énoncé : la panne (1 min 40)
 
-> ⚠️ **Si le cluster Vagrant est monté**, faire la manipulation en direct.
-> **Sinon**, lire le repli à la fin de cette section — et le dire franchement.
+> ⚠️ **Cette manipulation se fait en direct.** Elle a été répétée : trente et
+> une secondes entre la coupure et la machine de nouveau en service.
 
-**Faire** :
+**Faire** — dans le terminal de gauche, suivre le Faucheur ; dans celui de
+droite, couper le nœud qui héberge la machine louée au début de la démo :
 ```bash
-vagrant halt worker1
-vagrant ssh controller -c 'journalctl -u insacloud-faucheur -f'
+docker logs -f insacloud-faucheur      # à gauche
+docker stop insacloud-noeud1           # à droite
 ```
 
 > « L'énoncé décrit précisément ce test : on éteint `worker1`, et on vérifie
 > que `worker1` passe `OFFLINE` et que l'instance repart sur `worker2`.
 >
-> L'agent cesse de battre. Au bout de quatre-vingt-dix secondes le contrôleur
-> déclare le nœud hors ligne, et recrée ses machines sur un nœud disponible.
+> L'agent cesse de battre. Premier message du journal : le nœud est
+> injoignable pour la réconciliation — **et rien n'est détruit**. C'est
+> volontaire : un nœud muet n'est pas interprété. On ne sait pas s'il est
+> mort ou seulement coupé du réseau, et détruire sur un doute ferait perdre
+> des machines qui tournent très bien.
+>
+> Puis le délai de détection expire — trente secondes ici, quatre-vingt-dix en
+> production — et le contrôleur déclare le nœud hors ligne. Il recrée alors ses
+> machines sur un nœud disponible.
 >
 > Ce qui compte, c'est ce que le code **ne** touche **pas** : la table des
 > locations. C'est la décision qui structure toute la base — on a séparé
@@ -336,20 +356,43 @@ vagrant ssh controller -c 'journalctl -u insacloud-faucheur -f'
 > et un nouveau mot de passe. Et un compteur `migrations` passe à 1 : c'est la
 > preuve observable, celle que vérifie notre test d'intégration. »
 
-**Montrer** : le tableau de bord — nouveau port, même échéance.
+**Montrer** : le tableau de bord — nouveau port, **même échéance**, et le
+bandeau « Reprise sur un autre nœud » qui explique à l'utilisateur ce qui
+vient de se passer. Puis, dans le terminal, que la machine répond vraiment :
+
+```bash
+nc -w 4 127.0.0.1 <nouveau_port> < /dev/null | head -1
+```
+
+Elle annonce sa bannière SSH. Ce n'est pas une ligne dans une base de données.
+
+**Puis rallumer le nœud** : son agent se réinscrit tout seul, en moins de dix
+secondes, et le parc est de nouveau complet.
+
+```bash
+docker start insacloud-noeud1
+```
 
 > « Une limite qu'on assume : la reprise ne rend **pas les fichiers**. Ils
 > vivaient dans la couche inscriptible, sur un nœud devenu injoignable. Sans
 > stockage partagé, seul le service repart. Un volume répliqué changerait la
 > nature du projet. »
 
-**Repli si le cluster n'est pas disponible** :
-> « La reprise ne peut pas tourner sur ce poste : le parc demande onze
-> gigaoctets de mémoire, la machine en a huit. Le scénario a été mesuré sur un
-> cluster réel à quatre nœuds — c'est dans le dossier technique :
-> `worker1` éteint, `OFFLINE` à quatre-vingt-dix secondes, machine recréée sur
-> `worker2`, location intacte, `migrations=1`, et `worker1` de retour en moins
-> de dix secondes. »
+**Si on demande « mais ce sont de vraies machines ? »** — réponse courte et
+vérifiable :
+> « Non, et c'est dit dans le rapport. Les deux nœuds sont des conteneurs qui
+> exposent un démon Docker par SSH, pas des machines virtuelles : aucun
+> hyperviseur ne démarre sur ce poste. Ce qui est simulé, c'est la frontière
+> matérielle entre les nœuds — ils partagent le démon de l'hôte. Tout le reste
+> est le code réel : le transport SSH, l'inscription de l'agent, le battement
+> de cœur, la bascule `OFFLINE`, la recréation ailleurs.
+>
+> Et cette démonstration a servi : elle a révélé deux défauts réels. La
+> réconciliation détruisait les machines des autres nœuds, faute de savoir à
+> qui elles appartenaient — elles portent maintenant un label
+> `insacloud.worker`. Et la reprise échouait sur une collision de nom, parce
+> que Docker refuse deux conteneurs homonymes. Les deux sont corrigés et
+> couverts par des tests. »
 
 → **Fonctionnalité 13** (haute disponibilité) · **Test 6 de l'énoncé**
 
@@ -357,14 +400,21 @@ vagrant ssh controller -c 'journalctl -u insacloud-faucheur -f'
 
 **Faire** :
 ```bash
-cd 2_webapp && ./tests/integration.sh http://127.0.0.1:8088
+cd 2_webapp
+ARRET_NOEUD='docker stop insacloud-%s' DEMARRAGE_NOEUD='docker start insacloud-%s' \
+  ./tests/integration.sh http://127.0.0.1:8088
 ```
 
-> « L'énoncé liste six tests. Ils sont scriptés et rejouables :
-> infrastructure, configuration Ansible, application, location avec connexion
-> SSH réelle, expiration, et panne d'un nœud.
+> « L'énoncé liste six tests. Ils sont scriptés et rejouables : infrastructure,
+> configuration, application, location avec connexion SSH réelle, expiration,
+> et panne d'un nœud. **Les six passent** — vingt et une vérifications
+> réussies, aucun échec, une seule ignorée : HSTS, parce que la pile locale est
+> en HTTP et que l'en-tête n'aurait aucun sens sans TLS.
 >
-> À côté, **147 tests unitaires** en vingt secondes. Et ils ne lancent aucun
+> Le quatrième ouvre une **vraie session SSH** dans la machine louée, et le
+> sixième est celui qu'on vient de faire à la main.
+>
+> À côté, **168 tests unitaires** en vingt secondes. Et ils ne lancent aucun
 > conteneur : `run_docker` est remplacé par une fonction espion. On vérifie
 > donc que la commande imposée part bien telle quelle, sur un agent
 > d'intégration qui n'a même pas Docker. »
@@ -466,7 +516,7 @@ cd 2_webapp && ./tests/integration.sh http://127.0.0.1:8088
 | Et si deux utilisateurs demandent le même port ? | P2 | Index unique partiel en base, limité aux machines actives. |
 | La reprise rend-elle les fichiers ? | P3 | Non, et c'est assumé. Sans stockage partagé, seul le service repart. |
 | Comment ajoute-t-on un worker ? | P3 | On l'allume. Aucune adresse n'est écrite côté contrôleur. |
-| Pourquoi 147 tests sans Docker ? | P3 | `run_docker` est espionné : on vérifie la commande, pas le conteneur. |
+| Pourquoi 168 tests sans Docker ? | P3 | `run_docker` est espionné : on vérifie la commande, pas le conteneur. |
 | Combien de temps pour tout remonter ? | P1 | `vagrant up` puis un playbook. Tout est décrit en fichiers. |
 
 ---
@@ -476,8 +526,10 @@ cd 2_webapp && ./tests/integration.sh http://127.0.0.1:8088
 - **Ne pas lire ce script.** Le relire trois fois, puis parler.
 - **Ne pas enchaîner les commandes en silence.** Pendant que ça charge, on
   explique ; c'est là que se gagne la note.
-- **Ne pas promettre ce qu'on ne montrera pas.** Si le cluster n'est pas monté,
-  le dire au moment du Test 6, avec la mesure à l'appui.
+- **Ne pas promettre ce qu'on ne montrera pas.** Dire d'emblée, à 2:00,
+  qu'aucun hyperviseur ne tourne sur le poste et que les nœuds sont des
+  conteneurs. La bascule, elle, se fait en direct — et les six tests
+  d'intégration passent dans cette configuration.
 - **Ne pas dépasser.** Si on prend du retard, Personne 3 coupe les six
   scénarios d'intégration (11:30) et garde le Test 6 — c'est lui qui compte.
 

@@ -20,7 +20,7 @@
   <a href="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml">
     <img src="https://github.com/aziz3r/insacloud/actions/workflows/ci.yml/badge.svg" alt="Intégration continue">
   </a>
-  <img src="https://img.shields.io/badge/tests-162-success" alt="162 tests">
+  <img src="https://img.shields.io/badge/tests-168-success" alt="168 tests">
   <img src="https://img.shields.io/badge/SAST%20·%20SCA%20·%20DAST-vert-success" alt="Analyses de sécurité">
   <img src="https://img.shields.io/badge/ansible--lint-production-success" alt="ansible-lint profil production">
 </p>
@@ -241,7 +241,7 @@ envoi de code déclenche onze vérifications indépendantes, toutes reproductibl
 | Vérification | Outil | Ce qu'elle attrape |
 |---|---|---|
 | Style et erreurs réelles | `ruff` | imports morts, noms inconnus, motifs douteux |
-| Tests | `pytest` — **162 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur, parc de nœuds, reprise sur panne, archivage avant destruction |
+| Tests | `pytest` — **168 tests** | commande Docker construite, coffre à secrets, CSRF, anti-force-brute, cloisonnement entre comptes, Faucheur, parc de nœuds, reprise sur panne, archivage avant destruction |
 | SAST | `bandit` | injection, secrets en dur, appels système risqués |
 | SCA | `pip-audit` | CVE connues des dépendances épinglées |
 | Fuite de secrets | `gitleaks` | clés et jetons commis par erreur, **y compris dans l'historique** |
@@ -268,7 +268,7 @@ shell avant de démarrer.
 ```bash
 cd 2_webapp
 pip install -r requirements-dev.txt
-pytest                       # 162 tests
+pytest                       # 168 tests
 ruff check . && bandit -c pyproject.toml -r .
 ./tests/dast.sh http://127.0.0.1:5000      # application démarrée à côté
 ./tests/integration.sh http://127.0.0.1:8088   # les 6 scénarios de bout en bout
@@ -334,6 +334,46 @@ Les variantes bureau pèsent 1,3 à 1,5 Go et demandent une quinzaine de minutes
 la version terminal suffit pour essayer.
 </details>
 
+## Un parc de deux nœuds, sans hyperviseur
+
+Le déploiement de référence est Vagrant + Ansible (section suivante). Mais sur un
+poste où aucun hyperviseur ne fonctionne — c'est le cas des Mac à puce Apple quand
+l'extension système de VMware n'est pas installée — on peut monter un vrai parc
+en conteneurs :
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.noeuds.yml up -d
+```
+
+Deux nœuds s'ajoutent à la pile. Chacun est un hôte SSH qui expose un démon
+Docker ; le contrôleur les pilote par `ssh://insacloud@noeud1`, exactement comme
+il piloterait `192.168.56.11`. Leur agent s'inscrit tout seul :
+
+```bash
+curl -s http://127.0.0.1:8088/workers | python3 -m json.tool
+```
+
+Et la reprise après panne se démontre pour de vrai :
+
+```bash
+docker stop insacloud-noeud1        # le nœud tombe
+docker logs -f insacloud-faucheur   # le nœud passe OFFLINE, la machine repart
+```
+
+Mesuré : **31 secondes** entre la coupure et la machine de nouveau en service
+sur l'autre nœud, avec la même location et la même échéance. Les six tests
+d'intégration du cahier des charges passent dans cette configuration :
+
+```bash
+cd 2_webapp
+ARRET_NOEUD='docker stop insacloud-%s' DEMARRAGE_NOEUD='docker start insacloud-%s' \
+  ./tests/integration.sh http://127.0.0.1:8088
+```
+
+> Ce qui est simulé, et seulement cela : les deux nœuds partagent le démon Docker
+> de l'hôte au lieu d'en avoir un chacun. Le transport SSH, l'inscription, le
+> battement de cœur, la bascule `OFFLINE` et la recréation sont ceux du code.
+
 ## Déployer l'infrastructure complète
 
 ```bash
@@ -386,7 +426,7 @@ Les secrets (clé de session, clé de chiffrement) vivent dans un fichier **Ansi
 2_webapp/            Flask : API, services, ORM, Faucheur, agent, interface
   ├── Dockerfile     image de la plateforme (compte sans privilège)
   ├── migrations/    schéma versionné par Alembic
-  └── tests/         162 tests + contrôles dynamiques + 6 tests d'intégration
+  └── tests/         168 tests + contrôles dynamiques + 6 tests d'intégration
 3_ansible/           9 rôles, 4 playbooks, inventaires statique et dynamique, Vault
 .github/             chaîne d'intégration continue (11 travaux)
 docker-compose.yml   la pile complète : PostgreSQL, application, Faucheur, images

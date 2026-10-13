@@ -1,0 +1,26 @@
+Vérification des playbooks Ansible — 2026-10-13 13:36
+
+=== Syntaxe des quatre playbooks ===
+site.yml     correcte
+docker.yml   correcte
+worker.yml   correcte
+deploy.yml   correcte
+
+=== Groupes de l'inventaire ===
+  hosts (4):
+    controller
+    worker1
+    worker2
+    worker3
+controllers   controller 
+workers       worker1 worker2 worker3 
+insacloud     controller worker1 worker2 worker3 
+
+=== Les neuf rôles ===
+controller_key docker docker_images reverse_proxy security_hardening tls_cert webapp worker worker_agent 
+
+=== Inventaire dynamique (interroge Vagrant) ===
+`vagrant ssh-config` a échoué. Les machines sont-elles démarrées (`vagrant up`) ?
+The provider for this Vagrant-managed machine is reporting that it
+is not yet ready for SSH. Depending on your provider this can carry
+different meanings. Make sure your machine is created and running and

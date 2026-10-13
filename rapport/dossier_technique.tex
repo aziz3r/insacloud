@@ -465,7 +465,7 @@ Inventaire, groupes, \texttt{:children} & \texttt{[controllers]}, \texttt{[worke
 Commandes ad hoc & \texttt{ansible insacloud -m ping} utilisé pour valider la connectivité. & \ok\\
 Playbooks multi-plays & Quatre plays successifs : durcissement, clé du contrôleur, workers, contrôleur. & \ok\\
 Modules dédiés & 21 modules distincts, tous qualifiés (\texttt{ansible.builtin.*}, \texttt{ansible.posix.*}, \texttt{community.general.*}). & \plus\\
-Idempotence & Second passage : \texttt{changed=0} sur les quatre n\oe{}uds (mesuré). & \ok\\
+Idempotence & Modules d'état, \texttt{creates:}, handlers, aucun \texttt{command} non gardé ; \texttt{ansible-lint --profile production} passe sur les neuf rôles. Le \texttt{changed=0} du second passage n'a pas pu être mesuré : aucun hyperviseur ne démarre sur le poste. & \ok\\
 Variables et facts & \texttt{defaults}, \texttt{group\_vars}, \texttt{register}, \texttt{set\_fact}, facts \texttt{ansible\_architecture} et \texttt{ansible\_distribution\_release}. & \ok\\
 Templates Jinja2 & Cinq templates avec conditions, boucles et filtres (\texttt{to\_nice\_json}, \texttt{join}, \texttt{default}). & \ok\\
 Handlers & Six handlers (\texttt{daemon-reload}, redémarrage des services, rechargement de nginx et sshd). & \ok\\
@@ -494,7 +494,7 @@ Sécurité (clés SSH, Vault, \texttt{-{}-limit}) & Clés SSH partout, Vault pou
 Gestion des secrets & Ansible Vault, chiffrement Fernet en base, fichier d'environnement \texttt{0600}, secret effacé de l'environnement du PID 1. & \plus\\
 Sécurité des conteneurs & \texttt{-{}-cap-drop ALL} et capacités minimales, \texttt{no-new-privileges}, limites PID et CPU, TLS jusqu'aux machines. & \plus\\
 Pipeline CI/CD, SAST, SCA, DAST & \texttt{.github/workflows/ci.yml} : onze travaux à chaque envoi ---
-lint (ruff, ansible-lint, hadolint), 145 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
+lint (ruff, ansible-lint, hadolint), 168 tests unitaires et d'intégration, SAST (bandit), SCA (pip-audit),
 fuite de secrets (gitleaks), DAST (18 contrôles sur l'application en fonctionnement, puis nuclei),
 scan de l'image Docker (Trivy). & \plus\\
 Kubernetes & Hors périmètre du projet 3. & ---\\
@@ -515,7 +515,7 @@ HTTPS de bout en bout, coffre à secrets chiffré.
 \item \textbf{Chaîne de démonstration} : vidéo du parcours complet et captures d'écran versionnées.
 \item \textbf{Chaîne d'intégration continue} de onze travaux couvrant le cycle DevSecOps complet :
 lint, tests, SAST, SCA, recherche de secrets, DAST et scan d'image.
-\item \textbf{145 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne) exécutés sans Docker
+\item \textbf{168 tests automatisés} (sécurité, orchestration Docker, Faucheur, parc de n\oe{}uds, reprise sur panne, contraintes d'intégrité) exécutés sans Docker
 ni réseau, donc rejouables sur n'importe quel poste.
 \item \textbf{Inventaire dynamique} interrogeant Vagrant, ce qui rend le déploiement indépendant du
 \emph{provider} de virtualisation.
@@ -571,7 +571,7 @@ automatiquement. & \ok\\
 6 & Automatisation Ansible &
 \texttt{hosts.ini} avec les groupes demandés, quatre playbooks
 (\texttt{site}, \texttt{docker}, \texttt{worker}, \texttt{deploy}), neuf rôles,
-idempotence mesurée à \texttt{changed=0} sur quatre n\oe{}uds. L'agent est
+rôles écrits pour être idempotents et validés par \texttt{ansible-lint --profile production}. L'agent est
 déployé par son propre rôle. & \ok\\
 \addlinespace
 7 & Agent et enregistrement dynamique &
@@ -606,9 +606,13 @@ l'expiration d'une location d'une minute. & \ok\\
 \addlinespace
 13 & Haute disponibilité &
 Battement de c\oe{}ur, délai d'expiration, passage \texttt{OFFLINE}, recherche
-d'un n\oe{}ud de repli et recréation du conteneur. Le scénario du document
-(\texttt{vagrant halt worker1}, l'instance repart sur worker2) est vérifié sur
-un cluster réel : la location n'est pas touchée, l'utilisateur garde sa durée. & \ok\\
+d'un n\oe{}ud de repli et recréation du conteneur. Le scénario du document est
+\textbf{mesuré en fonctionnement} sur un parc à deux n\oe{}uds : n\oe{}ud coupé,
+détecté hors ligne et machine recréée ailleurs en \textbf{31 secondes}, location
+intacte, \texttt{migrations} à 1, machine joignable en SSH sur son nouveau port.
+Les n\oe{}uds sont des conteneurs exposant un démon Docker par SSH, et non des
+machines virtuelles : le transport, l'inscription et la bascule sont ceux du
+code, seule la frontière matérielle est simulée. & \ok\\
 \addlinespace
 14 & Sécurité DevSecOps &
 Validation des entrées, hachage, secrets au Vault, chiffrement Fernet en base,
@@ -765,11 +769,13 @@ couvertes, y compris \texttt{docker compose}, seule réserve de la première ver
 
 Sur les notions du cours, la couverture est désormais complète : les cinquante critères relevés dans
 les quatre supports sont satisfaits, six d'entre eux au-delà de ce qui était enseigné. Les huit
-écarts identifiés lors de la relecture ont tous été comblés, et chaque correction a été éprouvée sur
-un cluster réel plutôt que simplement déclarée.
+écarts identifiés lors de la relecture ont tous été comblés. Chaque correction est couverte par un
+test automatisé, et celles qui touchent au parc ont été éprouvées en fonctionnement sur deux n\oe{}uds
+plutôt que simplement déclarées. Ce que le poste n'a pas permis de faire tourner --- Vagrant et
+Ansible, faute d'hyperviseur --- est dit comme tel, ici et à l'oral.
 
 Le projet dépasse enfin le périmètre du cours sur un point : une chaîne d'intégration continue
-rejoue à chaque envoi l'analyse statique, les 145 tests, l'audit des dépendances, la recherche de
+rejoue à chaque envoi l'analyse statique, les 168 tests, l'audit des dépendances, la recherche de
 secrets, l'analyse dynamique de l'application et le scan de l'image Docker. C'est la garantie que
 les propriétés décrites dans ce dossier restent vraies, et non qu'elles l'ont été une fois.
 

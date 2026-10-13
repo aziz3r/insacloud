@@ -1,0 +1,41 @@
+
+Test 1 — Infrastructure : les nœuds sont là et se parlent
+  ✔ la plateforme répond (status=ok)
+  ✔ au moins un nœud est enregistré (3 au total)
+  ✔ au moins un nœud est disponible (2 disponible(s))
+  ✔ les nœuds envoient leur battement de cœur (2 joignable(s))
+
+Test 2 — Configuration : Ansible a fait son travail
+  ✔ la base de données répond (database=ok)
+  ✔ le catalogue des distributions est garni (3 distribution(s))
+  ✔ nginx sert l'application avec une CSP stricte
+  – HSTS : la cible est en HTTP (pile locale)
+
+Test 3 — Application : inscription, connexion, tableau de bord
+  ✔ création d'un compte (id=6)
+  ✔ connexion avec le compte créé
+  ✔ les machines ne sont pas accessibles sans être connecté (HTTP 401)
+  ✔ le tableau de bord s'affiche pour l'utilisateur connecté
+
+Test 4 — Location : louer une machine et s'y connecter
+  ✔ la machine est créée (insacloud_integration_53080_38c616 sur noeud1)
+  ✔ un port SSH est attribué (8224)
+  ✔ un mot de passe root est renvoyé, une seule fois
+  ✔ le mot de passe ne réapparaît jamais dans la liste
+  ✔ connexion SSH réelle à la machine louée (127.0.0.1:8224)
+
+Test 5 — Expiration : une location échue est détruite
+  ✔ location d'une minute créée (id=28)
+    attente de l'expiration puis du passage du Faucheur…
+  ✔ le Faucheur a détruit la machine expirée
+
+Test 6 — Panne : un nœud tombe, la machine repart ailleurs
+    arrêt de noeud1…
+    attente de la détection puis de la reprise…
+  ✔ la machine est repartie : noeud1 → noeud2
+  ✔ la location est inchangée (statut ACTIVE)
+  ✔ la reprise est comptabilisée
+    redémarrage de noeud1…
+
+Bilan : 21 réussi(s), 0 échec(s), 1 ignoré(s)
+
