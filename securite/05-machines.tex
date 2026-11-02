@@ -1,0 +1,186 @@
+\chapter{Couche 5 — L'accès aux machines louées}
+
+C'est la surface la plus exposée de la plateforme : des ports ouverts, des
+comptes \cmd{root}, et des utilisateurs qu'on ne connaît pas.
+
+% -----------------------------------------------------------------------------
+\mesure{Le mot de passe à usage unique}{mesure 14 · \fichier{services.py}}
+
+\menace
+Un mot de passe \cmd{root} par défaut, ou dérivé du nom de la machine, serait
+le même partout : il suffirait d'en louer une pour entrer dans toutes les
+autres.
+
+\parade
+Seize caractères tirés au sort par machine, affichés \textbf{une seule fois},
+puis conservés chiffrés. L'utilisateur peut le régénérer à chaud sans détruire
+sa machine.
+
+\danslecode
+Le mot de passe est injecté au lancement (\cmd{-e ROOT\_PASSWORD=...}), jamais
+inscrit dans l'image. Le \fichier{Dockerfile} le dit explicitement :
+
+\begin{lstlisting}[language=bash]
+# ROOT_PASSWORD n'est VOLONTAIREMENT pas defini ici : une valeur inscrite dans
+# l'image serait lisible par `docker inspect` et identique sur toutes les
+# machines. La plateforme l'injecte au lancement.
+\end{lstlisting}
+
+Et si la plateforme oublie de le fournir, l'\fichier{entrypoint.sh} n'applique
+pas de valeur de repli connue --- il en tire une au hasard :
+
+\begin{lstlisting}[language=bash]
+if [ -z "${ROOT_PASSWORD:-}" ]; then
+    ROOT_PASSWORD="$(tr -dc 'A-Za-z2-9' < /dev/urandom | head -c 16)"
+fi
+\end{lstlisting}
+
+\begin{retenir}
+Une valeur par défaut est une valeur publique. Entre « échouer » et « retomber
+sur une valeur connue », un système sûr échoue --- ou, comme ici, tire au
+hasard et le journalise.
+\end{retenir}
+
+\limite
+Le mot de passe transite par une page web et le serveur doit le connaître pour
+l'afficher. C'est inhérent, et c'est la raison d'être de la mesure suivante.
+
+% -----------------------------------------------------------------------------
+\mesure{L'authentification par clé publique}{mesure 15 · \fichier{entrypoint.sh}}
+
+\menace
+Un port SSH ouvert sur Internet reçoit des milliers de tentatives par jour. Un
+mot de passe de seize caractères y résiste --- mais la tentative reste
+\emph{possible}, et le secret doit voyager pour être utilisé.
+
+\parade
+L'utilisateur dépose sa clé publique sur son compte. Les machines qu'il loue
+\textbf{ensuite} la reçoivent, et leur \cmd{sshd} est reconfiguré pour refuser
+purement et simplement la méthode « mot de passe ».
+
+\danslecode
+\begin{lstlisting}[language=bash]
+if [ -n "$SSH_PUBKEY" ]; then
+    mkdir -p /root/.ssh && chmod 700 /root/.ssh
+    printf '%s\n' "$SSH_PUBKEY" > /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' \
+        /etc/ssh/sshd_config
+    sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin prohibit-password/' \
+        /etc/ssh/sshd_config
+fi
+\end{lstlisting}
+
+Vérifié sur une machine louée, en forçant la méthode mot de passe :
+
+\begin{lstlisting}[language=bash]
+$ ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password \
+      root@127.0.0.1 -p 8096
+root@127.0.0.1: Permission denied (publickey).
+\end{lstlisting}
+
+\begin{notion}{Le vrai gain : il n'y a plus de secret partagé}
+Avec un mot de passe, le secret existe \textbf{à deux endroits} : l'utilisateur
+le connaît, et le serveur doit le connaître pour le vérifier. Quiconque lit la
+base --- ou vole la clé du coffre --- obtient l'accès à toutes les machines.
+
+Avec une clé, le serveur ne détient que la \textbf{moitié publique}, qui ne
+sert à rien à un attaquant. Compromettre la base de données d'InsaCloud ne
+donne alors \emph{aucun} accès aux machines. Le compromis d'un système ne se
+propage plus à l'autre.
+\end{notion}
+
+\limite
+Trois limites, toutes à connaître :
+\begin{itemize}[leftmargin=14pt,itemsep=2pt]
+\item elle ne vaut que pour les machines louées \textbf{ensuite} --- la clé est
+      injectée à la création du conteneur ;
+\item le mot de passe \cmd{root} existe toujours sur la machine, car le
+      terminal web et le bureau en ont besoin : la clé ferme la porte SSH, pas
+      toutes les portes ;
+\item une clé privée sans phrase de passe vaut ce que vaut la session de
+      l'utilisateur sur son poste.
+\end{itemize}
+
+% -----------------------------------------------------------------------------
+\mesure{Le terminal web passe par \cmd{login}}{mesure 16 · \fichier{entrypoint.sh}}
+
+\menace
+Un terminal dans le navigateur, c'est un shell exposé en HTTP. Mal protégé,
+c'est un shell \cmd{root} offert à qui connaît l'URL.
+
+\parade
+\cmd{ttyd} ne lance pas un shell : il lance \cmd{/bin/login}, le programme de
+connexion du système. L'utilisateur voit l'invite \cmd{login:} puis
+\cmd{Password:}, exactement comme sur une console physique.
+
+\danslecode
+\begin{lstlisting}[language=bash]
+# L'authentification est faite par `login` DANS le terminal (invite "login:"
+# puis "Password:", comme une console), et non par une boite de dialogue HTTP.
+\end{lstlisting}
+
+Trois bénéfices, et le dernier n'est pas évident :
+
+\begin{enumerate}[leftmargin=16pt,itemsep=2pt]
+\item l'authentification passe par \textbf{PAM} : temporisation entre échecs,
+      expiration de l'invite, journalisation --- gratuitement ;
+\item l'expérience est familière, donc l'utilisateur n'est pas tenté de
+      contourner ;
+\item \textbf{couper l'authentification SSH par mot de passe n'enferme personne
+      dehors} : le terminal web continue de fonctionner, puisqu'il ne passe pas
+      par SSH. L'utilisateur qui perd sa clé garde une porte.
+\end{enumerate}
+
+\begin{piege}{La version précédente utilisait Basic Auth, et c'était pire}
+Protégé par une authentification HTTP basique, le terminal affichait une page
+blanche dans plusieurs navigateurs --- la négociation se faisait avant
+l'ouverture de la WebSocket. Le remplacement par \cmd{login} a corrigé le
+défaut d'usage \emph{et} amélioré la sécurité : Basic Auth transmet le secret à
+chaque requête, \cmd{login} une seule fois dans un canal déjà établi.
+\end{piege}
+
+\limite
+\cmd{ttyd} sert le terminal en HTTP si aucun certificat n'est monté. Sur le
+parc déployé, le rôle \cmd{tls\_cert} fournit un certificat par nœud et
+\cmd{ttyd} passe en \cmd{-{}-ssl} ; en pile locale de démonstration, le trafic
+est en clair sur \cmd{localhost}.
+
+% -----------------------------------------------------------------------------
+\mesure{Le bureau graphique}{mesure 17 · \fichier{entrypoint.sh}}
+
+\menace
+Un serveur VNC exposé est une cible classique : le protocole est ancien et son
+authentification est faible.
+
+\parade
+Trois précautions : le port VNC n'est \textbf{jamais publié}, le mot de passe
+du bureau est \textbf{distinct} de celui de \cmd{root}, et le pont vers le
+navigateur passe en TLS dès qu'un certificat est disponible.
+
+\danslecode
+\begin{lstlisting}[language=bash]
+Xvnc :1 -geometry 1280x800 -depth 24 -rfbport 5901 -localhost \
+        -SecurityTypes VncAuth -PasswordFile /root/.vnc/passwd -AlwaysShared
+websockify $NOVNC_TLS --web $NOVNC_DIR 6080 localhost:5901
+\end{lstlisting}
+
+\cmd{-localhost} est le point essentiel : le port 5901 n'est joignable que
+depuis l'intérieur du conteneur. Le seul port publié est le 6080, celui de
+noVNC. Le mot de passe du bureau est dérivé du mot de passe \cmd{root} mais
+tronqué à huit caractères, et stocké dans un fichier en \cmd{0600}.
+
+\begin{piege}{Huit caractères, et ce n'est pas un choix}
+Le protocole VncAuth \textbf{tronque le mot de passe à huit caractères} : c'est
+une limite du protocole, pas un oubli. Il a donc fallu exposer un mot de passe
+de bureau distinct de celui de \cmd{root}, pour ne pas laisser croire à
+l'utilisateur que son mot de passe de seize caractères protège aussi son
+bureau.
+\end{piege}
+
+\limite
+\textbf{VncAuth est faible} : un défi-réponse DES des années 1990. C'est
+acceptable ici pour trois raisons cumulées --- la machine est éphémère, le mot
+de passe n'est visible qu'en ouvrant le coffre pendant cinq minutes, et le
+transport est chiffré dès qu'un certificat est monté. Sur une plateforme
+permanente, il faudrait un proxy authentifié devant noVNC.

@@ -1,0 +1,238 @@
+\chapter{Couche 6 — Le durcissement des conteneurs}
+
+Le locataire est \cmd{root} dans sa machine : c'est le service vendu. Toute la
+question est de faire en sorte que ce \cmd{root}-là ne soit pas \cmd{root} sur
+le nœud.
+
+% -----------------------------------------------------------------------------
+\mesure{Les capacités retirées}{mesure 18 · \fichier{docker\_ops.py}}
+
+\menace
+Par défaut, Docker accorde à un conteneur une quinzaine de \emph{capacités} du
+noyau Linux. Certaines sont anodines ; d'autres permettent de modifier le
+réseau de l'hôte, de monter des systèmes de fichiers ou de charger des modules.
+
+\parade
+On retire \textbf{tout}, puis on rend uniquement ce dont une machine Linux
+ordinaire a besoin pour démarrer ses services. C'est une liste blanche, pas une
+liste noire.
+
+\danslecode
+\begin{lstlisting}[language=bash]
+--cap-drop ALL
+--cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER --cap-add FSETID
+--cap-add SETGID --cap-add SETUID --cap-add SYS_CHROOT
+--cap-add NET_BIND_SERVICE --cap-add KILL --cap-add AUDIT_WRITE
+\end{lstlisting}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{3.3cm}X@{}}
+\toprule
+\textbf{Capacité gardée} & \textbf{Pourquoi elle est nécessaire} \\
+\midrule
+\cmd{CHOWN}, \cmd{FOWNER}, \cmd{FSETID} & Créer les répertoires de service avec
+les bons propriétaires et droits (\cmd{/root/.ssh}, \cmd{/run/sshd}). \\
+\cmd{DAC\_OVERRIDE} & Permettre à \cmd{root} d'écrire là où les droits ne le
+prévoient pas --- comportement normal de \cmd{root}. \\
+\cmd{SETGID}, \cmd{SETUID} & \cmd{login} et \cmd{sshd} changent d'identité pour
+ouvrir une session : sans elles, aucune connexion. \\
+\cmd{SYS\_CHROOT} & \cmd{sshd} isole son processus non privilégié par
+\cmd{chroot} pendant l'authentification. \\
+\cmd{NET\_BIND\_SERVICE} & Écouter sur un port inférieur à 1024 --- le 22. \\
+\cmd{KILL} & \cmd{supervisord} doit pouvoir arrêter et relancer ses services. \\
+\cmd{AUDIT\_WRITE} & PAM écrit un enregistrement d'audit à chaque connexion. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notion}{Ce qui est retiré, et qui compte}
+\cmd{SYS\_ADMIN} (monter des systèmes de fichiers --- la capacité la plus
+dangereuse, souvent qualifiée de « nouveau \cmd{root} »), \cmd{NET\_ADMIN}
+(reconfigurer le réseau, poser une interface en mode espion),
+\cmd{SYS\_MODULE} (charger un module noyau), \cmd{SYS\_PTRACE} (inspecter la
+mémoire d'autres processus), \cmd{MKNOD} (créer un fichier de périphérique,
+donc accéder au disque brut).
+
+Chacune de ces capacités est une voie d'évasion documentée. Les retirer ne
+retire rien à l'usage légitime d'une machine louée.
+\end{notion}
+
+\limite
+Les capacités cloisonnent le noyau, elles ne le remplacent pas. Une
+vulnérabilité du noyau lui-même traverse la frontière.
+
+% -----------------------------------------------------------------------------
+\mesure{Pas d'élévation de privilèges}{mesure 19 · \fichier{docker\_ops.py}}
+
+\menace
+Un binaire \cmd{setuid} à l'intérieur du conteneur peut rendre des privilèges
+qu'on vient justement de retirer. Beaucoup d'images en contiennent sans le
+savoir (\cmd{ping}, \cmd{mount}, \cmd{su}).
+
+\parade
+\cmd{-{}-security-opt no-new-privileges:true} : le noyau refuse qu'un processus
+du conteneur gagne des privilèges qu'il n'avait pas au départ, quel que soit le
+bit \cmd{setuid} du binaire exécuté.
+
+\danslecode
+Dans la constante \cmd{CONTAINER\_HARDENING}, appliquée à \emph{toutes} les
+machines louées sans exception --- ce n'est pas une option du formulaire.
+
+\limite
+Le drapeau empêche de \emph{gagner} des privilèges. Il ne retire pas ceux que
+\cmd{root} possède déjà dans le conteneur.
+
+% -----------------------------------------------------------------------------
+\mesure{Les limites de ressources}{mesure 20 · \fichier{docker\_ops.py}}
+
+\menace
+Un locataire lance une bombe à fourche (\cmd{:(){ :|:\& };:}), un mineur de
+cryptomonnaie ou une compilation massive. Sans limite, il prend tout le nœud et
+toutes les autres machines deviennent inutilisables. C'est le déni de service
+le plus facile à monter : il suffit d'être client.
+
+\parade
+Trois plafonds, posés au lancement.
+
+\danslecode
+\begin{lstlisting}[language=bash]
+--pids-limit 512            # nombre maximal de processus : arrete la bombe a fourche
+--cpus 1                    # un coeur au plus
+--memory 256m | 1g          # selon le mode, terminal ou bureau
+--memory-reservation ...    # le minimum garanti en cas de contention
+\end{lstlisting}
+
+La distinction entre \cmd{-{}-memory} et \cmd{-{}-memory-reservation} est celle
+que le cours impose : la \emph{limite} est un plafond dur que le conteneur ne
+peut pas dépasser, la \emph{réservation} est le minimum qui lui reste garanti
+quand le nœud est sous pression. Sans réservation, une machine bien élevée peut
+être étranglée par une voisine gourmande, même si celle-ci respecte sa limite.
+
+\begin{retenir}
+\cmd{-{}-pids-limit} est la plus sous-estimée des trois : une bombe à fourche ne
+consomme ni beaucoup de CPU ni beaucoup de mémoire par processus, mais épuise
+la table des processus du \emph{noyau}, qui est partagée avec l'hôte. Les
+limites de CPU et de mémoire ne l'arrêtent pas.
+\end{retenir}
+
+\limite
+Les limites valent par conteneur. Trois machines par utilisateur, c'est trois
+fois la limite --- d'où le quota.
+
+% -----------------------------------------------------------------------------
+\mesure{Un réseau dédié}{mesure 21 · \fichier{config.py}, \fichier{docker\_ops.py}}
+
+\menace
+Sur le réseau \cmd{bridge} par défaut de Docker, tous les conteneurs se voient.
+Un locataire peut donc scanner et atteindre les machines des autres locataires
+--- et les services de la plateforme elle-même.
+
+\parade
+Les machines louées sont placées sur un réseau Docker \textbf{propre au
+déploiement}, créé à la demande.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+CONTAINER_NETWORK = os.environ.get("INSACLOUD_NETWORK", f"insacloud_{CLUSTER}_net")
+\end{lstlisting}
+
+\begin{piege}{\cmd{-{}-internal} aurait coupé Internet aux locataires}
+La première version créait le réseau avec \cmd{-{}-internal}, qui l'isole
+totalement --- y compris de l'extérieur. L'intention était bonne, l'effet
+désastreux : plus aucune machine louée ne pouvait faire \cmd{apt-get install},
+ce qui est précisément ce pour quoi on loue une machine.
+
+Le défaut a été vu avant livraison, en essayant réellement d'installer un
+paquet dans une machine fraîchement louée. C'est le genre d'erreur qu'aucune
+relecture ne détecte, parce que le code est exactement conforme à l'intention.
+\end{piege}
+
+\limite
+Le réseau dédié sépare les machines louées des services de la plateforme ; il
+ne sépare pas les locataires \emph{entre eux}. Un réseau par machine serait
+plus strict, au prix d'une complexité de gestion sans commune mesure avec le
+gain à cette échelle.
+
+% -----------------------------------------------------------------------------
+\mesure{L'identité par étiquette}{mesure 22 · \fichier{docker\_ops.py}}
+
+\menace
+Le Faucheur détruit les conteneurs qui ne correspondent à aucune location
+active. S'il les reconnaît par leur \emph{nom}, une collision de préfixe lui
+fait détruire autre chose --- par exemple les services de la plateforme, qui
+s'appellent \cmd{insacloud-web}, \cmd{insacloud-db}, \cmd{insacloud-faucheur}.
+
+\parade
+Trois étiquettes Docker, apposées à chaque machine, qui servent d'identité.
+Jamais le nom.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+MACHINE_LABEL = "insacloud.role"      # = rented-machine
+CLUSTER_LABEL = "insacloud.cluster"   # = ce deploiement
+WORKER_LABEL  = "insacloud.worker"    # = le noeud qui l'heberge
+
+MACHINE_FILTERS = [f"label={MACHINE_LABEL}={MACHINE_LABEL_VALUE}",
+                   f"label={CLUSTER_LABEL}={CLUSTER}"]
+\end{lstlisting}
+
+Les deux premiers filtres sont \emph{combinés} : une machine doit être une
+machine louée \textbf{et} appartenir à ce déploiement. Sans le second, le
+Faucheur d'une plateforme détruirait les machines d'une autre tournant sur le
+même démon --- ce qui est arrivé en développement.
+
+Le troisième, \cmd{insacloud.worker}, a été ajouté plus tard : il dit sur quel
+nœud la machine a été créée. Sur un parc de machines virtuelles, la frontière
+des démons suffit ; dès que deux nœuds partagent un démon, elle disparaît, et
+sans ce label la réconciliation de l'un détruisait les machines de l'autre.
+
+\begin{retenir}
+Ce défaut n'a pas été trouvé en relisant le code --- il a été trouvé en faisant
+tourner un parc à deux nœuds. Une étiquette est une \emph{donnée portée par
+l'objet lui-même} ; un nom est une convention que rien ne garantit. Pour une
+opération destructive, la différence n'est pas théorique.
+\end{retenir}
+
+\limite
+Un attaquant ayant accès au démon Docker peut poser lui-même ces étiquettes sur
+un conteneur à lui, et le faire adopter par la plateforme. Mais, une fois de
+plus : qui a le démon a déjà tout.
+
+% -----------------------------------------------------------------------------
+\mesure{La commande Docker, sans interpréteur}{mesure 23 · \fichier{docker\_ops.py}}
+
+\menace
+L'énoncé impose de lancer les machines par la commande \cmd{docker run}. Écrite
+en concaténant des chaînes et passée à un shell, une telle commande est une
+injection en puissance : une distribution nommée
+\cmd{alpine; rm -rf /} suffirait.
+
+\parade
+La commande est construite en \textbf{liste d'arguments} et exécutée sans
+shell. Aucun interpréteur ne relit jamais les valeurs.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+# pas de shell=True : les arguments sont passes en liste, donc jamais
+# reinterpretes par un interpreteur de commandes.
+\end{lstlisting}
+
+Et en amont, les seules valeurs d'origine utilisateur --- durée, distribution,
+mode --- sont validées : la durée est un entier borné, la distribution et le
+mode sont choisis dans des dictionnaires fermés. Une valeur hors de ces
+ensembles n'atteint jamais \cmd{docker}.
+
+\begin{notion}{Deux barrières plutôt qu'une}
+La validation en amont suffirait. L'absence de shell suffirait. On fait les
+deux, parce que la première dépend d'un développeur qui n'oublie pas un
+chemin, et la seconde d'une propriété du système. Quand l'une cède, l'autre
+tient.
+\end{notion}
+
+\limite
+L'exécution sans shell ne protège pas d'un argument \emph{valide} mais
+malveillant --- par exemple un chemin de montage arbitraire, si un jour on
+laissait l'utilisateur en choisir un. La liste des arguments est entièrement
+construite par la plateforme : c'est ce qui doit le rester.

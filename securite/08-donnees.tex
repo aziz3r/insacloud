@@ -1,0 +1,138 @@
+\chapter{Couche 8 — Les données et le réseau}
+
+Deux sujets qu'on range rarement sous « sécurité » et qui en relèvent
+pourtant : l'intégrité de l'état, et la confidentialité du transport.
+
+% -----------------------------------------------------------------------------
+\mesure{Le cloisonnement entre locataires}{mesure 29 · \fichier{database.py}}
+
+\menace
+C'est la faille la plus banale des applications multi-utilisateurs : l'URL
+\cmd{/instances/42} affiche la machine numéro 42, et personne ne vérifie
+qu'elle appartient bien à celui qui la demande. On change le numéro, on voit
+les machines des autres --- et leur mot de passe \cmd{root}.
+
+\parade
+Le filtrage par propriétaire est fait \textbf{dans la requête SQL}, pas dans le
+gabarit ni dans une condition d'affichage. Une donnée qui n'appartient pas à
+l'utilisateur ne quitte jamais la base.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+requete = requete.where(Rental.user_id == user_id)
+...
+.where(Rental.user_id == user_id, Instance.status == INSTANCE_RUNNING)
+...
+.where(Archive.user_id == user_id, Archive.expires_at > utc_now())
+\end{lstlisting}
+
+La condition est présente sur les instances, sur les locations \emph{et} sur
+les archives --- l'archive du travail d'un autre serait tout aussi
+compromettante que sa machine.
+
+\begin{retenir}
+Filtrer à l'affichage laisse la donnée arriver jusqu'au gabarit : il suffit
+d'une page oubliée, d'une réponse JSON, d'un message d'erreur trop bavard pour
+qu'elle sorte. Filtrer dans la requête rend la fuite structurellement
+impossible. C'est le test le plus important de la suite, et il porte un nom
+explicite : \emph{cloisonnement entre comptes}.
+\end{retenir}
+
+\limite
+Le cloisonnement repose sur la discipline : chaque nouvelle requête doit porter
+la condition. Un modèle de données où la propriété serait imposée par le moteur
+(\emph{row-level security} de PostgreSQL) l'appliquerait sans dépendre du
+développeur.
+
+% -----------------------------------------------------------------------------
+\mesure{Les contraintes d'intégrité}{mesure 30 · \fichier{models.py}}
+
+\menace
+Deux machines attribuées au même port sur le même nœud : la seconde ne démarre
+pas, ou pire, un utilisateur se connecte à la machine d'un autre. Une
+vérification faite en Python ne tient pas sous la concurrence --- deux requêtes
+simultanées peuvent lire le même « port libre » avant que l'une n'écrive.
+
+\parade
+La règle est tenue par le \textbf{moteur de base de données}, par un
+\textbf{index unique partiel} : le couple (nœud, port) est unique, mais
+seulement parmi les machines en cours d'exécution.
+
+\danslecode
+Le « partiel » est essentiel : sans lui, un port utilisé par une machine
+détruite resterait réservé pour toujours, et la plage finirait épuisée. La
+contrainte ne s'applique donc qu'aux instances \cmd{running}.
+
+Sept tests vérifient ces règles au niveau du moteur
+(\fichier{tests/test\_contraintes.py}) : qu'un port en conflit lève bien une
+\cmd{IntegrityError}, que le port est libéré quand l'instance expire, que
+l'identifiant et l'adresse de courriel sont uniques, que les clés étrangères
+interdisent une location sans utilisateur --- avec
+\cmd{PRAGMA foreign\_keys = ON} pour SQLite, qui ne les applique pas par
+défaut.
+
+\begin{notion}{Pourquoi le moteur et pas le code}
+Une règle tenue par le moteur reste vraie même si une requête concurrente, un
+script d'administration ou un futur appel oublient de la vérifier. Une règle
+tenue seulement par le code applicatif ne tient que tant que personne ne
+contourne ce code. L'énoncé demande explicitement de « tester les contraintes
+d'intégrité » : la distinction est exactement celle-là.
+\end{notion}
+
+\limite
+Les contraintes garantissent la cohérence, pas la justesse métier. Rien
+n'empêche d'attribuer un port valide mais déjà pris par un service de l'hôte
+--- d'où une vérification complémentaire côté système
+(\cmd{port\_is\_free\_on\_host}).
+
+% -----------------------------------------------------------------------------
+\mesure{TLS de bout en bout}{mesure 31 · rôle \cmd{reverse\_proxy}}
+
+\menace
+Le mot de passe de connexion, le cookie de session et les mots de passe
+\cmd{root} circulent entre le navigateur et le serveur. En clair, ils sont
+lisibles par quiconque partage le réseau --- un réseau d'école, typiquement.
+
+\parade
+nginx termine le TLS devant Gunicorn, avec des protocoles et des suites
+choisis plutôt que laissés par défaut.
+
+\danslecode
+\begin{lstlisting}
+listen 443 ssl http2;
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_prefer_server_ciphers on;
+ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:
+            ECDHE-ECDSA-AES128-GCM-SHA256;
+client_max_body_size 16k;
+\end{lstlisting}
+
+Trois décisions :
+
+\begin{itemize}[leftmargin=14pt,itemsep=3pt]
+\item \textbf{TLS 1.2 minimum} --- les versions 1.0 et 1.1 sont obsolètes et
+      vulnérables ; aucun navigateur en service ne les exige.
+\item \textbf{Uniquement des suites ECDHE avec AEAD} : \cmd{ECDHE} assure la
+      \emph{confidentialité persistante} (un enregistrement du trafic reste
+      indéchiffrable même si la clé du serveur fuite plus tard), et GCM ou
+      ChaCha20-Poly1305 chiffrent \emph{et} authentifient.
+\item \cmd{client\_max\_body\_size 16k} --- la même borne qu'en applicatif, mais
+      appliquée par nginx : une requête démesurée est coupée avant d'atteindre
+      Python.
+\end{itemize}
+
+\begin{notion}{\cmd{ProxyFix}, ou pourquoi tout le monde avait la même IP}
+Derrière un proxy inverse, Flask voit l'adresse du proxy --- \cmd{127.0.0.1}
+--- et non celle du visiteur. Le compteur anti-force-brute par adresse
+compterait donc toutes les tentatives du monde sur une seule, et bloquerait
+tout le monde au premier attaquant. \cmd{ProxyFix} (Werkzeug) lit l'en-tête
+\cmd{X-Forwarded-For} posé par nginx et rétablit la vraie adresse. Une mesure
+de sécurité mal câblée peut se retourner en déni de service.
+\end{notion}
+
+\limite
+Le certificat est \textbf{auto-signé} : le navigateur avertit. C'est la seule
+alerte que l'analyse dynamique signale encore, et c'est le premier élément des
+travaux à court terme (Let's Encrypt). Un certificat auto-signé chiffre
+correctement, mais ne prouve pas l'identité du serveur : il ne protège donc pas
+d'un attaquant capable de s'interposer.

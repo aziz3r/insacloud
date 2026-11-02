@@ -1,0 +1,65 @@
+% =============================================================================
+%  InsaCloud — Fiche technique : la sécurité
+%  Compilation :  tectonic -X compile securite.tex
+% =============================================================================
+\documentclass[a4paper,11pt,oneside]{report}
+\input{preambule}
+
+\begin{document}
+
+\begin{titlepage}
+\centering
+\vspace*{2.2cm}
+
+{\Huge\bfseries InsaCloud\par}
+\vspace{6pt}
+{\color{insared}\rule{4cm}{2pt}\par}
+\vspace{16pt}
+{\LARGE Fiche technique : la sécurité\par}
+\vspace{10pt}
+{\large Ce que la plateforme protège, contre quoi,\par}
+{\large par quel mécanisme --- et ce qu'elle ne protège pas\par}
+
+\vspace{2cm}
+\begin{minipage}{0.84\textwidth}
+\color{gristexte}\small
+Une plateforme qui loue des machines Linux avec un accès \cmd{root} et des ports
+ouverts sur le réseau est, par construction, une surface d'attaque. Ce document
+prend chaque mécanisme de défense un par un et répond toujours aux mêmes quatre
+questions : \textbf{quelle menace} il traite, \textbf{quelle parade} il oppose,
+\textbf{où il se trouve} dans le code avec ses valeurs exactes, et
+\textbf{ce qu'il ne couvre pas}.
+
+\medskip
+Cette dernière question n'est pas une concession : une défense dont on ignore
+la limite donne une fausse assurance, et une fausse assurance est pire qu'une
+absence de défense.
+\end{minipage}
+
+\vfill
+{\color{gristexte}\small
+Mohamed Aziz Baoueb \quad\textbullet\quad Youssef Farjallah
+\quad\textbullet\quad Elyes Lemhanni\\[4pt]
+Projet 3 --- \textit{Outils de déploiement de plateformes}\\
+INSA Centre-Val de Loire, STI 4A FISE, 2026/2027 --- Dr.~Nadia Fettah\\[8pt]
+\today\par}
+\end{titlepage}
+
+\pagenumbering{roman}
+\setcounter{tocdepth}{1}
+\tableofcontents
+\cleardoublepage
+\pagenumbering{arabic}
+
+\input{01-menace}
+\input{02-identite}
+\input{03-navigateur}
+\input{04-secrets}
+\input{05-machines}
+\input{06-conteneurs}
+\input{07-parc}
+\input{08-donnees}
+\input{09-chaine}
+\input{10-limites}
+
+\end{document}

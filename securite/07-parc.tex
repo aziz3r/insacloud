@@ -1,0 +1,205 @@
+\chapter{Couche 7 — Le contrôleur et les nœuds}
+
+Le contrôleur doit créer et détruire des conteneurs sur des machines distantes.
+C'est le lien le plus sensible de l'architecture : il porte, de bout en bout,
+un pouvoir équivalent à \cmd{root}.
+
+% -----------------------------------------------------------------------------
+\mesure{SSH plutôt que l'API Docker}{mesure 24 · \fichier{workers.py}}
+
+\menace
+La façon évidente de piloter un démon Docker à distance est d'exposer son API
+sur un port TCP. C'est aussi la plus dangereuse : cette API n'a, par défaut,
+\textbf{aucune authentification}, et y accéder revient à être administrateur de
+la machine. Les moteurs de recherche de services exposés en recensent des
+dizaines de milliers, et ils sont compromis en quelques minutes.
+
+\parade
+Le transport SSH natif du client Docker. Aucun port supplémentaire n'est
+ouvert : SSH était déjà là, et il apporte l'authentification que l'API n'a pas.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+def docker_command(worker: str = "local") -> list:
+    """Prefixe de commande docker pour ce noeud."""
+    host = worker_host(worker)
+    if host is None:
+        return ["docker"]
+    return ["docker", "-H", f"ssh://{DOCKER_SSH_USER}@{host}"]
+\end{lstlisting}
+
+Le module le résume en tête : \emph{« Rien n'est exposé sur le réseau à part
+SSH ; l'authentification se fait par clé. »}
+
+\begin{notion}{Ce que fait réellement \cmd{docker -H ssh://}}
+Le client Docker ouvre une session SSH et y exécute
+\cmd{docker system dial-stdio} sur le nœud. L'API circule alors \emph{dans} le
+tunnel SSH, authentifiée et chiffrée, sans qu'aucune socket réseau n'écoute.
+Si l'on avait voulu sécuriser l'API TCP, il aurait fallu monter une autorité de
+certification, émettre un certificat client par contrôleur et les renouveler :
+beaucoup de pièces mobiles pour un résultat équivalent.
+\end{notion}
+
+\limite
+Qui obtient la clé SSH du contrôleur obtient le démon Docker de tous les nœuds.
+Cette clé est donc l'actif le plus sensible du parc --- d'où la mesure
+suivante.
+
+% -----------------------------------------------------------------------------
+\mesure{La clé de pilotage}{mesure 25 · rôle \cmd{controller\_key}}
+
+\menace
+Une clé SSH réutilisée --- celle du développeur, par exemple --- étend sa portée
+à tout le parc, et survit au départ de son propriétaire.
+
+\parade
+Une clé \textbf{dédiée au pilotage}, générée par Ansible, déposée sur les
+nœuds pour un \textbf{compte de service sans mot de passe}.
+
+\danslecode
+Le rôle \cmd{controller\_key} crée le compte et la paire de clés ; le rôle
+\cmd{worker} dépose la partie publique sur chaque nœud. Le compte
+\cmd{insacloud} n'a pas de mot de passe --- il n'est donc joignable que par
+clé, et uniquement depuis le contrôleur.
+
+Sur le parc à deux nœuds en conteneurs, le même principe est rejoué par le
+service \cmd{cles}, qui fabrique la paire une seule fois dans un volume
+partagé. L'\fichier{entrypoint} du nœud installe la partie publique et, détail
+qui a coûté une heure, déverrouille le compte :
+
+\begin{lstlisting}[language=bash]
+# « adduser -D » laisse le compte VERROUILLE (un « ! » dans /etc/shadow), et
+# sshd refuse un compte verrouille MEME en authentification par cle. L'etoile
+# dit « aucun mot de passe n'ouvre ce compte », ce qui est l'intention.
+sed -i 's|^insacloud:!|insacloud:*|' /etc/shadow
+\end{lstlisting}
+
+\begin{piege}{Un compte sans mot de passe n'est pas un compte verrouillé}
+Les deux états se ressemblent et n'ont rien à voir. \cmd{!} signifie
+« verrouillé » : \cmd{sshd} refuse la connexion, y compris par clé.
+\cmd{*} signifie « aucun mot de passe ne peut ouvrir ce compte » : la
+connexion par clé fonctionne. Le symptôme était un
+\cmd{Connection closed by remote host} muet côté client ; seul le journal du
+serveur disait \cmd{User insacloud not allowed because account is locked}.
+\end{piege}
+
+\limite
+La clé n'a pas de phrase de passe : elle doit être utilisable par un service,
+sans intervention humaine. Sa protection repose donc entièrement sur les droits
+du fichier et sur la sécurité du contrôleur.
+
+% -----------------------------------------------------------------------------
+\mesure{Le jeton des agents}{mesure 26 · \fichier{api.py}, \fichier{worker\_agent.py}}
+
+\menace
+L'inscription des nœuds est dynamique : un agent appelle
+\cmd{POST /workers/register} et le contrôleur l'ajoute au parc. Sans contrôle,
+n'importe qui déclare un nœud, reçoit des machines à héberger --- et donc les
+mots de passe de leurs locataires.
+
+\parade
+Un jeton partagé, exigé dans un en-tête à l'inscription comme au battement de
+cœur.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+"X-Agent-Token": TOKEN        # cote agent
+\end{lstlisting}
+
+Côté contrôleur, les routes \cmd{/workers/register} et \cmd{/workers/heartbeat}
+refusent la requête sans jeton valide --- ce qu'un test vérifie
+explicitement (\cmd{test\_api\_enregistrement\_refuse\_sans\_jeton}). Le jeton
+est distribué par Ansible Vault, jamais inscrit dans le code.
+
+L'agent, lui, refuse de démarrer sans jeton plutôt que de tenter une
+inscription anonyme :
+
+\begin{lstlisting}[language=Python]
+if not TOKEN:
+    log.error("INSACLOUD_AGENT_TOKEN n'est pas defini : arret.")
+\end{lstlisting}
+
+\limite
+Un jeton partagé est le même pour tous les nœuds : il ne distingue pas les
+agents entre eux, et le compromettre permet d'en déclarer un faux. Une
+authentification mutuelle par certificat serait plus robuste ; elle demanderait
+une autorité de certification que le projet n'a pas.
+
+% -----------------------------------------------------------------------------
+\mesure{Un nœud muet n'est jamais interprété}{mesure 27 · \fichier{faucheur.py}}
+
+\menace
+Le Faucheur réconcilie Docker et la base : il détruit les conteneurs inconnus
+et marque arrêtées les machines sans conteneur. Si un nœud ne répond pas et
+qu'il interprète ce silence comme « il n'y a plus rien là-bas », il déclare
+mortes des machines qui tournent parfaitement --- et les détruira au retour du
+nœud.
+
+\parade
+Un nœud injoignable est \textbf{ignoré}, pas interprété. Aucune décision n'est
+prise sur son compte.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+if res.returncode != 0:
+    log.warning("Noeud %s injoignable pour la reconciliation : %s",
+                worker, res.stderr.strip()[:120])
+    continue          # on ne touche a rien pour ce noeud
+\end{lstlisting}
+
+Un test dédié verrouille ce comportement :
+\cmd{test\_noeud\_injoignable\_ne\_detruit\_rien} --- \emph{« Exigence de
+résilience : un worker éteint ne doit pas faire perdre l'état en base. »}
+
+\begin{retenir}
+C'est une décision de sécurité autant que de fiabilité. La question posée au
+système n'est pas « que s'est-il passé ? » mais « que puis-je affirmer ? ».
+Un nœud silencieux ne permet d'affirmer rien du tout, et une opération
+destructive exige une certitude.
+\end{retenir}
+
+\limite
+La prudence a un coût : une machine réellement disparue reste marquée active
+tant que son nœud ne répond pas. C'est le bon côté sur lequel se tromper.
+
+% -----------------------------------------------------------------------------
+\mesure{Le pare-feu, différencié par groupe}{mesure 28 · rôle \cmd{security\_hardening}}
+
+\menace
+Un nœud ouvre son port SSH pour le contrôleur, et des centaines de ports pour
+les machines louées. Le contrôleur, lui, n'a besoin que de HTTPS. Appliquer la
+même politique aux deux ouvre inutilement des portes.
+
+\parade
+Une politique par défaut en refus, puis des règles distinctes selon le groupe
+Ansible auquel la machine appartient.
+
+\danslecode
+Le rôle \cmd{security\_hardening} applique, via \cmd{community.general.ufw} :
+politique entrante par défaut, SSH avec \textbf{limitation anti-force-brute}
+(\cmd{ufw limit}) et restriction d'origine, ports applicatifs, et la plage des
+machines louées \emph{uniquement sur les workers}.
+
+\begin{lstlisting}
+- name: Autoriser SSH avec limitation anti-force-brute sur le port {{ ufw_ssh_port }}
+  community.general.ufw:
+    rule: limit
+    port: "{{ ufw_ssh_port }}"
+
+- name: Autoriser les plages de ports des machines louees
+  community.general.ufw:
+    ...
+\end{lstlisting}
+
+\begin{piege}{L'ordre des rôles n'est pas indifférent}
+Le rôle passe \textbf{avant} le rôle \cmd{docker} : \cmd{ufw enable} recharge
+\cmd{iptables} et effacerait les chaînes que Docker y installe. Inversé, le
+pare-feu casserait le réseau des conteneurs --- panne difficile à diagnostiquer,
+parce que les deux rôles réussissent.
+\end{piege}
+
+\limite
+UFW filtre le trafic entrant vers l'hôte. Docker insère ses propres règles
+\cmd{iptables} pour les ports publiés, qui peuvent contourner UFW selon la
+configuration : la plage des machines louées est donc ouverte de fait dès que
+Docker publie les ports.

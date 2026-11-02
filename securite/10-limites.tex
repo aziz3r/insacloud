@@ -1,0 +1,139 @@
+\chapter{Couche 10 — Les limites assumées}
+
+Ce chapitre est le plus important du document. Une défense dont on ignore la
+limite donne une fausse assurance, et une fausse assurance est pire qu'une
+absence de défense : on arrête de surveiller.
+
+\section*{Les risques résiduels, et pourquoi ils sont acceptés}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{3.6cm}Xp{1.9cm}@{}}
+\toprule
+\textbf{Risque} & \textbf{Pourquoi il est accepté ici, et ce qu'il faudrait en production} &
+\textbf{Gravité} \\
+\midrule
+\textbf{Certificat auto-signé} &
+Le trafic est chiffré, mais l'identité du serveur n'est pas prouvée : un
+attaquant capable de s'interposer pourrait se faire passer pour la plateforme.
+Seule alerte que l'analyse dynamique signale encore. Correction prévue :
+Let's Encrypt. & Moyenne \\
+\addlinespace
+\textbf{VncAuth} &
+Défi-réponse DES, mot de passe tronqué à huit caractères par le protocole.
+Acceptable parce que la machine est éphémère, que le mot de passe n'est visible
+que cinq minutes et que le transport est chiffré. En production : un proxy
+authentifié devant noVNC. & Moyenne \\
+\addlinespace
+\textbf{\cmd{docker.sock} monté dans la pile compose} &
+En mode mono-hôte, le conteneur de l'application reçoit la socket Docker de
+l'hôte --- donc un pouvoir équivalent à \cmd{root} sur la machine. Le fichier
+\cmd{docker-compose.yml} le dit en toutes lettres : \emph{« À n'utiliser que
+sur une machine de développement. »} Sur le parc déployé, ce montage
+\textbf{disparaît} : le contrôleur pilote les workers par SSH. & Élevée
+(développement seulement) \\
+\addlinespace
+\textbf{\cmd{root} dans le conteneur loué} &
+C'est le service vendu, pas un défaut. Atténué par les capacités retirées,
+\cmd{no-new-privileges} et les limites de ressources. Une évasion par faille du
+noyau reste possible : seule une machine virtuelle créerait la vraie
+frontière. & Acceptée \\
+\addlinespace
+\textbf{Un seul jeton pour tous les agents} &
+Il ne distingue pas les nœuds entre eux ; le compromettre permet d'en déclarer
+un faux, donc de recevoir des machines à héberger. Une authentification
+mutuelle par certificat demanderait une autorité de certification. & Moyenne \\
+\addlinespace
+\textbf{La reprise ne restitue pas les fichiers} &
+Elle recrée un conteneur, elle ne déplace pas un disque. Sans stockage partagé
+entre nœuds, seul le service repart. C'est le premier élément des travaux à
+moyen terme. & Acceptée \\
+\addlinespace
+\textbf{Les clés sur le disque du contrôleur} &
+\cmd{.secret\_key} et \cmd{.vault\_key} sont en \cmd{0600}, mais sur la même
+machine que la base. La séparation des deux clés est logique, pas physique. Un
+gestionnaire externe les garderait hors de la machine. & Moyenne \\
+\addlinespace
+\textbf{Pas de journalisation centralisée} &
+Les traces d'accès aux machines louées restent sur chaque nœud. Une
+investigation après incident serait laborieuse, et un attaquant ayant pris un
+nœud peut effacer ses traces. Travaux à moyen terme. & Moyenne \\
+\addlinespace
+\textbf{Pas de second facteur} &
+Un mot de passe compromis suffit à prendre un compte. Travaux à moyen terme. &
+Faible (contexte pédagogique) \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Ce qui est hors de portée du projet}
+
+Trois choses qu'aucune mesure du document ne traite, et qu'il serait malhonnête
+de laisser croire couvertes :
+
+\textbf{Un attaquant déjà administrateur du contrôleur} lit la base, les clés,
+et pilote tous les nœuds. La défense est organisationnelle --- qui a accès à la
+machine --- pas logicielle.
+
+\textbf{Une vulnérabilité du noyau Linux} traverse la frontière des conteneurs,
+qui partagent ce noyau avec l'hôte. Le durcissement réduit la surface, il ne
+crée pas d'isolation matérielle.
+
+\textbf{Un déni de service volumétrique} venu de l'extérieur relève de
+l'hébergeur. Les limites par conteneur protègent les locataires les uns des
+autres, pas la plateforme d'une attaque réseau.
+
+\section*{Récapitulatif : menace, parade, preuve}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{4.1cm}p{4.4cm}X@{}}
+\toprule
+\textbf{Menace} & \textbf{Parade} & \textbf{Preuve} \\
+\midrule
+Fuite de la base & PBKDF2 salé, Fernet &
+Les mots de passe en base sont illisibles sans la clé du coffre. \\
+Énumération des comptes & Empreinte factice si le compte n'existe pas &
+Le temps de réponse est identique dans les deux cas. \\
+Force brute sur la connexion & 5 échecs par compte, 20 par adresse, 15 min &
+\cmd{test\_securite.py} \\
+Vol de session & \cmd{HttpOnly}, \cmd{SameSite=Strict}, \cmd{Secure}, 2 h &
+En-têtes vérifiés par l'analyse dynamique. \\
+CSRF & Jeton sur tous les formulaires, actif jusqu'en test &
+\cmd{test\_securite.py} \\
+Injection de script & CSP \cmd{default-src 'self'}, aucun CDN &
+En-tête vérifié par l'analyse dynamique. \\
+Vol de la clé de session & Clé du coffre distincte &
+\fichier{crypto.py} : deux clés, deux origines. \\
+Secret commis dans Git & gitleaks sur tout l'historique &
+Travail \cmd{secrets} de la chaîne. \\
+Devinage du mot de passe d'une machine & Clé publique, \cmd{PasswordAuthentication no} &
+\cmd{Permission denied (publickey)} \\
+Évasion de conteneur & \cmd{cap-drop ALL}, \cmd{no-new-privileges} &
+\cmd{test\_docker.py} vérifie la commande construite. \\
+Épuisement du nœud & \cmd{pids-limit}, \cmd{cpus}, \cmd{memory} &
+\cmd{test\_docker.py} \\
+Prise de contrôle d'un démon Docker & SSH par clé dédiée, API jamais exposée &
+\fichier{workers.py} : \cmd{docker -H ssh://} \\
+Faux nœud déclaré & Jeton d'agent exigé &
+\cmd{test\_api\_enregistrement\_refuse\_sans\_jeton} \\
+Destruction sur un nœud muet & Le silence n'est pas interprété &
+\cmd{test\_noeud\_injoignable\_ne\_detruit\_rien} \\
+Accès aux machines d'un autre & Filtrage par propriétaire en SQL &
+\cmd{test\_securite.py}, cloisonnement entre comptes \\
+Collision de port & Index unique partiel en base &
+\cmd{test\_contraintes.py} (7 cas) \\
+Écoute du trafic & TLS 1.2/1.3, suites ECDHE + AEAD &
+Configuration nginx du rôle \cmd{reverse\_proxy}. \\
+Dépendance vulnérable & pip-audit, Trivy, SBOM &
+Werkzeug 3.1.8 $\rightarrow$ 3.1.9 après alerte. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{retenir}
+Dix-huit menaces, dix-huit parades, et pour chacune un endroit où aller voir.
+C'est ce dernier point qui compte : une mesure de sécurité qu'aucun test ne
+verrouille est une mesure qui disparaîtra à la prochaine modification, sans que
+personne s'en aperçoive.
+\end{retenir}

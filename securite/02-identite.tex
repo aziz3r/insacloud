@@ -1,0 +1,161 @@
+\chapter{Couche 2 — L'identité}
+
+Quatre mécanismes pour qu'un compte ne puisse pas être pris par quelqu'un
+d'autre.
+
+% -----------------------------------------------------------------------------
+\mesure{Le hachage des mots de passe}{mesure 1 · \fichier{app.py}}
+
+\menace
+Une base de données finit par fuiter : sauvegarde oubliée, injection SQL,
+disque revendu. Si elle contient les mots de passe en clair, tous les comptes
+tombent --- et, comme les gens réutilisent leurs mots de passe, des comptes
+ailleurs aussi.
+
+\parade
+On ne stocke jamais le mot de passe, mais son \textbf{empreinte}, calculée par
+une fonction à sens unique et \emph{lente}. La lenteur est la propriété
+recherchée : elle ne gêne pas l'utilisateur qui se connecte une fois, mais elle
+ruine l'attaquant qui doit en tester des milliards.
+
+\danslecode
+\cmd{generate\_password\_hash} de Werkzeug, qui applique \textbf{PBKDF2-SHA256}
+avec un sel aléatoire par compte et un grand nombre d'itérations. Le sel rend
+les tables précalculées inutilisables : deux utilisateurs ayant le même mot de
+passe ont deux empreintes différentes.
+
+\begin{lstlisting}[language=Python]
+user_id = db.create_user(username, generate_password_hash(password), email or None)
+\end{lstlisting}
+
+\begin{piege}{Comparer en temps constant, et même quand le compte n'existe pas}
+Une vérification naïve répond \emph{plus vite} quand l'identifiant est inconnu
+--- il n'y a pas d'empreinte à calculer. En chronométrant les réponses, on
+énumère donc les comptes existants sans jamais réussir une connexion.
+
+La parade tient en une ligne : quand l'utilisateur n'existe pas, on calcule
+quand même une empreinte factice, pour que les deux cas coûtent le même temps.
+
+\begin{lstlisting}[language=Python]
+ok = user is not None and check_password_hash(user["password_hash"], password)
+# meme cout quand le compte n'existe pas : on ne doit pas pouvoir les enumerer
+check_password_hash(generate_password_hash("x"), password) if user is None else None
+\end{lstlisting}
+\end{piege}
+
+\limite
+Un mot de passe faible reste faible, même bien haché. D'où la mesure suivante.
+
+% -----------------------------------------------------------------------------
+\mesure{La politique de mot de passe}{mesure 2 · \fichier{config.py}}
+
+\menace
+Les attaques par dictionnaire ne cassent pas la cryptographie : elles essaient
+\cmd{123456}, \cmd{password}, \cmd{azertyuiop}. Un seul compte faible suffit à
+entrer.
+
+\parade
+Une longueur minimale et le refus d'une liste de mots de passe courants, à
+l'inscription.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+PASSWORD_MIN_LENGTH = int(os.environ.get("INSACLOUD_PASSWORD_MIN", "10"))
+COMMON_PASSWORDS = {"password", "motdepasse", "123456789", "1234567890",
+                    "azertyuiop", ...}
+\end{lstlisting}
+
+Dix caractères, pas huit : la règle classique des huit caractères date d'une
+époque où le matériel était mille fois plus lent.
+
+\limite
+Aucune politique n'empêche \cmd{Soutenance2026!} --- conforme, et devinable par
+qui connaît le contexte. La vraie défense contre le devinage ciblé est la
+suivante.
+
+% -----------------------------------------------------------------------------
+\mesure{La limitation des tentatives}{mesure 3 · \fichier{app.py}}
+
+\menace
+Avec un formulaire de connexion public, un robot teste des milliers de
+combinaisons par minute. Sans limite, il finit par trouver.
+
+\parade
+Un compteur de tentatives échouées, sur \textbf{deux axes} et dans une fenêtre
+glissante.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+LOGIN_WINDOW_MINUTES    = 15   # la fenetre glissante
+LOGIN_MAX_FAILURES_USER = 5    # par compte vise
+LOGIN_MAX_FAILURES_IP   = 20   # par adresse source
+\end{lstlisting}
+
+Les deux axes traitent deux attaques différentes :
+
+\begin{itemize}[leftmargin=14pt,itemsep=2pt]
+\item \textbf{par compte} --- l'attaquant s'acharne sur \cmd{admin} depuis mille
+      adresses : le compteur du compte le bloque ;
+\item \textbf{par adresse} --- l'attaquant essaie un mot de passe très probable
+      sur mille comptes différents (\emph{password spraying}), ce qui ne
+      déclenche aucun compteur par compte : le compteur par adresse le bloque.
+\end{itemize}
+
+Chaque tentative est enregistrée en base avec son horodatage et son adresse
+source ; les entrées de plus de vingt-quatre heures sont purgées à chaque
+connexion réussie, pour que la table ne grossisse pas indéfiniment.
+
+\begin{retenir}
+Deux compteurs valent mieux qu'un : un seul compteur par compte ne voit pas le
+\emph{password spraying}, et un seul compteur par adresse ne voit pas l'attaque
+distribuée. C'est la combinaison qui couvre les deux.
+\end{retenir}
+
+\limite
+Un attaquant disposant de beaucoup d'adresses et visant beaucoup de comptes
+passe sous les deux seuils. À l'échelle de ce projet c'est acceptable ; en
+production on ajouterait un CAPTCHA après quelques échecs, ou une temporisation
+croissante.
+
+% -----------------------------------------------------------------------------
+\mesure{La validation des entrées}{mesure 4 · \fichier{config.py}}
+
+\menace
+Toute donnée venue de l'utilisateur finit quelque part : dans une requête SQL,
+dans un nom de conteneur, dans une page HTML, dans une ligne de commande. Si
+elle n'est pas contrainte, elle y fait ce qu'elle veut.
+
+\parade
+Des expressions régulières \textbf{ancrées} --- \cmd{\^{}} et \cmd{\$} --- qui
+décrivent ce qui est \emph{autorisé}, jamais ce qui est interdit. Une liste
+d'interdits est toujours incomplète ; une liste d'autorisés ne l'est jamais.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+USERNAME_RE   = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$")  # compatible Docker
+EMAIL_RE      = re.compile(r"^[^@\s]{1,64}@[^@\s.]+(\.[^@\s.]+)+$")
+SSH_PUBKEY_RE = re.compile(r"^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)"
+                           r"|sk-ssh-ed25519@openssh\.com) [A-Za-z0-9+/]+=*"
+                           r"( [^\r\n]{0,128})?$")
+MIN_DURATION_MINUTES = 1
+MAX_DURATION_MINUTES = 120
+MAX_INSTANCES_PER_USER = 3
+\end{lstlisting}
+
+Le format de l'identifiant n'est pas arbitraire : il est choisi pour être
+\textbf{compatible avec les noms de conteneurs Docker}, puisqu'il s'y retrouve.
+Un identifiant contenant une espace ou un point-virgule serait refusé bien
+avant d'atteindre la ligne de commande.
+
+\begin{notion}{La requête est bornée avant même d'être lue}
+\cmd{MAX\_CONTENT\_LENGTH = 16 * 1024} : Flask rejette toute requête de plus de
+seize kilooctets. Aucun formulaire légitime de la plateforme n'en approche ---
+le plus gros est une clé publique SSH, quelques centaines d'octets. Cette
+borne coupe court aux tentatives d'épuisement mémoire par un corps de requête
+géant, avant que le code applicatif ne voie quoi que ce soit.
+\end{notion}
+
+\limite
+La validation protège le format, pas le sens. Une durée de 120 minutes est
+valide ; demander trois machines de 120 minutes toutes les deux minutes reste
+possible, et c'est le quota (\cmd{MAX\_INSTANCES\_PER\_USER}) qui l'arrête.

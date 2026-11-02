@@ -1,0 +1,168 @@
+\chapter{Couche 3 — La session et le navigateur}
+
+L'utilisateur est authentifié. Reste à empêcher qu'on lui vole sa session, ou
+qu'on la lui fasse utiliser à son insu.
+
+% -----------------------------------------------------------------------------
+\mesure{Le cookie de session}{mesure 5 · \fichier{config.py}}
+
+\menace
+Après la connexion, c'est le cookie qui prouve l'identité. Le voler, c'est
+devenir l'utilisateur sans jamais connaître son mot de passe.
+
+\parade
+Quatre attributs, chacun fermant une porte différente.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+SESSION_COOKIE_HTTPONLY   = True             # inaccessible a JavaScript
+SESSION_COOKIE_SAMESITE   = "Strict"         # jamais envoye depuis un autre site
+SESSION_COOKIE_SECURE     = HTTPS            # transmis seulement en TLS
+SESSION_COOKIE_NAME       = "insacloud_session"
+PERMANENT_SESSION_LIFETIME = timedelta(hours=2)
+\end{lstlisting}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{3.4cm}X@{}}
+\toprule
+\textbf{Attribut} & \textbf{La porte qu'il ferme} \\
+\midrule
+\cmd{HttpOnly} & Un script injecté dans la page ne peut pas lire le cookie :
+une faille XSS ne se transforme pas en vol de session. \\
+\cmd{SameSite=Strict} & Le navigateur n'envoie pas le cookie quand la requête
+vient d'un autre site. C'est la défense structurelle contre le CSRF, celle qui
+agit avant même que la requête parte. \\
+\cmd{Secure} & Le cookie ne circule jamais en clair. Activé dès que le site est
+en HTTPS --- désactivé en développement local, sinon le cookie ne serait jamais
+émis et rien ne fonctionnerait. \\
+\cmd{2 heures} & Une session oubliée sur un poste de salle TP finit par
+expirer. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{piege}{Une session Flask est signée, pas chiffrée}
+C'est la méprise la plus répandue. Le contenu du cookie est encodé en base64 :
+n'importe qui peut le \emph{lire}. Ce que la clé secrète garantit, c'est qu'on
+ne peut pas le \emph{modifier} sans invalider la signature.
+
+Conséquence directe sur le code : la session ne contient que
+l'\textbf{identifiant} de l'utilisateur. Jamais son rôle, jamais un jeton,
+jamais un mot de passe. Tout le reste est relu en base à chaque requête.
+\end{piege}
+
+\limite
+Un cookie volé reste valable jusqu'à son expiration : il n'est lié ni à
+l'adresse IP ni au navigateur. Lier une session à son adresse casserait les
+connexions mobiles et n'arrêterait qu'un attaquant peu motivé.
+
+% -----------------------------------------------------------------------------
+\mesure{Les jetons CSRF}{mesure 6 · tous les formulaires}
+
+\menace
+Un site tiers contient une image ou un formulaire qui pointe vers
+\cmd{/instances/42/supprimer}. L'utilisateur, connecté à InsaCloud dans un
+autre onglet, le visite : son navigateur joint son cookie, et la requête
+part avec son identité.
+
+\parade
+Chaque formulaire porte un jeton aléatoire lié à la session ; le serveur refuse
+toute requête qui modifie l'état sans ce jeton. Un site tiers ne peut pas le
+deviner --- il ne peut pas lire la page qui le contient, la politique de même
+origine l'en empêche.
+
+\danslecode
+\cmd{WTF\_CSRF\_ENABLED = True}, y compris en configuration de test : la
+protection CSRF reste donc exercée par la suite de tests, et une régression qui
+la désactiverait ferait échouer la chaîne d'intégration.
+
+\begin{retenir}
+\cmd{SameSite=Strict} et le jeton CSRF font le même travail à deux endroits
+différents --- le navigateur et le serveur. On garde les deux : le premier
+dépend du navigateur de l'utilisateur, le second de personne.
+\end{retenir}
+
+\limite
+Le CSRF ne protège pas d'un script qui s'exécute \emph{dans} la page : celui-là
+lit le jeton. C'est la politique de contenu qui l'en empêche.
+
+% -----------------------------------------------------------------------------
+\mesure{Les en-têtes de sécurité}{mesure 7 · \fichier{app.py}}
+
+\menace
+Le navigateur est permissif par défaut : il exécute les scripts qu'on lui
+donne, affiche la page dans un cadre invisible, devine les types de contenu,
+et transmet l'URL consultée au site suivant. Chacun de ces comportements est
+une attaque possible.
+
+\parade
+Huit en-têtes posés sur \emph{chaque} réponse, par un \cmd{after\_request}
+unique --- impossible d'en oublier un sur une route.
+
+\danslecode
+\begin{lstlisting}[language=Python]
+@app.after_request
+def security_headers(response):
+    csp = ("default-src 'self'; script-src 'self'; style-src 'self'; "
+           "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
+           "object-src 'none'; base-uri 'self'; form-action 'self'; "
+           "frame-ancestors 'none'")
+    if HTTPS:
+        csp += "; upgrade-insecure-requests"
+        response.headers["Strict-Transport-Security"] = \
+            "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"]   = csp
+    response.headers["X-Content-Type-Options"]    = "nosniff"
+    response.headers["X-Frame-Options"]           = "DENY"
+    response.headers["Referrer-Policy"]           = "no-referrer"
+    response.headers["Permissions-Policy"]        = \
+        "camera=(), microphone=(), geolocation=(), payment=()"
+    response.headers["Cross-Origin-Opener-Policy"]   = "same-origin"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+\end{lstlisting}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{4.3cm}X@{}}
+\toprule
+\textbf{En-tête} & \textbf{Ce qu'il interdit} \\
+\midrule
+\cmd{Content-Security-Policy} & Charger un script, un style, une police ou une
+image d'ailleurs que du site lui-même. \cmd{object-src 'none'} bloque les
+greffons, \cmd{form-action 'self'} empêche un formulaire de poster ailleurs,
+\cmd{base-uri 'self'} empêche de réécrire la base des liens relatifs. \\
+\cmd{frame-ancestors 'none'} \newline \cmd{X-Frame-Options: DENY} & Afficher le
+site dans un cadre sur un autre site --- la parade au \emph{clickjacking}. Les
+deux en-têtes disent la même chose ; le second pour les navigateurs anciens. \\
+\cmd{X-Content-Type-Options} & Deviner le type d'un fichier plutôt que de
+croire l'en-tête : un fichier téléversé ne peut pas être réinterprété en
+script. \\
+\cmd{Referrer-Policy: no-referrer} & Transmettre au site suivant l'URL que
+l'utilisateur consultait --- qui contient parfois un identifiant. \\
+\cmd{Permissions-Policy} & Demander la caméra, le micro, la position ou le
+paiement. La plateforme n'en a aucun usage ; autant les refuser explicitement. \\
+\cmd{Strict-Transport-Security} & Revenir en HTTP pendant un an, y compris sur
+les sous-domaines. Posé seulement si le site est réellement en TLS --- le poser
+en HTTP local rendrait le site inaccessible. \\
+\cmd{Cross-Origin-*} & Partager le contexte de navigation ou les ressources
+avec une autre origine. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{piege}{\cmd{default-src 'self'} interdit les CDN --- et c'est voulu}
+Une politique stricte a un coût concret : on ne peut plus écrire
+\cmd{<script src="https://cdn.tailwindcss.com">}. Tailwind est donc
+\textbf{précompilé} et servi depuis le site.
+
+Le gain dépasse la sécurité : la plateforme ne dépend plus d'un service
+extérieur qui pourrait tomber, changer de contenu ou observer les visiteurs.
+Une politique de contenu qu'on affaiblit pour faire marcher un CDN ne protège
+plus de grand-chose --- autant la tenir.
+\end{piege}
+
+\limite
+La CSP limite les dégâts d'une injection, elle ne l'empêche pas. La vraie
+défense contre le XSS reste l'échappement automatique des gabarits Jinja2, que
+la CSP double en dernier recours.

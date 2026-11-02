@@ -1,0 +1,145 @@
+\chapter{Couche 9 — La chaîne DevSecOps}
+
+Toutes les mesures précédentes se dégradent : une dépendance vieillit, un
+développeur pressé affaiblit une règle, un secret se glisse dans un commit. La
+chaîne d'intégration est ce qui les maintient vraies dans le temps.
+
+\section*{Onze travaux, à chaque envoi}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{3.2cm}p{2.5cm}X@{}}
+\toprule
+\textbf{Travail} & \textbf{Outil} & \textbf{Ce qu'il empêche d'entrer} \\
+\midrule
+\cmd{lint-python} & ruff & Du code mort, des imports inutilisés, des motifs
+dangereux (\cmd{shell=True}, \cmd{assert} en production). Vérifie aussi que les
+schémas du \cmd{README} sont à jour. \\
+\cmd{tests-python} & pytest & Une régression fonctionnelle. 169 tests, dont le
+cloisonnement entre comptes, le CSRF et l'anti-force-brute. \\
+\cmd{sast-python} & bandit & Une faiblesse \emph{dans notre code} : secret en
+dur, aléa non cryptographique, appel système non maîtrisé. \\
+\cmd{sca-dependances} & pip-audit & Une dépendance portant une vulnérabilité
+connue. C'est ainsi qu'a été repérée une faille de Werkzeug, corrigée en
+passant de 3.1.8 à 3.1.9. \\
+\cmd{secrets} & gitleaks & Un secret commis, y compris s'il a été retiré
+depuis : l'outil parcourt \textbf{tout l'historique}. \\
+\cmd{dast} & nuclei + \cmd{dast.sh} & Une faiblesse visible de l'extérieur sur
+l'application \textbf{en train de tourner} : en-tête manquant, cookie mal
+posé, route accessible sans session. \\
+\cmd{lint-ansible} & ansible-lint & Un playbook non idempotent, une tâche sans
+nom, un module obsolète. Profil \cmd{production}, le plus strict. \\
+\cmd{images-docker} & hadolint + Trivy & Un \cmd{Dockerfile} mal écrit, et des
+paquets vulnérables \emph{dans l'image livrée} --- ce que l'audit des
+dépendances ne voit pas. \\
+\cmd{integration} & \cmd{integration.sh} & Une plateforme qui ne démarre pas
+sur une machine vierge. Les six scénarios du sujet. \\
+\cmd{publier-images} & Syft + ghcr.io & Une image sans \textbf{inventaire de
+composants} (SBOM) : on doit pouvoir répondre « cette image contient-elle la
+bibliothèque vulnérable annoncée ce matin ? ». \\
+\cmd{deployer} & Ansible & Un déploiement manuel, non reproductible. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\begin{notion}{SAST, SCA, DAST : trois angles, pas trois noms}
+\textbf{SAST} lit \emph{notre} code sans l'exécuter --- il voit les erreurs que
+nous écrivons. \textbf{SCA} confronte \emph{les dépendances} à une base de
+vulnérabilités --- il voit les erreurs des autres, dont nous héritons.
+\textbf{DAST} attaque l'application \emph{en fonctionnement} --- il voit ce
+qu'aucune lecture de code ne montre : un en-tête oublié par la configuration
+nginx, un cookie mal posé en production.
+
+Les trois sont nécessaires parce qu'aucun ne voit ce que les deux autres
+voient. La plupart des failles réelles tiennent à l'assemblage, pas à une
+ligne.
+\end{notion}
+
+% -----------------------------------------------------------------------------
+\mesure{Le seuil de blocage}{mesure 32 · \fichier{ci.yml}}
+
+\menace
+Une chaîne qui signale tout sans rien bloquer devient un bruit de fond qu'on
+cesse de lire. Une chaîne qui bloque sur tout devient un obstacle qu'on
+contourne.
+
+\parade
+Un seuil explicite, justifié, différent selon l'outil.
+
+\danslecode
+\cmd{hadolint} échoue au niveau \cmd{warning}, avec trois règles écartées et
+chacune commentée --- par exemple l'épinglage des versions de paquets, écarté
+parce que les dépôts Debian et Alpine ne conservent pas les anciennes versions :
+une image épinglée cesserait de se construire à la première mise à jour du
+dépôt, et c'est la version de la \emph{distribution} qui fixe déjà l'ensemble.
+
+Trivy ignore les vulnérabilités \cmd{-{}-ignore-unfixed} : bloquer sur une faille
+sans correctif disponible n'apporte rien --- on ne peut rien en faire --- et
+noierait les failles réellement corrigeables.
+
+\begin{retenir}
+Un seuil bien choisi se reconnaît à ceci : chaque exception est écrite, datée
+et justifiée dans un fichier versionné. Une exception non écrite est un oubli
+qui se transmet.
+\end{retenir}
+
+\limite
+Les seuils reflètent un jugement, qui vieillit. Une règle écartée aujourd'hui
+pour de bonnes raisons peut devenir importante ; rien ne force à les relire.
+
+% -----------------------------------------------------------------------------
+\mesure{La version de Python, imposée}{mesure 33 · \fichier{ci.yml}}
+
+\menace
+Le projet passe les tests sur le poste du développeur et échoue au
+déploiement, parce que la cible n'a pas la même version du langage. C'est
+l'erreur la plus banale et la plus coûteuse, et elle a frappé ce projet : une
+bibliothèque épinglée n'existait pas pour Python 3.10.
+
+\parade
+La chaîne force \cmd{PYTHON\_VERSION: 3.10} --- la version qu'Ubuntu 22.04
+fournit, c'est-à-dire la cible réelle. Les tests tournent avec le Python de la
+production, pas celui du développeur.
+
+\limite
+L'alignement porte sur la version du langage, pas sur l'ensemble du système :
+seul le travail d'intégration, qui démarre réellement la pile, couvre le reste.
+
+% -----------------------------------------------------------------------------
+\mesure{Ce que la chaîne a réellement trouvé}{mesure 34 · bilan}
+
+Une chaîne d'intégration ne vaut pas par sa configuration mais par ses prises.
+Huit défauts ont été trouvés par la chaîne ou par l'exécution réelle, que la
+relecture n'avait pas vus. Les trois plus instructifs :
+
+\textbf{Un Faucheur qui détruisait sa propre plateforme.} Il reconnaissait les
+machines louées par leur préfixe de nom ; les services de la pile
+s'appellent \cmd{insacloud-web}, \cmd{insacloud-db}. Correction : l'identité
+par étiquette (mesure 22).
+
+\textbf{Une réconciliation qui détruisait les machines des autres nœuds.} Sur
+un parc où deux nœuds partagent un démon Docker, chacun voyait les machines de
+l'autre comme orphelines. Correction : l'étiquette \cmd{insacloud.worker}, et
+deux tests --- dont un qui vérifie qu'une machine \emph{sans} étiquette reste
+nettoyable, pour ne pas abandonner celles créées par une version antérieure.
+
+\textbf{Une erreur 500 une fois sur trois, au démarrage seulement.} Gunicorn
+tourne avec \cmd{-{}-preload} : il importe l'application \emph{avant} de forker
+ses quatre workers, et l'initialisation de la base ouvre alors une connexion
+PostgreSQL qui se range dans le pool du processus maître. Les quatre fils en
+héritaient et se servaient de la \textbf{même socket} simultanément. Mesuré
+avant correction : trois échecs sur huit premières requêtes parallèles, à
+chacun des trois redémarrages d'essai ; après correction, vingt-quatre sur
+vingt-quatre.
+
+\begin{piege}{Le défaut qui ne se voit qu'au premier regard}
+Ce dernier cas mérite d'être retenu pour sa forme : le message d'erreur
+(\cmd{connection in transaction status INTRANS}) n'avait \emph{aucun} rapport
+avec la requête en cours, et le symptôme disparaissait tout seul après
+quelques appels. Un défaut qui se répare seul est un défaut qu'on croit
+imaginaire --- et c'est exactement celui qu'aurait rencontré un visiteur
+ouvrant la page pour la première fois.
+
+Le test de non-régression a été validé en le faisant d'abord \textbf{échouer},
+correction désactivée. Un test qu'on n'a pas vu échouer ne prouve rien.
+\end{piege}

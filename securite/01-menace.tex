@@ -1,0 +1,113 @@
+\chapter{Le modèle de menace}
+
+Avant de lister des défenses, il faut dire ce qu'on défend et contre qui. Sans
+cela on empile des mécanismes à la mode sans savoir lesquels comptent.
+
+\section*{Ce que la plateforme expose}
+
+InsaCloud n'est pas un site vitrine. Elle expose délibérément trois choses que
+l'on ne met normalement pas sur un réseau :
+
+\begin{itemize}[leftmargin=14pt,itemsep=3pt]
+\item \textbf{Des comptes \cmd{root}}, un par machine louée, avec leur mot de
+      passe, remis à des utilisateurs qu'on ne connaît pas.
+\item \textbf{Une plage de ports ouverts} --- 8000 à 9000 --- derrière lesquels
+      répondent des serveurs SSH, des terminaux web et des bureaux graphiques.
+\item \textbf{Un démon Docker} sur chaque nœud, c'est-à-dire un service dont le
+      contrôle équivaut à être \cmd{root} sur la machine hôte.
+\end{itemize}
+
+\begin{notion}{Pourquoi le démon Docker est l'actif le plus sensible}
+Quiconque peut parler au démon Docker peut lancer un conteneur privilégié qui
+monte le disque de l'hôte. Il n'y a pas d'escalade à trouver : c'est le
+fonctionnement normal de Docker. « Accès au démon Docker » et « accès
+administrateur de la machine » sont donc deux formulations de la même chose, et
+toute décision d'architecture doit partir de là.
+\end{notion}
+
+\section*{Les quatre adversaires}
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{3.6cm}X@{}}
+\toprule
+\textbf{Qui} & \textbf{Ce qu'il cherche, et ce qui l'arrête} \\
+\midrule
+\textbf{Le robot d'Internet} &
+Il balaie les ports, tente des mots de passe SSH et des dizaines de milliers de
+chemins HTTP connus. C'est l'adversaire le plus \emph{fréquent} et le plus
+bête. Parades : authentification par clé, limitation des tentatives, en-têtes
+et politique de contenu stricts. \\
+\addlinespace
+\textbf{L'utilisateur curieux} &
+Un étudiant légitime qui essaie de voir les machines d'un autre, de prolonger
+sa location sans payer le temps, ou de sortir de son conteneur. C'est
+l'adversaire le plus \emph{probable} dans un contexte pédagogique. Parades :
+cloisonnement par propriétaire vérifié en base, capacités minimales dans le
+conteneur, quotas. \\
+\addlinespace
+\textbf{Le locataire malveillant} &
+Il loue une machine en règle, puis s'en sert comme tremplin : scanner le réseau
+interne, atteindre le contrôleur, miner, attaquer l'extérieur. Il est
+\emph{déjà \cmd{root}} dans son conteneur --- c'est le service rendu. Parades :
+durcissement du conteneur, réseau dédié, limites de ressources, durée de vie
+courte. \\
+\addlinespace
+\textbf{Celui qui lit le dépôt} &
+Le code est sur GitHub. Un secret commis par erreur, même retiré ensuite, reste
+dans l'historique. Parades : \cmd{gitleaks} sur tout l'historique à chaque
+envoi, Ansible Vault, fichiers de clés exclus du dépôt. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Ce qui est hors périmètre, et pourquoi}
+
+Un modèle de menace honnête nomme aussi ce qu'il abandonne.
+
+\textbf{Un attaquant qui a déjà \cmd{root} sur le contrôleur} a gagné : il lit
+la base, les clés, et pilote tous les nœuds. Aucune des mesures décrites ici ne
+le gêne. La défense contre ce cas est organisationnelle (qui a accès à la
+machine physique), pas logicielle.
+
+\textbf{Une évasion de conteneur par une faille du noyau.} Les conteneurs
+partagent le noyau de l'hôte ; une vulnérabilité du noyau les traverse. Le
+durcissement réduit la surface (capacités retirées,
+\cmd{no-new-privileges}) mais ne crée pas la frontière qu'offrirait une machine
+virtuelle. C'est le compromis assumé de la conteneurisation, et l'énoncé le
+tranche en imposant Docker.
+
+\textbf{Le déni de service distribué.} Les limites de ressources par conteneur
+protègent les \emph{voisins} d'un locataire gourmand ; elles ne protègent pas la
+plateforme d'une attaque volumétrique venue de l'extérieur, qui relève de
+l'hébergeur.
+
+\begin{retenir}
+Trois actifs à protéger : le \textbf{démon Docker} (équivalent à \cmd{root} sur
+l'hôte), les \textbf{secrets} (clés, mots de passe des machines), et le
+\textbf{cloisonnement entre locataires}. Tout le reste en découle.
+\end{retenir}
+
+\section*{Les dix couches de défense}
+
+Le reste du document suit l'ordre d'une requête, du navigateur jusqu'au
+conteneur :
+
+\begin{center}
+\small
+\begin{tabularx}{\textwidth}{@{}p{0.6cm}p{4.2cm}X@{}}
+\toprule
+\textbf{\#} & \textbf{Couche} & \textbf{Ce qu'elle empêche} \\
+\midrule
+2 & Identité et authentification & qu'on se fasse passer pour un utilisateur \\
+3 & Session et navigateur & qu'on détourne une session ouverte \\
+4 & Secrets & qu'un secret traîne en clair quelque part \\
+5 & Accès aux machines louées & qu'on entre dans la machine d'un autre \\
+6 & Durcissement des conteneurs & qu'un locataire sorte de sa machine \\
+7 & Contrôleur et nœuds & qu'on prenne la main sur un démon Docker \\
+8 & Données et réseau & qu'on corrompe l'état ou qu'on écoute le trafic \\
+9 & Chaîne d'intégration & qu'une faille entre dans le dépôt sans qu'on le voie \\
+10 & Limites assumées & qu'on se croie protégé là où on ne l'est pas \\
+\bottomrule
+\end{tabularx}
+\end{center}
