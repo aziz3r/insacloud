@@ -105,7 +105,8 @@ injoignables.
 
 \textbf{Infrastructure comme code.} Un \texttt{Vagrantfile} décrit les quatre machines virtuelles ;
 un playbook Ansible de neuf rôles les configure intégralement. Le playbook est idempotent :
-un second passage renvoie \texttt{changed=0} sur les quatre n\oe{}uds.
+les rôles sont écrits pour être idempotents --- modules d'état, \texttt{creates:}, handlers,
+aucun \texttt{command} non gardé --- et \texttt{ansible-lint -{}-profile production} passe sur les neuf.
 
 \textbf{Gestion des secrets.} Les clés sensibles (session Flask, chiffrement des mots de passe) sont
 stockées chiffrées dans un fichier Ansible Vault, et déposées sur le serveur dans un fichier en
@@ -140,8 +141,25 @@ docker run -d --restart=always -p <p1>:22 -p <p2>:7681 [-p <p3>:6080] \
 \subsection*{Accès SSH remis à la location}
 La commande exacte (\texttt{ssh root@<hôte> -p <port>}) est affichée sur la carte de la machine.
 Le mot de passe \texttt{root} est tiré au sort (16 caractères), affiché \emph{une seule fois},
-puis conservé chiffré ; il peut être régénéré à chaud. L'utilisateur peut enregistrer sa clé
-publique SSH : ses machines n'acceptent alors plus que cette clé.
+puis conservé chiffré ; il peut être régénéré à chaud.
+
+\textbf{Authentification par clé.} L'utilisateur peut déposer sa clé publique sur son compte. Les
+machines qu'il loue ensuite la reçoivent dans \texttt{/root/.ssh/authorized\_keys}, et leur
+\texttt{sshd} est reconfiguré en \texttt{PasswordAuthentication no} et
+\texttt{PermitRootLogin prohibit-password}. L'intérêt n'est pas qu'un mot de passe de seize
+caractères soit faible, mais qu'il doive \emph{voyager} : il transite par une page web et le
+serveur doit le connaître pour le vérifier. Une clé privée, elle, ne quitte jamais le poste de
+l'utilisateur --- le serveur n'en détient que la moitié publique, inutile à un attaquant. Vérifié
+en forçant la méthode mot de passe sur une machine louée :
+
+\begin{lstlisting}
+$ ssh -o PubkeyAuthentication=no -o PreferredAuthentications=password root@127.0.0.1 -p 8096
+root@127.0.0.1: Permission denied (publickey).
+\end{lstlisting}
+
+La machine ne refuse pas un mot de passe erroné : elle refuse la méthode elle-même, avant tout
+contrôle. Le terminal web reste utilisable avec le mot de passe, car il passe par \texttt{login}
+et non par SSH --- perdre sa clé n'enferme donc pas l'utilisateur dehors.
 
 \begin{figure}[h]\centering
 \includegraphics[width=0.485\linewidth]{../docs/05-mot-de-passe-unique.png}\hfill
@@ -186,6 +204,13 @@ est simulée. Cette démonstration a d'ailleurs révélé deux défauts réels, 
 des tests : une réconciliation qui détruisait les machines des autres n\oe{}uds, et une reprise qui
 échouait sur une collision de nom.
 
+\begin{figure}[h]\centering
+\includegraphics[width=0.93\linewidth]{../docs/11-reprise-sur-un-autre-noeud.png}
+\caption{Après la panne du n\oe{}ud~1 : la machine tourne sur \texttt{noeud2}, le bandeau
+\og{} Reprise sur un autre n\oe{}ud \fg{} informe l'utilisateur, l'échéance est inchangée et la
+nouvelle commande SSH est affichée.}
+\end{figure}
+
 Ce que la reprise ne rend pas : les fichiers de l'ancienne machine, limite assumée d'une reprise
 sans stockage partagé.
 
@@ -202,8 +227,10 @@ règle, une machine expirée sur un n\oe{}ud en panne resterait en vie indéfini
 
 \subsection*{Automatisation complète}
 \texttt{vagrant up} crée les quatre VM et enchaîne lui-même le playbook. Neuf rôles installent
-pare-feu, Docker, certificats, images, agents, nginx et application. Mesuré sur quatre n\oe{}uds :
-premier passage \texttt{failed=0}, second passage \texttt{changed=0} partout.
+pare-feu, Docker, certificats, images, agents, nginx et application. La syntaxe des quatre playbooks
+est vérifiée et \texttt{ansible-lint -{}-profile production} passe sur les neuf rôles. En revanche le
+\texttt{changed=0} du second passage n'a pas pu être mesuré, faute d'hyperviseur sur le poste : nous
+préférons le dire plutôt que l'affirmer.
 
 La pile est aussi disponible en conteneurs : un seul \texttt{docker-compose.yml} décrit PostgreSQL,
 l'application, le Faucheur et les images louables. \texttt{docker compose up -d} suffit à obtenir
@@ -232,8 +259,80 @@ qui détruisait sa propre plateforme et une course entre les processus au démar
 d'être de l'exercice --- un projet qui ne tourne que sur le poste de son auteur n'est pas
 reproductible, et seule une machine vierge le démontre.
 
+\subsection*{Récapitulatif : les dix-sept points de l'énoncé}
+\nopagebreak
+{\small
+\begin{tabularx}{\textwidth}{@{}p{0.45cm}p{3.5cm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{\#} & \textbf{Fonctionnalité} & \textbf{Où elle est réalisée, et par quoi elle est prouvée} \\
+\midrule
+1 & Préparation & Trois répertoires, dépôt Git, \texttt{.gitignore}, \texttt{.env.example},
+stratégie de branches dans \texttt{CONTRIBUTING.md}. \\
+2 & API web Flask & \texttt{2\_webapp/app.py} et \texttt{api.py} : inscription, connexion,
+location, prolongation, arrêt, archives. Gunicorn derrière nginx. \\
+3 & Base de données & SQLAlchemy 2.0 + Alembic ; SQLite en développement, PostgreSQL en
+production. Index unique partiel sur \texttt{(worker, port)}, limité aux machines actives. \\
+4 & Conteneurisation & Trois \texttt{Dockerfile}, six images ; capacités minimales,
+\texttt{no-new-privileges}, limites de processus, CPU et mémoire. \\
+5 & Infrastructure Vagrant & \texttt{Vagrantfile} : un contrôleur, trois workers, quatre
+\emph{providers}, tailles paramétrables. \emph{Livré et relu, non exécuté --- voir §4.} \\
+6 & Automatisation Ansible & Neuf rôles, quatre playbooks, Vault AES-256, inventaire dynamique.
+Syntaxe vérifiée, \texttt{ansible-lint -{}-profile production} au vert. \\
+7 & Agent et inscription & \texttt{worker\_agent.py} (bibliothèque standard seule) : inscription
+au démarrage puis battement de c\oe{}ur ; états \textsc{available}, \textsc{busy}, \textsc{offline}. \\
+8 & Gestionnaire de ressources & Capacité calculée depuis les c\oe{}urs et la mémoire annoncés ;
+placement sur le n\oe{}ud joignable le moins chargé. \\
+9 & Service de location & Trois distributions, deux modes, 1 à 120 minutes, quota de trois
+machines, prolongation. \\
+10 & Déploiement des instances & La commande imposée, construite en liste d'arguments --- jamais
+passée à un interpréteur de commandes. \\
+11 & Accès SSH & Mot de passe à usage unique en coffre chiffré, ou clé publique de l'utilisateur
+(\texttt{PasswordAuthentication no}). Terminal web et bureau en complément. \\
+12 & Expiration & Le Faucheur, toutes les dix secondes. Mesuré : destruction 49\,s après
+l'échéance, archive du travail conservée. \\
+13 & Haute disponibilité & Trois niveaux. Mesuré : bascule d'un n\oe{}ud à l'autre en
+\textbf{31 secondes}, location intacte, utilisateur informé (figure~5). \\
+14 & Sécurité DevSecOps & CSRF, anti-force-brute, cloisonnement des comptes, CSP
+\texttt{default-src 'self'}, Fernet, Vault, UFW, HTTPS. \\
+15 & CI/CD & Onze travaux : lint, tests, SAST, SCA, secrets, DAST, scan d'image, SBOM,
+publication. \\
+16 & Tests d'intégration & Les six scénarios du sujet, rejoués sur la plateforme en marche :
+\textbf{21 vérifications réussies, aucun échec}, une ignorée (HSTS en HTTP local). \\
+17 & Documentation & \texttt{README}, guide de prise en main, dossier technique, ce rapport. \\
+\bottomrule
+\end{tabularx}}
+
 %================================================================ 4
 \section{Difficultés}
+
+\textbf{Aucun hyperviseur ne démarre sur le poste de développement.} C'est la difficulté qui a
+le plus pesé. \texttt{vagrant up} échoue sur VMware parce que les interfaces réseau
+\texttt{vmnet} n'existent pas dans le noyau --- l'extension système n'est pas installée, et
+\texttt{systemextensionsctl list} renvoie \texttt{0 extension(s)}. VirtualBox, dont le support ARM
+est expérimental, fait tuer la machine virtuelle au démarrage (\texttt{signal 9}). Le
+\texttt{Vagrantfile} et les playbooks sont donc livrés, relus et analysés, mais jamais exécutés.
+
+Plutôt que de déclarer la haute disponibilité sur parole, nous avons construit un parc à deux
+n\oe{}uds \emph{sans} hyperviseur : deux conteneurs qui exposent chacun un démon Docker par SSH,
+avec le même agent d'inscription. Le contrôleur ne voit pas la différence --- il parle à
+\texttt{ssh://insacloud@noeud1} comme il parlerait à \texttt{192.168.56.11}. Seule la frontière
+matérielle entre n\oe{}uds est simulée ; le transport, l'inscription, le battement de c\oe{}ur, la
+bascule et la recréation sont le code réel. C'est ce parc qui a permis de mesurer les 31 secondes
+de reprise, et d'exécuter enfin les six tests du sujet.
+
+\textbf{Le tableau de bord échouait une fois sur trois, mais seulement au démarrage.} Le
+symptôme : une erreur 500 avec un message sans rapport avec la requête
+(\texttt{connection in transaction status INTRANS}), qui disparaissait après quelques appels.
+La cause tient à deux choix anodins qui se combinent mal : Gunicorn tourne avec
+\texttt{-{}-preload}, donc il importe l'application \emph{avant} de forker ses quatre workers ;
+et l'initialisation de la base, appelée à l'import, ouvre une connexion PostgreSQL. Cette
+connexion se range dans le pool du processus maître et se retrouve héritée par les quatre fils,
+qui se servent alors de la \emph{même} socket en même temps. Mesuré avant correction : trois
+échecs sur huit premières requêtes parallèles, à chacun des trois redémarrages d'essai ; après :
+vingt-quatre sur vingt-quatre. La correction tient en une ligne --- chaque fils abandonne le pool
+hérité à sa naissance --- mais elle ne se trouve qu'en comprenant l'interaction. C'est le défaut
+le plus instructif du projet : il ne se voyait qu'au premier regard, celui qu'aurait eu un
+visiteur.
 
 \textbf{La politique \texttt{-{}-restart=always} ne se déclenche pas après un \texttt{docker kill}.}
 Docker distingue volontairement un arrêt manuel d'un crash. La démonstration de résilience passe
@@ -284,8 +383,8 @@ seule alerte que le scan dynamique signale encore ; quotas de ressources par uti
 seulement par machine ; notification (courriel ou webhook) lorsqu'un worker devient injoignable.
 
 \textbf{Moyen terme.} Authentification à deux facteurs ; journalisation centralisée des accès aux
-machines louées ; archivage du travail de l'utilisateur avant destruction, pour que l'expiration
-ne soit plus une perte sèche.
+machines louées ; stockage partagé entre n\oe{}uds, pour que la reprise après panne restitue aussi
+les fichiers de l'utilisateur et non seulement le service.
 
 \textbf{Long terme.} Passage à un orchestrateur (Docker Swarm ou Kubernetes) si le parc dépasse la
 dizaine de n\oe{}uds : la planification, la santé des n\oe{}uds et le redémarrage des conteneurs
